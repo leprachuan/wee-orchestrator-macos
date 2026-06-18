@@ -37,6 +37,7 @@
 		B10012 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		B10013 /* WeeOrchestrator.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = WeeOrchestrator.entitlements; sourceTree = "<group>"; };
 		B10014 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		B10015 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		P10001 /* WeeOrchestrator.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = WeeOrchestrator.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -66,6 +67,7 @@
 				B10002 /* ContentView.swift */,
 				B10013 /* WeeOrchestrator.entitlements */,
 				B10014 /* Assets.xcassets */,
+				B10015 /* Info.plist */,
 				G10003 /* Models */,
 				G10004 /* Services */,
 				G10005 /* Theme */,
@@ -258,6 +260,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = "";
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = WeeOrchestrator/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Wee Orchestrator";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright 2026 Lipkey Family";
@@ -281,6 +284,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = "";
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = WeeOrchestrator/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Wee Orchestrator";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright 2026 Lipkey Family";
