@@ -19,6 +19,7 @@
 		A10010 /* KanbanView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10010; };
 		A10011 /* AgentsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10011; };
 		A10012 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10012; };
+		A10013 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B10014; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -35,6 +36,7 @@
 		B10011 /* AgentsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentsView.swift; sourceTree = "<group>"; };
 		B10012 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		B10013 /* WeeOrchestrator.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = WeeOrchestrator.entitlements; sourceTree = "<group>"; };
+		B10014 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		P10001 /* WeeOrchestrator.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = WeeOrchestrator.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -63,6 +65,7 @@
 				B10001 /* WeeOrchestratorApp.swift */,
 				B10002 /* ContentView.swift */,
 				B10013 /* WeeOrchestrator.entitlements */,
+				B10014 /* Assets.xcassets */,
 				G10003 /* Models */,
 				G10004 /* Services */,
 				G10005 /* Theme */,
@@ -119,6 +122,17 @@
 		};
 /* End PBXGroup section */
 
+/* Begin PBXResourcesBuildPhase section */
+		R10001 = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A10013 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
 /* Begin PBXNativeTarget section */
 		T10001 /* WeeOrchestrator */ = {
 			isa = PBXNativeTarget;
@@ -126,6 +140,7 @@
 			buildPhases = (
 				S10001 /* Sources */,
 				F10001 /* Frameworks */,
+				R10001 /* Resources */,
 			);
 			buildRules = (
 			);
