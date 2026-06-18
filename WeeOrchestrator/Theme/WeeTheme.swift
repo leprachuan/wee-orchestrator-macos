@@ -117,12 +117,13 @@ struct RuntimeIconView: View {
     var size: CGFloat = 14
 
     var body: some View {
-        if let name = RuntimeIcons.imageName(for: runtime),
-           let nsImage = NSImage(named: name) {
-            Image(nsImage: nsImage)
+        if let name = RuntimeIcons.imageName(for: runtime) {
+            Image(name)
                 .resizable()
                 .aspectRatio(contentMode: .fit)
                 .frame(width: size, height: size)
+                .colorInvert()
+                .opacity(0.9)
         } else {
             Image(systemName: "server.rack")
                 .font(.system(size: size * 0.75))
