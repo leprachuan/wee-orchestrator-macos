@@ -58,9 +58,9 @@ struct WeeAPIClient {
         return response.agents
     }
 
-    func runtimes() async throws -> [String] {
+    func runtimes() async throws -> [RuntimeEntry] {
         let response: RuntimesResponse = try await request("GET", path: "/api/v1/runtimes")
-        return response.ids
+        return response.entries
     }
 
     func models(runtime: String) async throws -> [ModelCatalogEntry] {

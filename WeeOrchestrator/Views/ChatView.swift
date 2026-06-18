@@ -166,17 +166,17 @@ private struct HeaderPanel: View {
 
     private var runtimeMenu: some View {
         Menu {
-            ForEach(model.availableRuntimes, id: \.self) { runtime in
+            ForEach(model.availableRuntimes) { runtime in
                 Button {
-                    Task { await model.changeRuntime(to: runtime) }
+                    Task { await model.changeRuntime(to: runtime.id) }
                 } label: {
-                    Label(runtime, systemImage: runtime == model.selectedRuntime ? "checkmark.circle.fill" : "server.rack")
+                    Text(runtime.id == model.selectedRuntime ? "✓ \(runtime.displayLabel)" : runtime.displayLabel)
                 }
             }
         } label: {
             HeaderChip(
                 symbol: "server.rack",
-                text: model.selectedRuntime.isEmpty ? "Runtime" : model.selectedRuntime,
+                text: model.selectedRuntime.isEmpty ? "Runtime" : selectedRuntimeLabel,
                 background: WeeTheme.accent.opacity(0.18),
                 foreground: WeeTheme.accent,
                 showsDisclosure: true
@@ -236,6 +236,13 @@ private struct HeaderPanel: View {
             return trimmed.isEmpty ? "Models" : trimmed
         }
         .sorted { $0.key < $1.key }
+    }
+
+    private var selectedRuntimeLabel: String {
+        if let entry = model.availableRuntimes.first(where: { $0.id == model.selectedRuntime }) {
+            return entry.displayLabel
+        }
+        return model.selectedRuntime
     }
 
     private var selectedModelLabel: String {

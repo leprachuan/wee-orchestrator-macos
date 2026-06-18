@@ -92,9 +92,21 @@ struct AgentsResponse: Decodable {
     let agents: [AgentSummary]
 }
 
-struct RuntimeEntry: Decodable, Hashable {
+struct RuntimeEntry: Decodable, Identifiable, Hashable {
     let id: String
     let label: String?
+    let icon: String?
+
+    init(id: String, label: String? = nil, icon: String? = nil) {
+        self.id = id
+        self.label = label
+        self.icon = icon
+    }
+
+    var displayLabel: String {
+        let prefix = icon.map { "\($0) " } ?? ""
+        return prefix + (label ?? id)
+    }
 }
 
 struct RuntimesResponse: Decodable {
@@ -112,16 +124,16 @@ struct RuntimesResponse: Decodable {
             }
         }
 
-        var id: String {
+        var entry: RuntimeEntry {
             switch self {
-            case .string(let s): s
-            case .object(let e): e.id
+            case .string(let s): RuntimeEntry(id: s)
+            case .object(let e): e
             }
         }
     }
 
-    var ids: [String] {
-        runtimes.map(\.id)
+    var entries: [RuntimeEntry] {
+        runtimes.map(\.entry)
     }
 }
 

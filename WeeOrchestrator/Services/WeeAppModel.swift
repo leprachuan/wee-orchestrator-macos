@@ -8,7 +8,7 @@ final class WeeAppModel {
     var health: HealthResponse?
     var appConfig: AppConfigResponse?
     var agents: [AgentSummary] = []
-    var availableRuntimes: [String] = []
+    var availableRuntimes: [RuntimeEntry] = []
     var availableModels: [ModelCatalogEntry] = []
     var tasks: [BackgroundTaskSummary] = []
     var scheduledJobs: [ScheduledJobSummary] = []
@@ -171,17 +171,19 @@ final class WeeAppModel {
             applySelectionDefaults()
 
             if !configuration.token.isEmpty {
-                async let runtimeResponse: [String]? = try? client.runtimes()
+                async let runtimeResponse: [RuntimeEntry]? = try? client.runtimes()
                 async let taskResponse: [BackgroundTaskSummary]? = try? client.backgroundTasks()
                 async let sessionResponse: [HistorySessionSummary]? = try? client.historySessions()
 
-                availableRuntimes = (await runtimeResponse ?? []).sorted()
+                availableRuntimes = (await runtimeResponse ?? []).sorted { $0.id < $1.id }
                 tasks = await taskResponse ?? []
                 historySessions = await sessionResponse ?? []
 
                 if availableRuntimes.isEmpty {
                     let agentRuntimes = Set(agents.compactMap(\.primaryRuntime)).sorted()
-                    if !agentRuntimes.isEmpty { availableRuntimes = agentRuntimes }
+                    if !agentRuntimes.isEmpty {
+                        availableRuntimes = agentRuntimes.map { RuntimeEntry(id: $0) }
+                    }
                 }
 
                 applySelectionDefaults()
@@ -610,7 +612,7 @@ final class WeeAppModel {
         scheduledJobs = [
             ScheduledJobSummary(id: "mock-heartbeat", name: "Heartbeat", agent: "orchestrator", runtime: "wee", model: nil, mode: "ai", permissionMode: "restricted", task: "Check runtime health", schedule: "every hour", cron: "0 * * * *", workingDir: nil, notify: true, fallbackRuntime: nil, fallbackModel: nil, recurring: true, createdAt: "local preview", nextRun: "local preview", lastRun: nil, enabled: true, retries: 0, timeout: 300)
         ]
-        availableRuntimes = ["claude", "codex", "wee"]
+        availableRuntimes = [RuntimeEntry(id: "claude"), RuntimeEntry(id: "codex"), RuntimeEntry(id: "wee", icon: "🍀")]
         availableModels = [
             ModelCatalogEntry(id: "haiku", label: "haiku", group: "Default"),
             ModelCatalogEntry(id: "sonnet", label: "sonnet", group: "Default")
@@ -660,9 +662,9 @@ final class WeeAppModel {
     private func applySelectionDefaults(forceModelRefresh: Bool = false) {
         let preferredRuntime = preferredRuntimeForSelectedAgent()
         if selectedRuntime.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            selectedRuntime = preferredRuntime ?? availableRuntimes.first ?? "copilot"
-        } else if !availableRuntimes.isEmpty, !availableRuntimes.contains(selectedRuntime) {
-            selectedRuntime = preferredRuntime ?? availableRuntimes.first ?? selectedRuntime
+            selectedRuntime = preferredRuntime ?? availableRuntimes.first?.id ?? "copilot"
+        } else if !availableRuntimes.isEmpty, !availableRuntimes.contains(where: { $0.id == selectedRuntime }) {
+            selectedRuntime = preferredRuntime ?? availableRuntimes.first?.id ?? selectedRuntime
         }
 
         let preferredModel = preferredModelForSelectedAgent(runtime: selectedRuntime)
