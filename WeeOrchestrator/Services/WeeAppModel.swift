@@ -171,17 +171,17 @@ final class WeeAppModel {
             applySelectionDefaults()
 
             if !configuration.token.isEmpty {
-                do {
-                    async let runtimeResponse = client.runtimes()
-                    async let taskResponse = client.backgroundTasks()
-                    async let sessionResponse = client.historySessions()
-                    availableRuntimes = try await runtimeResponse.sorted()
-                    tasks = try await taskResponse
-                    historySessions = try await sessionResponse
-                } catch {
-                    availableRuntimes = []
-                    tasks = []
-                    historySessions = []
+                async let runtimeResponse: [String]? = try? client.runtimes()
+                async let taskResponse: [BackgroundTaskSummary]? = try? client.backgroundTasks()
+                async let sessionResponse: [HistorySessionSummary]? = try? client.historySessions()
+
+                availableRuntimes = (await runtimeResponse ?? []).sorted()
+                tasks = await taskResponse ?? []
+                historySessions = await sessionResponse ?? []
+
+                if availableRuntimes.isEmpty {
+                    let agentRuntimes = Set(agents.compactMap(\.primaryRuntime)).sorted()
+                    if !agentRuntimes.isEmpty { availableRuntimes = agentRuntimes }
                 }
 
                 applySelectionDefaults()
