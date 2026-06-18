@@ -93,6 +93,44 @@ struct StatusPill: View {
     }
 }
 
+enum RuntimeIcons {
+    private static let mapping: [String: String] = [
+        "claude": "RuntimeIcon-claude",
+        "claude-sdk": "RuntimeIcon-claude",
+        "copilot": "RuntimeIcon-copilot",
+        "copilot-sdk": "RuntimeIcon-copilot",
+        "gemini": "RuntimeIcon-gemini",
+        "opencode": "RuntimeIcon-opencode",
+        "codex": "RuntimeIcon-openai",
+        "devin": "RuntimeIcon-devin",
+        "cursor": "RuntimeIcon-cursor",
+        "wee": "RuntimeIcon-wee",
+    ]
+
+    static func imageName(for runtime: String) -> String? {
+        mapping[runtime]
+    }
+}
+
+struct RuntimeIconView: View {
+    let runtime: String
+    var size: CGFloat = 14
+
+    var body: some View {
+        if let name = RuntimeIcons.imageName(for: runtime),
+           let nsImage = NSImage(named: name) {
+            Image(nsImage: nsImage)
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .frame(width: size, height: size)
+        } else {
+            Image(systemName: "server.rack")
+                .font(.system(size: size * 0.75))
+                .frame(width: size, height: size)
+        }
+    }
+}
+
 struct WeePrimaryButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label

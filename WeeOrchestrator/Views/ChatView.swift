@@ -170,17 +170,31 @@ private struct HeaderPanel: View {
                 Button {
                     Task { await model.changeRuntime(to: runtime.id) }
                 } label: {
-                    Text(runtime.id == model.selectedRuntime ? "✓ \(runtime.displayLabel)" : runtime.displayLabel)
+                    HStack(spacing: 6) {
+                        RuntimeIconView(runtime: runtime.id)
+                        Text(runtime.label ?? runtime.id)
+                        if runtime.id == model.selectedRuntime {
+                            Spacer()
+                            Image(systemName: "checkmark")
+                        }
+                    }
                 }
             }
         } label: {
-            HeaderChip(
-                symbol: "server.rack",
-                text: model.selectedRuntime.isEmpty ? "Runtime" : selectedRuntimeLabel,
-                background: WeeTheme.accent.opacity(0.18),
-                foreground: WeeTheme.accent,
-                showsDisclosure: true
-            )
+            HStack(spacing: 6) {
+                RuntimeIconView(runtime: model.selectedRuntime, size: 14)
+                Text(model.selectedRuntime.isEmpty ? "Runtime" : model.selectedRuntime)
+                    .lineLimit(1)
+                Image(systemName: "chevron.down")
+                    .font(.caption2.weight(.bold))
+                    .opacity(0.75)
+            }
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(WeeTheme.accent)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(WeeTheme.accent.opacity(0.18), in: Capsule())
+            .overlay(Capsule().stroke(WeeTheme.glassStroke))
         }
         .menuStyle(.borderlessButton)
         .fixedSize()
@@ -236,13 +250,6 @@ private struct HeaderPanel: View {
             return trimmed.isEmpty ? "Models" : trimmed
         }
         .sorted { $0.key < $1.key }
-    }
-
-    private var selectedRuntimeLabel: String {
-        if let entry = model.availableRuntimes.first(where: { $0.id == model.selectedRuntime }) {
-            return entry.displayLabel
-        }
-        return model.selectedRuntime
     }
 
     private var selectedModelLabel: String {
