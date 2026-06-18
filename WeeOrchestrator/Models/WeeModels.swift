@@ -92,8 +92,37 @@ struct AgentsResponse: Decodable {
     let agents: [AgentSummary]
 }
 
+struct RuntimeEntry: Decodable, Hashable {
+    let id: String
+    let label: String?
+}
+
 struct RuntimesResponse: Decodable {
-    let runtimes: [String]
+    let runtimes: [RuntimeRaw]
+
+    enum RuntimeRaw: Decodable {
+        case string(String)
+        case object(RuntimeEntry)
+
+        init(from decoder: Decoder) throws {
+            if let str = try? decoder.singleValueContainer().decode(String.self) {
+                self = .string(str)
+            } else {
+                self = .object(try RuntimeEntry(from: decoder))
+            }
+        }
+
+        var id: String {
+            switch self {
+            case .string(let s): s
+            case .object(let e): e.id
+            }
+        }
+    }
+
+    var ids: [String] {
+        runtimes.map(\.id)
+    }
 }
 
 struct ModelCatalogResponse: Decodable {

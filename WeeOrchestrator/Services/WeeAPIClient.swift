@@ -60,7 +60,7 @@ struct WeeAPIClient {
 
     func runtimes() async throws -> [String] {
         let response: RuntimesResponse = try await request("GET", path: "/api/v1/runtimes")
-        return response.runtimes
+        return response.ids
     }
 
     func models(runtime: String) async throws -> [ModelCatalogEntry] {
