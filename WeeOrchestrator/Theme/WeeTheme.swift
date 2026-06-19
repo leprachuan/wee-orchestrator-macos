@@ -114,7 +114,7 @@ enum RuntimeIcons {
 
 struct RuntimeIconView: View {
     let runtime: String
-    var size: CGFloat = 12
+    var size: CGFloat = 10
 
     var body: some View {
         if let name = RuntimeIcons.imageName(for: runtime) {
