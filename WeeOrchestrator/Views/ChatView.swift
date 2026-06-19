@@ -592,10 +592,7 @@ private struct ChatBubble: View {
                 }
 
                 if !message.text.isEmpty {
-                    Text(message.text)
-                        .font(.body)
-                        .foregroundStyle(WeeTheme.textPrimary)
-                        .textSelection(.enabled)
+                    MarkdownText(message.text)
                 }
             }
             .padding(13)
