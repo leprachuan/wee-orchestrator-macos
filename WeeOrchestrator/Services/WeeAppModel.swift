@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import UserNotifications
 
 @MainActor
 @Observable
@@ -32,6 +33,7 @@ final class WeeAppModel {
     var authStatusMessage: String?
 
     private let defaults = UserDefaults.standard
+    private var previousTaskStatuses: [String: String] = [:]
 
     init() {
         let storedToken = KeychainStore.loadToken()
@@ -57,7 +59,13 @@ final class WeeAppModel {
     }
 
     func bootstrap() async {
+        await requestNotificationPermission()
         await refreshAll(useMockOnFailure: true)
+    }
+
+    private func requestNotificationPermission() async {
+        let center = UNUserNotificationCenter.current()
+        _ = try? await center.requestAuthorization(options: [.alert, .badge, .sound])
     }
 
     func saveConfiguration() {
@@ -176,7 +184,9 @@ final class WeeAppModel {
                 async let sessionResponse: [HistorySessionSummary]? = try? client.historySessions()
 
                 availableRuntimes = (await runtimeResponse ?? []).sorted { $0.id < $1.id }
-                tasks = await taskResponse ?? []
+                let newTasks = await taskResponse ?? []
+                notifyCompletedTasks(old: tasks, new: newTasks)
+                tasks = newTasks
                 historySessions = await sessionResponse ?? []
 
                 if availableRuntimes.isEmpty {
@@ -486,6 +496,7 @@ final class WeeAppModel {
             let board = try await client.kanbanBoard()
             kanbanBoard = board
             kanbanStatusMessage = board.total == 0 ? "No Kanban cards returned by the backend." : nil
+            await scheduleDueNotifications(for: board.dueCards)
         } catch {
             kanbanBoard = nil
             kanbanStatusMessage = handleAuthErrorIfNeeded(error) ?? error.localizedDescription
@@ -772,6 +783,98 @@ final class WeeAppModel {
         authStatusMessage = message
         KeychainStore.saveToken("")
         return message
+    }
+
+    // MARK: - Notifications
+
+    private func notifyCompletedTasks(old: [BackgroundTaskSummary], new: [BackgroundTaskSummary]) {
+        let oldStatuses = Dictionary(uniqueKeysWithValues: old.map { ($0.taskID, $0.status) })
+        guard !oldStatuses.isEmpty else { return }
+
+        for task in new {
+            let prev = oldStatuses[task.taskID]
+            guard let prev, prev == "running" || prev == "queued" else { continue }
+            guard task.status == "completed" || task.status == "failed" else { continue }
+
+            let content = UNMutableNotificationContent()
+            if task.status == "completed" {
+                content.title = "Task Completed"
+                content.body = "\(task.agent): \(task.prompt)"
+                content.sound = .default
+            } else {
+                content.title = "Task Failed"
+                content.body = "\(task.agent): \(task.prompt)"
+                content.sound = UNNotificationSound.defaultCritical
+            }
+
+            let request = UNNotificationRequest(
+                identifier: "wee.task.\(task.taskID)",
+                content: content,
+                trigger: nil
+            )
+            UNUserNotificationCenter.current().add(request)
+        }
+    }
+
+    private func scheduleDueNotifications(for cards: [KanbanCard]) async {
+        let center = UNUserNotificationCenter.current()
+        let oldIDs = defaults.stringArray(forKey: "wee.kanbanNotificationIDs") ?? []
+        center.removePendingNotificationRequests(withIdentifiers: oldIDs)
+
+        guard !cards.isEmpty else {
+            defaults.set([], forKey: "wee.kanbanNotificationIDs")
+            return
+        }
+
+        var identifiers: [String] = []
+        for card in cards {
+            let identifier = "wee.kanban.\(card.id)"
+            let content = UNMutableNotificationContent()
+            content.sound = .default
+
+            switch card.dueBucket {
+            case "overdue":
+                content.title = "Overdue TODO"
+                content.body = card.title
+            case "today":
+                content.title = "TODO Due Today"
+                content.body = card.title
+            case "soon":
+                content.title = "TODO Due Soon"
+                content.body = card.title
+            default:
+                continue
+            }
+
+            guard let triggerDate = parseDueDate(card.due) else { continue }
+            let fireDate = triggerDate <= Date() ? Date().addingTimeInterval(5) : triggerDate
+            let components = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: fireDate)
+            let trigger = UNCalendarNotificationTrigger(dateMatching: components, repeats: false)
+
+            let request = UNNotificationRequest(identifier: identifier, content: content, trigger: trigger)
+            do {
+                try await center.add(request)
+                identifiers.append(identifier)
+            } catch {
+                continue
+            }
+        }
+        defaults.set(identifiers, forKey: "wee.kanbanNotificationIDs")
+    }
+
+    private func parseDueDate(_ value: String?) -> Date? {
+        guard let value else { return nil }
+        let iso = ISO8601DateFormatter()
+        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = iso.date(from: value) { return date }
+        iso.formatOptions = [.withInternetDateTime]
+        if let date = iso.date(from: value) { return date }
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone.current
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.date(from: String(value.prefix(10)))
     }
 
     private static var launchToken: String {
