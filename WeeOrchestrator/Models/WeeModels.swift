@@ -319,6 +319,7 @@ struct KanbanBoardResponse: Decodable, Equatable {
 
     var dueCards: [KanbanCard] {
         KanbanColumnID.allCases
+            .filter { $0 != .done }
             .flatMap { columns[$0.rawValue] ?? [] }
             .filter { ["overdue", "today", "soon"].contains($0.dueBucket) }
     }
