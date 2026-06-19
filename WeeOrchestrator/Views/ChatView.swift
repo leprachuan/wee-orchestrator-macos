@@ -166,16 +166,15 @@ private struct HeaderPanel: View {
 
     private var runtimeMenu: some View {
         Menu {
-            ForEach(model.availableRuntimes) { runtime in
-                Button {
-                    Task { await model.changeRuntime(to: runtime.id) }
-                } label: {
-                    HStack(spacing: 6) {
-                        RuntimeIconView(runtime: runtime.id)
-                        Text(runtime.label ?? runtime.id)
-                        if runtime.id == model.selectedRuntime {
-                            Spacer()
-                            Image(systemName: "checkmark")
+            Section("Switch Runtime") {
+                ForEach(model.availableRuntimes) { runtime in
+                    Button {
+                        Task { await model.changeRuntime(to: runtime.id) }
+                    } label: {
+                        Label {
+                            Text(runtime.label ?? runtime.id)
+                        } icon: {
+                            RuntimeIconView(runtime: runtime.id, size: 16)
                         }
                     }
                 }

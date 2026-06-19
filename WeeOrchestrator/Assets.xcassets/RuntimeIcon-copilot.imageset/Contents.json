@@ -1,14 +1,8 @@
 {
   "images" : [
     {
-      "filename" : "copilot.png",
-      "idiom" : "universal",
-      "scale" : "1x"
-    },
-    {
-      "filename" : "copilot@2x.png",
-      "idiom" : "universal",
-      "scale" : "2x"
+      "filename" : "copilot.svg",
+      "idiom" : "universal"
     }
   ],
   "info" : {

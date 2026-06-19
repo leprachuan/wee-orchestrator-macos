@@ -114,7 +114,7 @@ enum RuntimeIcons {
 
 struct RuntimeIconView: View {
     let runtime: String
-    var size: CGFloat = 14
+    var size: CGFloat = 16
 
     var body: some View {
         if let name = RuntimeIcons.imageName(for: runtime) {
@@ -122,12 +122,12 @@ struct RuntimeIconView: View {
                 .resizable()
                 .aspectRatio(contentMode: .fit)
                 .frame(width: size, height: size)
-                .colorInvert()
-                .opacity(0.9)
+                .opacity(0.85)
         } else {
             Image(systemName: "server.rack")
-                .font(.system(size: size * 0.75))
+                .font(.system(size: size * 0.7))
                 .frame(width: size, height: size)
+                .opacity(0.85)
         }
     }
 }

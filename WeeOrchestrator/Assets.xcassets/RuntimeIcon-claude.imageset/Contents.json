@@ -1,14 +1,8 @@
 {
   "images" : [
     {
-      "filename" : "claude.png",
-      "idiom" : "universal",
-      "scale" : "1x"
-    },
-    {
-      "filename" : "claude@2x.png",
-      "idiom" : "universal",
-      "scale" : "2x"
+      "filename" : "claude.svg",
+      "idiom" : "universal"
     }
   ],
   "info" : {

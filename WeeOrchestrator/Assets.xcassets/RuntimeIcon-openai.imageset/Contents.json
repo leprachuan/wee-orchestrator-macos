@@ -1,14 +1,8 @@
 {
   "images" : [
     {
-      "filename" : "openai.png",
-      "idiom" : "universal",
-      "scale" : "1x"
-    },
-    {
-      "filename" : "openai@2x.png",
-      "idiom" : "universal",
-      "scale" : "2x"
+      "filename" : "openai.svg",
+      "idiom" : "universal"
     }
   ],
   "info" : {

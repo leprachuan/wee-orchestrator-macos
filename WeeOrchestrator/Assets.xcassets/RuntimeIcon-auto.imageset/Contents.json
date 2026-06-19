@@ -1,14 +1,8 @@
 {
   "images" : [
     {
-      "filename" : "auto.png",
-      "idiom" : "universal",
-      "scale" : "1x"
-    },
-    {
-      "filename" : "auto@2x.png",
-      "idiom" : "universal",
-      "scale" : "2x"
+      "filename" : "auto.svg",
+      "idiom" : "universal"
     }
   ],
   "info" : {

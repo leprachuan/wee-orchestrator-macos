@@ -1,14 +1,8 @@
 {
   "images" : [
     {
-      "filename" : "devin.png",
-      "idiom" : "universal",
-      "scale" : "1x"
-    },
-    {
-      "filename" : "devin@2x.png",
-      "idiom" : "universal",
-      "scale" : "2x"
+      "filename" : "devin.svg",
+      "idiom" : "universal"
     }
   ],
   "info" : {
