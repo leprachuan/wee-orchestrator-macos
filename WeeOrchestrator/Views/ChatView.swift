@@ -1,9 +1,13 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct ChatView: View {
     @Bindable var model: WeeAppModel
     @State private var draft = ""
     @State private var isShowingHistory = false
+    @State private var pendingAttachments: [ChatAttachment] = []
+    @State private var isDropTargeted = false
+    @State private var isShowingFilePicker = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -23,8 +27,40 @@ struct ChatView: View {
             inputBar
                 .padding(16)
         }
+        .onDrop(of: [.fileURL, .image, .png, .jpeg, .tiff, .pdf], isTargeted: $isDropTargeted) { providers in
+            handleDrop(providers)
+            return true
+        }
+        .overlay {
+            if isDropTargeted {
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(WeeTheme.accent, lineWidth: 3)
+                    .background(WeeTheme.accent.opacity(0.08), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .overlay {
+                        VStack(spacing: 8) {
+                            Image(systemName: "arrow.down.doc.fill")
+                                .font(.largeTitle)
+                            Text("Drop files here")
+                                .font(.headline)
+                        }
+                        .foregroundStyle(WeeTheme.accent)
+                    }
+                    .allowsHitTesting(false)
+            }
+        }
         .sheet(isPresented: $isShowingHistory) {
             SessionHistorySheet(model: model, isPresented: $isShowingHistory)
+        }
+        .fileImporter(
+            isPresented: $isShowingFilePicker,
+            allowedContentTypes: [.image, .png, .jpeg, .tiff, .pdf, .plainText, .json, .data],
+            allowsMultipleSelection: true
+        ) { result in
+            if case .success(let urls) = result {
+                for url in urls {
+                    addAttachment(from: url)
+                }
+            }
         }
     }
 
@@ -52,40 +88,141 @@ struct ChatView: View {
     }
 
     private var inputBar: some View {
-        HStack(alignment: .bottom, spacing: 10) {
-            TextField("Message Wee", text: $draft, axis: .vertical)
-                .lineLimit(1...5)
-                .textFieldStyle(.plain)
-                .foregroundStyle(WeeTheme.textPrimary)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 10)
-                .background(WeeTheme.sunken, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-                .onSubmit {
-                    sendDraft()
-                }
-
-            Button {
-                sendDraft()
-            } label: {
-                Image(systemName: "paperplane.fill")
-                    .frame(width: 22, height: 22)
+        VStack(spacing: 8) {
+            if !pendingAttachments.isEmpty {
+                attachmentPreview
             }
-            .buttonStyle(WeePrimaryButtonStyle())
-            .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || model.isLoading)
-            .keyboardShortcut(.return, modifiers: .command)
+
+            HStack(alignment: .bottom, spacing: 10) {
+                Button {
+                    isShowingFilePicker = true
+                } label: {
+                    Image(systemName: "paperclip")
+                        .frame(width: 20, height: 20)
+                }
+                .buttonStyle(WeeGhostButtonStyle())
+                .help("Attach file")
+
+                TextField("Message Wee", text: $draft, axis: .vertical)
+                    .lineLimit(1...5)
+                    .textFieldStyle(.plain)
+                    .foregroundStyle(WeeTheme.textPrimary)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+                    .background(WeeTheme.sunken, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .onSubmit {
+                        sendDraft()
+                    }
+
+                Button {
+                    sendDraft()
+                } label: {
+                    Image(systemName: "paperplane.fill")
+                        .frame(width: 22, height: 22)
+                }
+                .buttonStyle(WeePrimaryButtonStyle())
+                .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && pendingAttachments.isEmpty || model.isLoading)
+                .keyboardShortcut(.return, modifiers: .command)
+            }
         }
         .padding(10)
         .glassPanel()
     }
 
+    private var attachmentPreview: some View {
+        ScrollView(.horizontal) {
+            HStack(spacing: 8) {
+                ForEach(pendingAttachments) { attachment in
+                    ZStack(alignment: .topTrailing) {
+                        if attachment.isImage, let img = attachment.nsImage {
+                            Image(nsImage: img)
+                                .resizable()
+                                .aspectRatio(contentMode: .fill)
+                                .frame(width: 64, height: 64)
+                                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        } else {
+                            VStack(spacing: 4) {
+                                Image(systemName: "doc.fill")
+                                    .font(.title3)
+                                Text(attachment.filename)
+                                    .font(.caption2)
+                                    .lineLimit(1)
+                            }
+                            .foregroundStyle(WeeTheme.textSecondary)
+                            .frame(width: 64, height: 64)
+                            .background(WeeTheme.sunken, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        }
+
+                        Button {
+                            pendingAttachments.removeAll { $0.id == attachment.id }
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.caption)
+                                .foregroundStyle(.white)
+                                .background(Circle().fill(.black.opacity(0.6)))
+                        }
+                        .buttonStyle(.plain)
+                        .offset(x: 4, y: -4)
+                    }
+                }
+            }
+            .padding(.horizontal, 4)
+        }
+        .scrollIndicators(.hidden)
+        .frame(height: 72)
+    }
+
     private func sendDraft() {
         let prompt = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !prompt.isEmpty, !model.isLoading else { return }
+        let attachments = pendingAttachments
+        guard !prompt.isEmpty || !attachments.isEmpty else { return }
+        guard !model.isLoading else { return }
 
         draft = ""
+        pendingAttachments = []
         Task {
-            await model.sendChat(prompt)
+            await model.sendChat(prompt, attachments: attachments)
         }
+    }
+
+    private func handleDrop(_ providers: [NSItemProvider]) {
+        for provider in providers {
+            if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
+                provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, _ in
+                    guard let data = item as? Data, let url = URL(dataRepresentation: data, relativeTo: nil) else { return }
+                    DispatchQueue.main.async {
+                        addAttachment(from: url)
+                    }
+                }
+            } else if provider.canLoadObject(ofClass: NSImage.self) {
+                provider.loadObject(ofClass: NSImage.self) { item, _ in
+                    guard let image = item as? NSImage, let tiff = image.tiffRepresentation,
+                          let bitmap = NSBitmapImageRep(data: tiff),
+                          let pngData = bitmap.representation(using: .png, properties: [:]) else { return }
+                    let attachment = ChatAttachment(filename: "screenshot.png", data: pngData, mimeType: "image/png")
+                    DispatchQueue.main.async {
+                        pendingAttachments.append(attachment)
+                    }
+                }
+            }
+        }
+    }
+
+    private func addAttachment(from url: URL) {
+        guard url.startAccessingSecurityScopedResource() else { return }
+        defer { url.stopAccessingSecurityScopedResource() }
+
+        guard let data = try? Data(contentsOf: url) else { return }
+        let filename = url.lastPathComponent
+        let mime = mimeType(for: url)
+        pendingAttachments.append(ChatAttachment(filename: filename, data: data, mimeType: mime))
+    }
+
+    private func mimeType(for url: URL) -> String {
+        if let utType = UTType(filenameExtension: url.pathExtension) {
+            return utType.preferredMIMEType ?? "application/octet-stream"
+        }
+        return "application/octet-stream"
     }
 }
 
@@ -431,10 +568,35 @@ private struct ChatBubble: View {
                     .font(.caption2.weight(.bold))
                     .foregroundStyle(roleColor)
                     .textCase(.uppercase)
-                Text(message.text)
-                    .font(.body)
-                    .foregroundStyle(WeeTheme.textPrimary)
-                    .textSelection(.enabled)
+
+                ForEach(message.attachments.filter(\.isImage)) { attachment in
+                    if let img = attachment.nsImage {
+                        Image(nsImage: img)
+                            .resizable()
+                            .aspectRatio(contentMode: .fit)
+                            .frame(maxWidth: 320, maxHeight: 240)
+                            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    }
+                }
+
+                ForEach(message.attachments.filter { !$0.isImage }) { attachment in
+                    HStack(spacing: 6) {
+                        Image(systemName: "doc.fill")
+                            .font(.caption)
+                        Text(attachment.filename)
+                            .font(.caption)
+                    }
+                    .foregroundStyle(WeeTheme.textSecondary)
+                    .padding(6)
+                    .background(WeeTheme.sunken, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+                }
+
+                if !message.text.isEmpty {
+                    Text(message.text)
+                        .font(.body)
+                        .foregroundStyle(WeeTheme.textPrimary)
+                        .textSelection(.enabled)
+                }
             }
             .padding(13)
             .background(bubbleFill, in: RoundedRectangle(cornerRadius: 12, style: .continuous))

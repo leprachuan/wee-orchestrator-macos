@@ -212,9 +212,9 @@ final class WeeAppModel {
         }
     }
 
-    func sendChat(_ prompt: String) async {
+    func sendChat(_ prompt: String, attachments: [ChatAttachment] = []) async {
         let trimmed = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
+        guard !trimmed.isEmpty || !attachments.isEmpty else { return }
 
         guard hasAuthToken else {
             let message = "Authentication required. Add a bearer token in Settings, then click Save."
@@ -223,7 +223,7 @@ final class WeeAppModel {
             return
         }
 
-        chatMessages.append(ChatMessage(role: .user, text: trimmed))
+        chatMessages.append(ChatMessage(role: .user, text: trimmed, attachments: attachments))
         isLoading = true
         errorMessage = nil
         defer { isLoading = false }
@@ -244,9 +244,20 @@ final class WeeAppModel {
                 try await applySessionPermissionModeIfNeeded(sessionID: session.sessionID)
                 sessionID = session.sessionID
             }
+
+            for attachment in attachments {
+                _ = try await client.uploadFile(
+                    sessionID: sessionID,
+                    data: attachment.data,
+                    filename: attachment.filename,
+                    mimeType: attachment.mimeType
+                )
+            }
+
+            let query = attachments.isEmpty ? trimmed : (trimmed.isEmpty ? "[Attached \(attachments.count) file(s)]" : trimmed)
             let response = try await client.execute(
                 sessionID: sessionID,
-                query: trimmed,
+                query: query,
                 agent: selectedAgent,
                 runtime: selectedRuntimeOrNil,
                 model: selectedModelOrNil

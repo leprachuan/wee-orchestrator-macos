@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 
 struct APIConfiguration: Equatable {
@@ -810,6 +811,21 @@ struct HistoryMessage: Decodable, Hashable {
     let timestamp: Double?
 }
 
+struct ChatAttachment: Identifiable, Hashable {
+    let id = UUID()
+    let filename: String
+    let data: Data
+    let mimeType: String
+
+    var isImage: Bool {
+        mimeType.hasPrefix("image/")
+    }
+
+    var nsImage: NSImage? {
+        NSImage(data: data)
+    }
+}
+
 struct ChatMessage: Identifiable, Hashable {
     enum Role: String {
         case user
@@ -820,15 +836,31 @@ struct ChatMessage: Identifiable, Hashable {
     let id = UUID()
     let role: Role
     let text: String
+    let attachments: [ChatAttachment]
     let createdAt = Date()
 
-    init(role: Role, text: String) {
+    init(role: Role, text: String, attachments: [ChatAttachment] = []) {
         self.role = role
         self.text = text
+        self.attachments = attachments
     }
 
     init(historyMessage: HistoryMessage) {
         role = Role(rawValue: historyMessage.role) ?? .system
         text = historyMessage.content
+        attachments = []
+    }
+}
+
+struct UploadResponse: Decodable {
+    let success: Bool?
+    let filename: String?
+    let url: String?
+    let uploadId: String?
+    let message: String?
+
+    enum CodingKeys: String, CodingKey {
+        case success, filename, url, message
+        case uploadId = "upload_id"
     }
 }
