@@ -192,6 +192,46 @@ struct WeeAPIClient {
         try await request("GET", path: "/api/v1/history/sessions/\(sessionID)/messages?limit=\(limit)")
     }
 
+    func stream(
+        sessionID: String,
+        query: String,
+        agent: String?,
+        runtime: String?,
+        model: String?
+    ) async throws -> URLSession.AsyncBytes {
+        guard let baseURL else { throw WeeAPIError.invalidBaseURL }
+        guard let url = makeURL(baseURL: baseURL, path: "/api/v1/sessions/\(sessionID)/stream") else {
+            throw WeeAPIError.invalidBaseURL
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 300
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+
+        let token = normalizedToken(configuration.token)
+        if !token.isEmpty {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+        if !configuration.identity.isEmpty {
+            request.setValue(configuration.identity, forHTTPHeaderField: "X-User-Identity")
+            request.setValue(configuration.channel, forHTTPHeaderField: "X-Auth-Channel")
+        }
+
+        let body = ExecuteRequest(query: query, timeout: 900, model: model, runtime: runtime, agent: agent)
+        request.httpBody = try JSONEncoder().encode(body)
+
+        let (bytes, response) = try await session.bytes(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw WeeAPIError.invalidResponse
+        }
+        guard (200..<300).contains(http.statusCode) else {
+            throw WeeAPIError.httpStatus(http.statusCode, "Stream request failed")
+        }
+        return bytes
+    }
+
     func uploadFile(sessionID: String, data: Data, filename: String, mimeType: String) async throws -> UploadResponse {
         guard let baseURL else { throw WeeAPIError.invalidBaseURL }
         guard let url = makeURL(baseURL: baseURL, path: "/api/v1/sessions/\(sessionID)/upload") else {

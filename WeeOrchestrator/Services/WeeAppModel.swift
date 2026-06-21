@@ -255,20 +255,50 @@ final class WeeAppModel {
             }
 
             let query = attachments.isEmpty ? trimmed : (trimmed.isEmpty ? "[Attached \(attachments.count) file(s)]" : trimmed)
-            let response = try await client.execute(
+
+            chatMessages.append(ChatMessage(role: .assistant, text: ""))
+            let streamIndex = chatMessages.count - 1
+
+            let bytes = try await client.stream(
                 sessionID: sessionID,
                 query: query,
                 agent: selectedAgent,
                 runtime: selectedRuntimeOrNil,
                 model: selectedModelOrNil
             )
-            if let runtime = response.runtime, !runtime.isEmpty {
-                selectedRuntime = runtime
+
+            var accumulated = ""
+            for try await line in bytes.lines {
+                guard line.hasPrefix("data: ") else { continue }
+                let json = String(line.dropFirst(6))
+                guard let data = json.data(using: .utf8),
+                      let event = try? JSONDecoder().decode(StreamEvent.self, from: data) else { continue }
+
+                switch event.type {
+                case "chunk":
+                    if let text = event.text {
+                        accumulated += text
+                        chatMessages[streamIndex].text = accumulated
+                    }
+                case "done":
+                    if let full = event.response {
+                        chatMessages[streamIndex].text = full
+                    }
+                    if let runtime = event.runtime, !runtime.isEmpty {
+                        selectedRuntime = runtime
+                    }
+                    if let model = event.model, !model.isEmpty {
+                        selectedModel = model
+                    }
+                default:
+                    break
+                }
             }
-            if let model = response.model, !model.isEmpty {
-                selectedModel = model
+
+            if chatMessages[streamIndex].text.isEmpty {
+                chatMessages[streamIndex].text = accumulated.isEmpty ? "(empty response)" : accumulated
             }
-            chatMessages.append(ChatMessage(role: .assistant, text: response.response))
+
             saveConfiguration()
             await loadHistorySessions()
         } catch {

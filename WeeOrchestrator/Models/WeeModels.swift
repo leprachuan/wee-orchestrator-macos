@@ -835,7 +835,7 @@ struct ChatMessage: Identifiable, Hashable {
 
     let id = UUID()
     let role: Role
-    let text: String
+    var text: String
     let attachments: [ChatAttachment]
     let createdAt = Date()
 
@@ -863,4 +863,13 @@ struct UploadResponse: Decodable {
         case success, filename, url, message
         case uploadId = "upload_id"
     }
+}
+
+struct StreamEvent: Decodable {
+    let type: String
+    let text: String?
+    let response: String?
+    let runtime: String?
+    let model: String?
+    let agent: String?
 }
