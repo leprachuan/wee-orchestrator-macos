@@ -20,7 +20,10 @@ struct MarkdownText: View {
         case code(language: String, content: String)
         case heading(level: Int, text: String)
         case listItem(text: String)
+        case image(alt: String, url: URL)
     }
+
+    private static let imagePattern = /!\[([^\]]*)\]\(([^)]+)\)/
 
     private var blocks: [Block] {
         var result: [Block] = []
@@ -70,13 +73,43 @@ struct MarkdownText: View {
                 }
                 let text = para.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
                 if !text.isEmpty {
-                    result.append(.paragraph(text))
+                    result.append(contentsOf: splitImagesFromText(text))
                 } else {
                     i += 1
                 }
             }
         }
         return result
+    }
+
+    private func splitImagesFromText(_ text: String) -> [Block] {
+        var blocks: [Block] = []
+        var remaining = text[text.startIndex...]
+
+        while let match = remaining.firstMatch(of: Self.imagePattern) {
+            let before = String(remaining[remaining.startIndex..<match.range.lowerBound])
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if !before.isEmpty {
+                blocks.append(.paragraph(before))
+            }
+
+            let alt = String(match.1)
+            let urlString = String(match.2)
+            if let url = URL(string: urlString) {
+                blocks.append(.image(alt: alt, url: url))
+            } else {
+                blocks.append(.paragraph("![\(alt)](\(urlString))"))
+            }
+
+            remaining = remaining[match.range.upperBound...]
+        }
+
+        let after = String(remaining).trimmingCharacters(in: .whitespacesAndNewlines)
+        if !after.isEmpty {
+            blocks.append(.paragraph(after))
+        }
+
+        return blocks
     }
 
     @ViewBuilder
@@ -109,16 +142,48 @@ struct MarkdownText: View {
                     .foregroundStyle(WeeTheme.textMuted)
                 inlineMarkdown(text)
             }
+
+        case .image(let alt, let url):
+            AsyncImage(url: url) { phase in
+                switch phase {
+                case .success(let image):
+                    image
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(maxWidth: 400, maxHeight: 300)
+                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(WeeTheme.glassStroke))
+                case .failure:
+                    HStack(spacing: 6) {
+                        Image(systemName: "photo.badge.exclamationmark")
+                        Text(alt.isEmpty ? "Image failed to load" : alt)
+                            .font(.caption)
+                    }
+                    .foregroundStyle(WeeTheme.textMuted)
+                    .padding(8)
+                    .background(WeeTheme.sunken, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                default:
+                    HStack(spacing: 6) {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text(alt.isEmpty ? "Loading image…" : alt)
+                            .font(.caption)
+                            .foregroundStyle(WeeTheme.textMuted)
+                    }
+                    .padding(8)
+                }
+            }
         }
     }
 
     private func inlineMarkdown(_ text: String) -> Text {
-        if let attributed = try? AttributedString(markdown: text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)) {
+        let cleaned = text.replacingOccurrences(of: "!\\[([^\\]]*)\\]\\([^)]+\\)", with: "$1", options: .regularExpression)
+        if let attributed = try? AttributedString(markdown: cleaned, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)) {
             return Text(attributed)
                 .font(.body)
                 .foregroundColor(WeeTheme.textPrimary)
         }
-        return Text(text)
+        return Text(cleaned)
             .font(.body)
             .foregroundColor(WeeTheme.textPrimary)
     }
