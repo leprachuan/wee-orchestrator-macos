@@ -37,12 +37,15 @@ struct WeeAPIClient {
         URL(string: configuration.baseURLString.trimmingCharacters(in: .whitespacesAndNewlines))
     }
 
+    private static let insecureDelegate = InsecureSessionDelegate()
+    private static let insecureSession = URLSession(
+        configuration: .default,
+        delegate: insecureDelegate,
+        delegateQueue: nil
+    )
+
     private var session: URLSession {
-        if configuration.allowInsecureTLS {
-            URLSession(configuration: .default, delegate: InsecureSessionDelegate(), delegateQueue: nil)
-        } else {
-            URLSession.shared
-        }
+        configuration.allowInsecureTLS ? Self.insecureSession : URLSession.shared
     }
 
     func health() async throws -> HealthResponse {
