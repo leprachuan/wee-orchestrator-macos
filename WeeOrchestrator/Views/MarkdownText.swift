@@ -16,7 +16,7 @@ struct MarkdownText: View {
     }
 
     private enum Block {
-        case paragraph(String)
+        case text(String)
         case code(language: String, content: String)
         case heading(level: Int, text: String)
         case listItem(text: String)
@@ -73,7 +73,7 @@ struct MarkdownText: View {
                 }
                 let text = para.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
                 if !text.isEmpty {
-                    result.append(contentsOf: splitImagesFromText(text))
+                    result.append(contentsOf: extractImages(from: text))
                 } else {
                     i += 1
                 }
@@ -82,7 +82,7 @@ struct MarkdownText: View {
         return result
     }
 
-    private func splitImagesFromText(_ text: String) -> [Block] {
+    private func extractImages(from text: String) -> [Block] {
         var blocks: [Block] = []
         var remaining = text[text.startIndex...]
 
@@ -90,15 +90,13 @@ struct MarkdownText: View {
             let before = String(remaining[remaining.startIndex..<match.range.lowerBound])
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             if !before.isEmpty {
-                blocks.append(.paragraph(before))
+                blocks.append(.text(before))
             }
 
             let alt = String(match.1)
             let urlString = String(match.2)
             if let url = URL(string: urlString) {
                 blocks.append(.image(alt: alt, url: url))
-            } else {
-                blocks.append(.paragraph("![\(alt)](\(urlString))"))
             }
 
             remaining = remaining[match.range.upperBound...]
@@ -106,7 +104,7 @@ struct MarkdownText: View {
 
         let after = String(remaining).trimmingCharacters(in: .whitespacesAndNewlines)
         if !after.isEmpty {
-            blocks.append(.paragraph(after))
+            blocks.append(.text(after))
         }
 
         return blocks
@@ -115,8 +113,8 @@ struct MarkdownText: View {
     @ViewBuilder
     private func blockView(_ block: Block) -> some View {
         switch block {
-        case .paragraph(let text):
-            inlineMarkdown(text)
+        case .text(let text):
+            renderInline(text)
                 .textSelection(.enabled)
 
         case .code(_, let content):
@@ -133,14 +131,14 @@ struct MarkdownText: View {
             .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(WeeTheme.glassStroke))
 
         case .heading(let level, let text):
-            inlineMarkdown(text)
+            renderInline(stripImageSyntax(text))
                 .font(level == 1 ? .title3.bold() : level == 2 ? .headline : .subheadline.bold())
 
         case .listItem(let text):
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 Text("•")
                     .foregroundStyle(WeeTheme.textMuted)
-                inlineMarkdown(text)
+                renderInline(stripImageSyntax(text))
             }
 
         case .image(let alt, let url):
@@ -176,8 +174,12 @@ struct MarkdownText: View {
         }
     }
 
-    private func inlineMarkdown(_ text: String) -> Text {
-        let cleaned = text.replacingOccurrences(of: "!\\[([^\\]]*)\\]\\([^)]+\\)", with: "$1", options: .regularExpression)
+    private func stripImageSyntax(_ text: String) -> String {
+        text.replacing(Self.imagePattern, with: { match in String(match.1) })
+    }
+
+    private func renderInline(_ text: String) -> Text {
+        let cleaned = stripImageSyntax(text)
         if let attributed = try? AttributedString(markdown: cleaned, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)) {
             return Text(attributed)
                 .font(.body)
