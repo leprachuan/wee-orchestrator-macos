@@ -277,8 +277,11 @@ final class WeeAppModel {
                 switch event.type {
                 case "chunk":
                     if let text = event.text {
-                        accumulated += text
-                        chatMessages[streamIndex].text = accumulated
+                        let cleaned = filterRawProtocolLines(text)
+                        if !cleaned.isEmpty {
+                            accumulated += cleaned
+                            chatMessages[streamIndex].text = accumulated
+                        }
                     }
                 case "done":
                     if let full = event.response {
@@ -824,6 +827,29 @@ final class WeeAppModel {
         authStatusMessage = message
         KeychainStore.saveToken("")
         return message
+    }
+
+    // MARK: - Stream Helpers
+
+    private func filterRawProtocolLines(_ text: String) -> String {
+        text.split(separator: "\n", omittingEmptySubsequences: false)
+            .filter { line in
+                let trimmed = line.trimmingCharacters(in: .whitespaces)
+                guard trimmed.hasPrefix("{"), let data = trimmed.data(using: .utf8),
+                      let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                      let type = obj["type"] as? String else {
+                    return true
+                }
+                if type == "agent_message", let text = obj["text"] as? String, !text.isEmpty {
+                    return true
+                }
+                if ["thread.started", "turn.started", "turn.completed", "turn.failed",
+                    "item.completed", "item.started", "error"].contains(type) {
+                    return false
+                }
+                return true
+            }
+            .joined(separator: "\n")
     }
 
     // MARK: - Notifications
