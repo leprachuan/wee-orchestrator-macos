@@ -280,9 +280,9 @@ final class WeeAppModel {
             )
 
             var rawStreamText = ""
+            var lastActivityText = ""
             for try await line in bytes.lines {
-                guard line.hasPrefix("data: ") else { continue }
-                let json = String(line.dropFirst(6))
+                guard let json = streamPayload(from: line) else { continue }
                 guard let data = json.data(using: .utf8),
                       let event = try? JSONDecoder().decode(StreamEvent.self, from: data) else { continue }
 
@@ -295,10 +295,19 @@ final class WeeAppModel {
                             chatMessages[streamIndex].text = cleaned
                         }
                     }
+                case "tool_call":
+                    lastActivityText = streamActivityText(from: event)
+                    if chatMessages[streamIndex].text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                       !lastActivityText.isEmpty {
+                        chatMessages[streamIndex].text = lastActivityText
+                    }
                 case "done":
                     let finalText = preferredFinalStreamText(accumulated: rawStreamText, doneResponse: event.response)
                     if !finalText.isEmpty {
                         chatMessages[streamIndex].text = finalText
+                    } else if chatMessages[streamIndex].text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                              !lastActivityText.isEmpty {
+                        chatMessages[streamIndex].text = lastActivityText
                     }
                     if let runtime = event.runtime, !runtime.isEmpty {
                         selectedRuntime = runtime
@@ -306,6 +315,9 @@ final class WeeAppModel {
                     if let model = event.model, !model.isEmpty {
                         selectedModel = model
                     }
+                case "error":
+                    let message = event.message ?? event.text ?? "Stream error"
+                    chatMessages[streamIndex].text = message
                 default:
                     break
                 }
@@ -313,7 +325,11 @@ final class WeeAppModel {
 
             if chatMessages[streamIndex].text.isEmpty {
                 let finalText = preferredFinalStreamText(accumulated: rawStreamText, doneResponse: nil)
-                chatMessages[streamIndex].text = finalText.isEmpty ? "(empty response)" : finalText
+                chatMessages[streamIndex].text = finalText.isEmpty ? lastActivityText : finalText
+            }
+
+            if chatMessages[streamIndex].text.isEmpty {
+                chatMessages.remove(at: streamIndex)
             }
 
             saveConfiguration()
@@ -876,6 +892,36 @@ final class WeeAppModel {
     }
 
     // MARK: - Stream Helpers
+
+    private func streamPayload(from line: String) -> String? {
+        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix("data:") else { return nil }
+        let payload = trimmed
+            .dropFirst("data:".count)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !payload.isEmpty, payload != "[DONE]" else { return nil }
+        return String(payload)
+    }
+
+    private func streamActivityText(from event: StreamEvent) -> String {
+        guard event.type == "tool_call" else { return "" }
+        let trimmedName = event.name?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let label = trimmedName?.isEmpty == false ? trimmedName! : "tool"
+
+        switch event.event {
+        case "detected":
+            return "Running \(label)..."
+        case "completed":
+            if event.isError == true,
+               let output = event.output?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !output.isEmpty {
+                return "\(label) failed: \(output)"
+            }
+            return "Ran \(label)."
+        default:
+            return "Running \(label)..."
+        }
+    }
 
     private func preferredFinalStreamText(accumulated: String, doneResponse: String?) -> String {
         let normalizedAccumulated = normalizeCodexStreamText(accumulated)

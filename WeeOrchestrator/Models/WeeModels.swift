@@ -1042,9 +1042,30 @@ struct UploadResponse: Decodable {
 
 struct StreamEvent: Decodable {
     let type: String
+    let event: String?
     let text: String?
     let response: String?
+    let message: String?
     let runtime: String?
     let model: String?
     let agent: String?
+    let name: String?
+    let input: String?
+    let output: String?
+    let isError: Bool?
+
+    enum CodingKeys: String, CodingKey {
+        case type
+        case event
+        case text
+        case response
+        case message
+        case runtime
+        case model
+        case agent
+        case name
+        case input
+        case output
+        case isError = "is_error"
+    }
 }
