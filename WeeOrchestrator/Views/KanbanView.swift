@@ -3,36 +3,62 @@ import SwiftUI
 struct KanbanView: View {
     @Bindable var model: WeeAppModel
     @State private var selectedCard: KanbanCard?
+    @State private var urgencyFilter: KanbanUrgencyFilter = .all
+    @State private var dueFilter: KanbanDueFilter = .all
+    @State private var customDueStart = Calendar.current.startOfDay(for: Date())
+    @State private var customDueEnd = Calendar.current.date(byAdding: .day, value: 7, to: Calendar.current.startOfDay(for: Date())) ?? Date()
+    @State private var labelFilter = ""
+    @State private var isDueSoonExpanded = true
+    @State private var showDoneColumn = false
 
     private var board: KanbanBoardResponse? {
         model.kanbanBoard
     }
 
     private var dueCount: Int {
-        board?.dueCards.count ?? 0
+        filteredDueCards.count
+    }
+
+    private var visibleColumns: [KanbanColumnID] {
+        showDoneColumn ? KanbanColumnID.allCases : KanbanColumnID.allCases.filter { $0 != .done }
+    }
+
+    private var allCards: [KanbanCard] {
+        KanbanColumnID.allCases.flatMap { board?.columns[$0.rawValue] ?? [] }
+    }
+
+    private var filteredDueCards: [KanbanCard] {
+        filteredCards(board?.dueCards ?? [])
+    }
+
+    private var availableLabels: [String] {
+        Array(Set(allCards.flatMap(\.displayLabels))).sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+    }
+
+    private var activeFilterCount: Int {
+        (urgencyFilter == .all ? 0 : 1) + (dueFilter == .all ? 0 : 1) + (labelFilter.isEmpty ? 0 : 1)
     }
 
     var body: some View {
         VStack(spacing: 12) {
             header
+            filterControls
 
             ScrollView {
                 VStack(spacing: 12) {
                     dueSection
 
-                    ScrollView(.horizontal) {
-                        HStack(alignment: .top, spacing: 12) {
-                            ForEach(KanbanColumnID.allCases) { column in
-                                KanbanColumnView(
-                                    column: column,
-                                    cards: cards(for: column),
-                                    onSelect: { selectedCard = $0 }
-                                )
-                                .frame(width: 280)
-                            }
+                    HStack(alignment: .top, spacing: 12) {
+                        ForEach(visibleColumns) { column in
+                            KanbanColumnView(
+                                column: column,
+                                cards: cards(for: column),
+                                onSelect: { selectedCard = $0 }
+                            )
+                            .frame(maxWidth: .infinity, alignment: .top)
                         }
-                        .padding(.bottom, 2)
                     }
+                    .frame(maxWidth: .infinity)
                 }
             }
         }
@@ -42,7 +68,7 @@ struct KanbanView: View {
         }
         .sheet(item: $selectedCard) { card in
             KanbanItemDetailSheet(model: model, card: card)
-                .frame(width: 560, height: 640)
+                .frame(minWidth: 760, idealWidth: 920, maxWidth: 1100, minHeight: 680, idealHeight: 820, maxHeight: 920)
         }
     }
 
@@ -53,8 +79,11 @@ struct KanbanView: View {
                     .font(.title3.weight(.bold))
                     .foregroundStyle(WeeTheme.textPrimary)
                 HStack {
-                    StatusPill(text: "\(board?.total ?? 0) cards", color: WeeTheme.accent, symbol: "rectangle.3.group")
+                    StatusPill(text: "\(visibleColumns.reduce(0) { $0 + cards(for: $1).count }) shown", color: WeeTheme.accent, symbol: "rectangle.3.group")
                     StatusPill(text: "\(dueCount) due", color: dueCount > 0 ? WeeTheme.gold : WeeTheme.textSecondary, symbol: "bell.badge")
+                    if activeFilterCount > 0 {
+                        StatusPill(text: "\(activeFilterCount) filters", color: WeeTheme.textSecondary, symbol: "line.3.horizontal.decrease.circle")
+                    }
                     if let repo = board?.repo, !repo.isEmpty {
                         StatusPill(text: "GitHub", color: WeeTheme.textSecondary, symbol: "number")
                     }
@@ -72,9 +101,74 @@ struct KanbanView: View {
         .glassPanel()
     }
 
+    private var filterControls: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 12) {
+                Label("Filters", systemImage: "line.3.horizontal.decrease.circle")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(WeeTheme.textPrimary)
+
+                Picker("Urgency", selection: $urgencyFilter) {
+                    ForEach(KanbanUrgencyFilter.allCases) { filter in
+                        Text(filter.title).tag(filter)
+                    }
+                }
+                .frame(width: 150)
+
+                Picker("Due", selection: $dueFilter) {
+                    ForEach(KanbanDueFilter.allCases) { filter in
+                        Text(filter.title).tag(filter)
+                    }
+                }
+                .frame(width: 170)
+
+                Picker("Label", selection: $labelFilter) {
+                    Text("All Labels").tag("")
+                    ForEach(availableLabels, id: \.self) { label in
+                        Text(label).tag(label)
+                    }
+                }
+                .frame(width: 180)
+
+                Toggle("Show Done", isOn: $showDoneColumn)
+                    .toggleStyle(.checkbox)
+
+                Spacer()
+
+                if activeFilterCount > 0 {
+                    Button("Clear") {
+                        urgencyFilter = .all
+                        dueFilter = .all
+                        labelFilter = ""
+                    }
+                    .buttonStyle(WeeGhostButtonStyle())
+                }
+            }
+
+            if dueFilter == .custom {
+                customDateControls
+            }
+        }
+        .padding(14)
+        .glassPanel()
+    }
+
+    private var customDateControls: some View {
+        HStack(spacing: 12) {
+            Label("Custom Due Range", systemImage: "calendar.badge.clock")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(WeeTheme.textSecondary)
+            DatePicker("Start", selection: $customDueStart, displayedComponents: .date)
+                .datePickerStyle(.compact)
+            DatePicker("End", selection: $customDueEnd, displayedComponents: .date)
+                .datePickerStyle(.compact)
+            Spacer()
+        }
+    }
+
     @ViewBuilder
     private var dueSection: some View {
-        let cards = board?.dueCards ?? []
+        let cards = filteredDueCards
         if cards.isEmpty {
             if let status = model.kanbanStatusMessage {
                 EmptyKanbanState(title: status, symbol: "rectangle.stack.badge.minus")
@@ -83,23 +177,35 @@ struct KanbanView: View {
             }
         } else {
             VStack(alignment: .leading, spacing: 12) {
-                HStack(spacing: 8) {
-                    Image(systemName: "bell.badge")
-                        .foregroundStyle(WeeTheme.gold)
-                    Text("Due Soon")
-                        .font(.headline.weight(.semibold))
-                        .foregroundStyle(WeeTheme.textPrimary)
-                    Spacer()
-                    StatusPill(text: "\(cards.count)", color: WeeTheme.gold)
+                Button {
+                    withAnimation(.snappy) {
+                        isDueSoonExpanded.toggle()
+                    }
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: isDueSoonExpanded ? "chevron.down" : "chevron.right")
+                            .font(.caption.weight(.bold))
+                            .foregroundStyle(WeeTheme.textSecondary)
+                        Image(systemName: "bell.badge")
+                            .foregroundStyle(WeeTheme.gold)
+                        Text("Due Soon")
+                            .font(.headline.weight(.semibold))
+                            .foregroundStyle(WeeTheme.textPrimary)
+                        Spacer()
+                        StatusPill(text: "\(cards.count)", color: WeeTheme.gold)
+                    }
                 }
+                .buttonStyle(.plain)
 
-                LazyVStack(spacing: 10) {
-                    ForEach(cards.prefix(6)) { card in
-                        KanbanCardRow(card: card)
-                            .contentShape(Rectangle())
-                            .onTapGesture {
-                                selectedCard = card
-                            }
+                if isDueSoonExpanded {
+                    LazyVStack(spacing: 10) {
+                        ForEach(cards.prefix(6)) { card in
+                            KanbanCardRow(card: card)
+                                .contentShape(Rectangle())
+                                .onTapGesture {
+                                    selectedCard = card
+                                }
+                        }
                     }
                 }
             }
@@ -109,7 +215,116 @@ struct KanbanView: View {
     }
 
     private func cards(for column: KanbanColumnID) -> [KanbanCard] {
-        board?.columns[column.rawValue] ?? []
+        filteredCards(board?.columns[column.rawValue] ?? [])
+    }
+
+    private func filteredCards(_ cards: [KanbanCard]) -> [KanbanCard] {
+        cards.filter { card in
+            urgencyFilter.matches(card)
+                && dueFilter.matches(card, customStart: customDueStart, customEnd: customDueEnd)
+                && (labelFilter.isEmpty || card.displayLabels.contains(labelFilter))
+        }
+    }
+}
+
+private enum KanbanUrgencyFilter: String, CaseIterable, Identifiable {
+    case all
+    case urgent
+    case normal
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .all: "All Urgency"
+        case .urgent: "Urgent"
+        case .normal: "Normal"
+        }
+    }
+
+    func matches(_ card: KanbanCard) -> Bool {
+        switch self {
+        case .all: true
+        case .urgent: card.urgency == "urgent"
+        case .normal: card.urgency != "urgent"
+        }
+    }
+}
+
+private enum KanbanDueFilter: String, CaseIterable, Identifiable {
+    case all
+    case overdue
+    case today
+    case soon
+    case future
+    case custom
+    case none
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .all: "All Due Dates"
+        case .overdue: "Overdue"
+        case .today: "Today"
+        case .soon: "Soon"
+        case .future: "Future"
+        case .custom: "Custom"
+        case .none: "No Due Date"
+        }
+    }
+
+    func matches(_ card: KanbanCard, customStart: Date, customEnd: Date) -> Bool {
+        switch self {
+        case .all: return true
+        case .overdue: return card.dueBucket == "overdue"
+        case .today: return card.dueBucket == "today"
+        case .soon: return card.dueBucket == "soon"
+        case .future: return card.dueBucket == "future"
+        case .custom:
+            guard let dueDate = card.dueDate else { return false }
+            let calendar = Calendar.current
+            let start = calendar.startOfDay(for: min(customStart, customEnd))
+            let endStart = calendar.startOfDay(for: max(customStart, customEnd))
+            let end = calendar.date(byAdding: DateComponents(day: 1, second: -1), to: endStart) ?? endStart
+            return dueDate >= start && dueDate <= end
+        case .none: return card.dueBucket == "none"
+        }
+    }
+}
+
+private extension KanbanCard {
+    var dueDate: Date? {
+        guard let due, !due.isEmpty else { return nil }
+
+        let iso = ISO8601DateFormatter()
+        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = iso.date(from: due) {
+            return date
+        }
+
+        iso.formatOptions = [.withInternetDateTime]
+        if let date = iso.date(from: due) {
+            return date
+        }
+
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = .current
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.date(from: due)
+    }
+
+    var displayLabels: [String] {
+        labels.filter { label in
+            let lower = label.lowercased()
+            return !lower.hasPrefix("agent:")
+                && !lower.hasPrefix("due:")
+                && !lower.hasPrefix("priority:")
+                && !lower.hasPrefix("status:")
+                && !lower.hasPrefix("urgency:")
+                && lower != "urgent"
+        }
     }
 }
 

@@ -3,6 +3,8 @@ import SwiftUI
 struct TasksView: View {
     @Bindable var model: WeeAppModel
     @State private var prompt = ""
+    @AppStorage("wee.tasks.scheduledCollapsed") private var scheduledTasksCollapsed = false
+    @AppStorage("wee.tasks.backgroundCollapsed") private var backgroundTasksCollapsed = false
 
     private var running: Int { model.tasks.filter { $0.status == "running" }.count }
     private var queued: Int { model.tasks.filter { $0.status == "queued" }.count }
@@ -36,8 +38,8 @@ struct TasksView: View {
             ScrollView {
                 VStack(spacing: 12) {
                     scheduledJobsSection
-                    backgroundComposer
                     backgroundTasksSection
+                    backgroundComposer
                 }
             }
         }
@@ -53,20 +55,32 @@ struct TasksView: View {
 
     private var scheduledJobsSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            SectionHeader(title: "Scheduled Tasks", symbol: "calendar") {
+            SectionHeader(
+                title: "Scheduled Tasks",
+                symbol: "calendar",
+                summary: "\(model.scheduledJobs.count)",
+                isCollapsed: $scheduledTasksCollapsed
+            ) {
                 Task { await model.loadScheduledJobs() }
             }
 
-            if model.scheduledJobs.isEmpty {
-                EmptyTaskState(
-                    title: model.schedulerStatusMessage ?? "No scheduled jobs",
-                    symbol: "calendar.badge.exclamationmark",
-                    minHeight: 80
+            if scheduledTasksCollapsed {
+                CollapsedTaskSummary(
+                    title: model.scheduledJobs.isEmpty ? (model.schedulerStatusMessage ?? "No scheduled jobs") : "\(model.scheduledJobs.count) scheduled tasks",
+                    symbol: "calendar"
                 )
             } else {
-                LazyVStack(spacing: 10) {
-                    ForEach(model.scheduledJobs) { job in
-                        ScheduledJobRow(job: job)
+                if model.scheduledJobs.isEmpty {
+                    EmptyTaskState(
+                        title: model.schedulerStatusMessage ?? "No scheduled jobs",
+                        symbol: "calendar.badge.exclamationmark",
+                        minHeight: 80
+                    )
+                } else {
+                    LazyVStack(spacing: 10) {
+                        ForEach(model.scheduledJobs) { job in
+                            ScheduledJobRow(job: job)
+                        }
                     }
                 }
             }
@@ -112,27 +126,41 @@ struct TasksView: View {
 
     private var backgroundTasksSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            SectionHeader(title: "Background Tasks", symbol: "bolt.fill") {
+            SectionHeader(
+                title: "Background Tasks",
+                symbol: "bolt.fill",
+                summary: "\(model.tasks.count)",
+                isCollapsed: $backgroundTasksCollapsed
+            ) {
                 Task { await model.refreshAll() }
             }
 
-            if model.tasks.isEmpty {
-                EmptyTaskState(title: "No background tasks", symbol: "bolt.slash", minHeight: 80)
+            if backgroundTasksCollapsed {
+                CollapsedTaskSummary(
+                    title: model.tasks.isEmpty ? "No background tasks" : "\(model.tasks.count) background tasks",
+                    symbol: "bolt.fill"
+                )
             } else {
-                LazyVStack(spacing: 10) {
-                    ForEach(model.tasks) { task in
-                        Button {
-                            Task { await model.loadTaskDetail(task) }
-                        } label: {
-                            TaskRow(task: task)
+                if model.tasks.isEmpty {
+                    EmptyTaskState(title: "No background tasks", symbol: "bolt.slash", minHeight: 80)
+                } else {
+                    LazyVStack(spacing: 10) {
+                        ForEach(model.tasks) { task in
+                            Button {
+                                Task { await model.loadTaskDetail(task) }
+                            } label: {
+                                TaskRow(task: task)
+                            }
+                            .buttonStyle(.plain)
                         }
-                        .buttonStyle(.plain)
                     }
                 }
             }
         }
         .padding(14)
         .glassPanel()
+        .animation(.easeInOut(duration: 0.18), value: scheduledTasksCollapsed)
+        .animation(.easeInOut(duration: 0.18), value: backgroundTasksCollapsed)
     }
 }
 
@@ -159,21 +187,56 @@ private struct EmptyTaskState: View {
 private struct SectionHeader: View {
     let title: String
     let symbol: String
+    let summary: String
+    @Binding var isCollapsed: Bool
     let refresh: () -> Void
 
     var body: some View {
         HStack(spacing: 8) {
+            Button {
+                isCollapsed.toggle()
+            } label: {
+                Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(WeeTheme.textSecondary)
+                    .frame(width: 22, height: 22)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(isCollapsed ? "Expand \(title)" : "Collapse \(title)")
+
             Image(systemName: symbol)
                 .foregroundStyle(WeeTheme.accent)
             Text(title)
                 .font(.headline.weight(.semibold))
                 .foregroundStyle(WeeTheme.textPrimary)
+            StatusPill(text: summary, color: WeeTheme.textSecondary)
             Spacer()
             Button(action: refresh) {
                 Image(systemName: "arrow.clockwise")
             }
             .buttonStyle(WeeGhostButtonStyle())
         }
+    }
+}
+
+private struct CollapsedTaskSummary: View {
+    let title: String
+    let symbol: String
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: symbol)
+                .foregroundStyle(WeeTheme.textMuted)
+            Text(title)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(WeeTheme.textSecondary)
+            Spacer()
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(Color.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(WeeTheme.glassStroke))
     }
 }
 

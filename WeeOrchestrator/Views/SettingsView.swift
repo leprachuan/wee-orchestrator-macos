@@ -6,6 +6,20 @@ struct SettingsView: View {
     @State private var telegramIdentity = ""
     @State private var pairingCode = ""
     @State private var showManualToken = false
+    @State private var hasLoadedWebSettings = false
+    @State private var agentsConfig: AgentsConfigResponse?
+    @State private var selectedAgentName = ""
+    @State private var draftAgent = AgentConfiguration()
+    @State private var originalAgent = AgentConfiguration()
+    @State private var settingsStatus: String?
+    @State private var settingsStatusIsError = false
+    @State private var envContent = ""
+    @State private var envStatus: String?
+    @State private var envStatusIsError = false
+    @State private var notificationsEnabled = true
+    @State private var showDeleteConfirmation = false
+
+    private let runtimeFallbacks = ["copilot", "copilot-sdk", "claude", "claude-sdk", "gemini", "opencode", "codex", "devin"]
 
     var body: some View {
         ScrollView {
@@ -15,37 +29,9 @@ struct SettingsView: View {
                     .foregroundStyle(WeeTheme.textPrimary)
 
                 telegramAuthSection
-                settingsFields
+                connectionSection
                 manualTokenSection
-
-                HStack {
-                    Button {
-                        model.saveConfiguration()
-                        testResult = "Saved"
-                    } label: {
-                        Label("Save", systemImage: "checkmark")
-                    }
-                    .buttonStyle(WeePrimaryButtonStyle())
-                    .keyboardShortcut("s", modifiers: .command)
-
-                    Button {
-                        Task {
-                            model.saveConfiguration()
-                            await model.refreshAll()
-                            testResult = model.errorMessage == nil ? "Connected" : model.errorMessage
-                        }
-                    } label: {
-                        Label("Test", systemImage: "network")
-                    }
-                    .buttonStyle(WeeGhostButtonStyle())
-                }
-
-                if let testResult {
-                    Text(testResult)
-                        .font(.caption)
-                        .foregroundStyle(testResult == "Connected" || testResult == "Saved" ? WeeTheme.accent : WeeTheme.danger)
-                }
-
+                environmentSection
                 connectionSummary
             }
             .padding(16)
@@ -53,15 +39,23 @@ struct SettingsView: View {
             .padding(16)
         }
         .scrollIndicators(.hidden)
-        .onAppear {
+        .task {
             if telegramIdentity.isEmpty {
                 telegramIdentity = model.configuration.identity
             }
+            await loadWebSettingsIfNeeded()
+        }
+        .confirmationDialog("Delete Agent?", isPresented: $showDeleteConfirmation, titleVisibility: .visible) {
+            Button("Delete \(selectedAgentName)", role: .destructive) {
+                Task { await deleteSelectedAgent() }
+            }
+        } message: {
+            Text("This removes the agent from the shared agents config.")
         }
     }
 
-    private var settingsFields: some View {
-        VStack(spacing: 12) {
+    private var connectionSection: some View {
+        SettingsSectionBox(title: "Connection", systemImage: "network") {
             FieldRow(title: "Backend URL") {
                 TextField("https://host:8000", text: $model.configuration.baseURLString)
             }
@@ -69,20 +63,49 @@ struct SettingsView: View {
             Toggle("Allow insecure TLS", isOn: $model.configuration.allowInsecureTLS)
                 .tint(WeeTheme.accent)
                 .foregroundStyle(WeeTheme.textPrimary)
+
+            Toggle("Enable task notifications", isOn: notificationToggle)
+                .tint(WeeTheme.accent)
+                .foregroundStyle(WeeTheme.textPrimary)
+
+            HStack {
+                Button {
+                    model.saveConfiguration()
+                    testResult = "Saved"
+                } label: {
+                    Label("Save", systemImage: "checkmark")
+                }
+                .buttonStyle(WeePrimaryButtonStyle())
+                .keyboardShortcut("s", modifiers: .command)
+
+                Button {
+                    Task {
+                        model.saveConfiguration()
+                        await model.refreshAll()
+                        testResult = model.errorMessage == nil ? "Connected" : model.errorMessage
+                    }
+                } label: {
+                    Label("Test", systemImage: "network")
+                }
+                .buttonStyle(WeeGhostButtonStyle())
+            }
+
+            if let testResult {
+                Text(testResult)
+                    .font(.caption)
+                    .foregroundStyle(testResult == "Connected" || testResult == "Saved" ? WeeTheme.accent : WeeTheme.danger)
+            }
         }
     }
 
     private var telegramAuthSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        SettingsSectionBox(title: "Telegram Sign In", systemImage: "paperplane.circle.fill") {
             HStack {
-                Label("Telegram Sign In", systemImage: "paperplane.circle.fill")
-                    .font(.headline.weight(.semibold))
-                    .foregroundStyle(WeeTheme.textPrimary)
-                Spacer()
                 StatusPill(
                     text: model.isAuthenticated ? "signed in" : "required",
                     color: model.isAuthenticated ? WeeTheme.accent : WeeTheme.gold
                 )
+                Spacer()
             }
 
             if model.isAuthenticated {
@@ -146,8 +169,6 @@ struct SettingsView: View {
                     .foregroundStyle(authStatus.localizedCaseInsensitiveContains("signed in") || authStatus.localizedCaseInsensitiveContains("sent") ? WeeTheme.accent : WeeTheme.danger)
             }
         }
-        .padding(13)
-        .background(WeeTheme.sunken, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
     private var manualTokenSection: some View {
@@ -179,12 +200,197 @@ struct SettingsView: View {
         .tint(WeeTheme.accent)
     }
 
-    private var connectionSummary: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Connection")
-                .font(.headline.weight(.semibold))
-                .foregroundStyle(WeeTheme.textPrimary)
+    private var agentSettingsSection: some View {
+        SettingsSectionBox(title: "Agent Settings", systemImage: "person.3.fill") {
+            HStack {
+                Picker("Agent", selection: selectedAgentBinding) {
+                    ForEach(agentsConfig?.agents.map(\.name) ?? [], id: \.self) { name in
+                        Text(name).tag(name)
+                    }
+                }
+                .disabled(agentsConfig?.agents.isEmpty ?? true)
 
+                Button {
+                    addAgent()
+                } label: {
+                    Image(systemName: "plus")
+                }
+                .buttonStyle(WeeGhostButtonStyle())
+
+                Button(role: .destructive) {
+                    showDeleteConfirmation = true
+                } label: {
+                    Image(systemName: "trash")
+                }
+                .buttonStyle(WeeGhostButtonStyle())
+                .disabled(selectedAgentName.isEmpty)
+            }
+
+            FieldRow(title: "Name") {
+                TextField("agent-name", text: $draftAgent.name)
+            }
+
+            FieldRow(title: "Working Path") {
+                TextField("/opt/my-agent", text: $draftAgent.path)
+            }
+
+            TextAreaRow(title: "Description", text: optionalTextBinding(\.description), minHeight: 74)
+
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 12)], spacing: 12) {
+                FieldRow(title: "Primary Runtime") {
+                    Picker("Primary Runtime", selection: optionalTextBinding(\.primaryRuntime)) {
+                        Text("Default").tag("")
+                        ForEach(runtimeOptions, id: \.self) { runtime in
+                            Text(runtime).tag(runtime)
+                        }
+                    }
+                }
+
+                FieldRow(title: "Primary Model") {
+                    TextField("e.g. claude-sonnet-4.6", text: optionalTextBinding(\.primaryModel))
+                }
+
+                FieldRow(title: "Fallback Runtime") {
+                    Picker("Fallback Runtime", selection: optionalTextBinding(\.fallbackRuntime)) {
+                        Text("None").tag("")
+                        ForEach(runtimeOptions, id: \.self) { runtime in
+                            Text(runtime).tag(runtime)
+                        }
+                    }
+                }
+
+                FieldRow(title: "Fallback Model") {
+                    TextField("e.g. gpt-4-turbo", text: optionalTextBinding(\.fallbackModel))
+                }
+
+                FieldRow(title: "Max Concurrent Tasks") {
+                    TextField("1", text: maxConcurrentBinding)
+                }
+            }
+
+            HStack {
+                Button {
+                    Task { await saveAgentSettings() }
+                } label: {
+                    Label("Save Agent", systemImage: "square.and.arrow.down")
+                }
+                .buttonStyle(WeePrimaryButtonStyle())
+
+                Button {
+                    discardAgentChanges()
+                } label: {
+                    Label("Discard", systemImage: "arrow.uturn.backward")
+                }
+                .buttonStyle(WeeGhostButtonStyle())
+
+                Button {
+                    Task { await reloadAgents() }
+                } label: {
+                    Label("Reload Agents", systemImage: "arrow.clockwise")
+                }
+                .buttonStyle(WeeGhostButtonStyle())
+            }
+
+            if draftAgent != originalAgent {
+                Text("Unsaved agent changes")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(WeeTheme.gold)
+            }
+
+            if let settingsStatus {
+                Text(settingsStatus)
+                    .font(.caption)
+                    .foregroundStyle(settingsStatusIsError ? WeeTheme.danger : WeeTheme.accent)
+            }
+        }
+    }
+
+    private var permissionsSection: some View {
+        SettingsSectionBox(title: "Permissions", systemImage: "lock.shield.fill") {
+            FieldRow(title: "Mode") {
+                Picker("Mode", selection: $draftAgent.permissions.mode) {
+                    Text("elevated - full access").tag("elevated")
+                    Text("restricted - curated tools").tag("restricted")
+                    Text("sandboxed - no external access").tag("sandboxed")
+                }
+            }
+
+            DisclosureGroup("Directories") {
+                VStack(spacing: 10) {
+                    TextAreaRow(title: "Allow Read", text: allowReadBinding, minHeight: 70)
+                    TextAreaRow(title: "Allow Write", text: allowWriteBinding, minHeight: 70)
+                    TextAreaRow(title: "Deny", text: directoryDenyBinding, minHeight: 70)
+                }
+                .padding(.top, 8)
+            }
+
+            DisclosureGroup("Tools") {
+                VStack(spacing: 10) {
+                    TextAreaRow(title: "Allow", text: toolsAllowBinding, minHeight: 70)
+                    TextAreaRow(title: "Deny", text: toolsDenyBinding, minHeight: 70)
+                }
+                .padding(.top, 8)
+            }
+
+            DisclosureGroup("Network") {
+                VStack(spacing: 10) {
+                    TextAreaRow(title: "Allow URLs", text: networkAllowBinding, minHeight: 70)
+                    TextAreaRow(title: "Deny URLs", text: networkDenyBinding, minHeight: 70)
+                }
+                .padding(.top, 8)
+            }
+
+            DisclosureGroup("MCP Servers") {
+                VStack(spacing: 10) {
+                    TextAreaRow(title: "Allow", text: mcpAllowBinding, minHeight: 70)
+                    TextAreaRow(title: "Deny", text: mcpDenyBinding, minHeight: 70)
+                }
+                .padding(.top, 8)
+            }
+        }
+    }
+
+    private var environmentSection: some View {
+        SettingsSectionBox(title: "Environment Configuration", systemImage: "slider.horizontal.3") {
+            TextAreaRow(title: ".env", text: $envContent, minHeight: 220)
+
+            HStack {
+                Button {
+                    Task { await loadEnvFile() }
+                } label: {
+                    Label("Load", systemImage: "tray.and.arrow.down")
+                }
+                .buttonStyle(WeeGhostButtonStyle())
+
+                Button {
+                    Task { await saveEnvFile() }
+                } label: {
+                    Label("Save .env", systemImage: "square.and.arrow.down")
+                }
+                .buttonStyle(WeePrimaryButtonStyle())
+
+                Button(role: .destructive) {
+                    Task { await restartServices() }
+                } label: {
+                    Label("Restart Services", systemImage: "arrow.triangle.2.circlepath")
+                }
+                .buttonStyle(WeeGhostButtonStyle())
+            }
+
+            Text("Changes to .env require a service restart to take effect.")
+                .font(.caption)
+                .foregroundStyle(WeeTheme.gold)
+
+            if let envStatus {
+                Text(envStatus)
+                    .font(.caption)
+                    .foregroundStyle(envStatusIsError ? WeeTheme.danger : WeeTheme.accent)
+            }
+        }
+    }
+
+    private var connectionSummary: some View {
+        SettingsSectionBox(title: "Status", systemImage: "waveform.path.ecg") {
             HStack {
                 StatusPill(text: model.health?.status ?? "unknown", color: model.health?.status == "ok" ? WeeTheme.accent : WeeTheme.gold)
                 if let environment = model.health?.environment ?? model.appConfig?.appEnv {
@@ -203,6 +409,333 @@ struct SettingsView: View {
                     .font(.caption)
                     .foregroundStyle(WeeTheme.textMuted)
             }
+        }
+    }
+
+    private var selectedAgentBinding: Binding<String> {
+        Binding(
+            get: { selectedAgentName },
+            set: { selectAgent(named: $0) }
+        )
+    }
+
+    private var notificationToggle: Binding<Bool> {
+        Binding(
+            get: { notificationsEnabled },
+            set: { newValue in
+                notificationsEnabled = newValue
+                Task { await saveNotificationToggle(enabled: newValue) }
+            }
+        )
+    }
+
+    private var maxConcurrentBinding: Binding<String> {
+        Binding(
+            get: { draftAgent.maxConcurrent.map(String.init) ?? "" },
+            set: { value in
+                let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                draftAgent.maxConcurrent = trimmed.isEmpty ? nil : Int(trimmed)
+            }
+        )
+    }
+
+    private var runtimeOptions: [String] {
+        Array(Set(runtimeFallbacks + model.availableRuntimes.map(\.id) + model.agents.compactMap(\.primaryRuntime))).sorted()
+    }
+
+    private var allowReadBinding: Binding<String> {
+        arrayBinding(
+            get: { draftAgent.permissions.directories.allowRead },
+            set: { draftAgent.permissions.directories.allowRead = $0 }
+        )
+    }
+
+    private var allowWriteBinding: Binding<String> {
+        arrayBinding(
+            get: { draftAgent.permissions.directories.allowWrite },
+            set: { draftAgent.permissions.directories.allowWrite = $0 }
+        )
+    }
+
+    private var directoryDenyBinding: Binding<String> {
+        arrayBinding(
+            get: { draftAgent.permissions.directories.deny },
+            set: { draftAgent.permissions.directories.deny = $0 }
+        )
+    }
+
+    private var toolsAllowBinding: Binding<String> {
+        arrayBinding(
+            get: { draftAgent.permissions.tools.allow },
+            set: { draftAgent.permissions.tools.allow = $0 }
+        )
+    }
+
+    private var toolsDenyBinding: Binding<String> {
+        arrayBinding(
+            get: { draftAgent.permissions.tools.deny },
+            set: { draftAgent.permissions.tools.deny = $0 }
+        )
+    }
+
+    private var networkAllowBinding: Binding<String> {
+        arrayBinding(
+            get: { draftAgent.permissions.network.allowURLs },
+            set: { draftAgent.permissions.network.allowURLs = $0 }
+        )
+    }
+
+    private var networkDenyBinding: Binding<String> {
+        arrayBinding(
+            get: { draftAgent.permissions.network.denyURLs },
+            set: { draftAgent.permissions.network.denyURLs = $0 }
+        )
+    }
+
+    private var mcpAllowBinding: Binding<String> {
+        arrayBinding(
+            get: { draftAgent.permissions.mcp.allow },
+            set: { draftAgent.permissions.mcp.allow = $0 }
+        )
+    }
+
+    private var mcpDenyBinding: Binding<String> {
+        arrayBinding(
+            get: { draftAgent.permissions.mcp.deny },
+            set: { draftAgent.permissions.mcp.deny = $0 }
+        )
+    }
+
+    private func loadWebSettingsIfNeeded() async {
+        guard !hasLoadedWebSettings else { return }
+        hasLoadedWebSettings = true
+        await loadEnvFile()
+        await loadNotificationToggle()
+    }
+
+    private func loadAgentSettings() async {
+        do {
+            let config = try await model.client.agentsConfig()
+            agentsConfig = config
+            if let first = config.agents.first {
+                selectAgent(named: selectedAgentName.isEmpty ? first.name : selectedAgentName)
+            }
+            settingsStatus = nil
+        } catch {
+            settingsStatus = "Failed to load agents: \(error.localizedDescription)"
+            settingsStatusIsError = true
+        }
+    }
+
+    private func selectAgent(named name: String) {
+        guard let agent = agentsConfig?.agents.first(where: { $0.name == name }) else { return }
+        selectedAgentName = agent.name
+        draftAgent = agent
+        originalAgent = agent
+    }
+
+    private func addAgent() {
+        var config = agentsConfig ?? AgentsConfigResponse(agents: [])
+        let base = "new-agent"
+        var candidate = base
+        var index = 2
+        while config.agents.contains(where: { $0.name == candidate }) {
+            candidate = "\(base)-\(index)"
+            index += 1
+        }
+        let agent = AgentConfiguration(name: candidate, path: "/opt/")
+        config.agents.append(agent)
+        agentsConfig = config
+        selectedAgentName = agent.name
+        draftAgent = agent
+        originalAgent = AgentConfiguration()
+        settingsStatus = "New agent ready. Save to write it to the shared config."
+        settingsStatusIsError = false
+    }
+
+    private func saveAgentSettings() async {
+        let errors = validate(draftAgent)
+        guard errors.isEmpty else {
+            settingsStatus = errors.joined(separator: " ")
+            settingsStatusIsError = true
+            return
+        }
+
+        var config = agentsConfig ?? AgentsConfigResponse(agents: [])
+        if let index = config.agents.firstIndex(where: { $0.name == selectedAgentName }) {
+            config.agents[index] = draftAgent
+        } else {
+            config.agents.append(draftAgent)
+        }
+
+        do {
+            try await model.client.saveAgentsConfig(config)
+            agentsConfig = config
+            selectedAgentName = draftAgent.name
+            originalAgent = draftAgent
+            settingsStatus = "Agent settings saved."
+            settingsStatusIsError = false
+            await model.refreshAll()
+        } catch {
+            settingsStatus = "Save failed: \(error.localizedDescription)"
+            settingsStatusIsError = true
+        }
+    }
+
+    private func discardAgentChanges() {
+        draftAgent = originalAgent
+        settingsStatus = "Discarded local edits."
+        settingsStatusIsError = false
+    }
+
+    private func reloadAgents() async {
+        do {
+            try await model.client.reloadAgents()
+            settingsStatus = "Agents reloaded in memory."
+            settingsStatusIsError = false
+            await model.refreshAll()
+        } catch {
+            settingsStatus = "Reload failed: \(error.localizedDescription)"
+            settingsStatusIsError = true
+        }
+    }
+
+    private func deleteSelectedAgent() async {
+        guard !selectedAgentName.isEmpty, var config = agentsConfig else { return }
+        config.agents.removeAll { $0.name == selectedAgentName }
+
+        do {
+            try await model.client.saveAgentsConfig(config)
+            agentsConfig = config
+            if let first = config.agents.first {
+                selectAgent(named: first.name)
+            } else {
+                selectedAgentName = ""
+                draftAgent = AgentConfiguration()
+                originalAgent = AgentConfiguration()
+            }
+            settingsStatus = "Agent deleted."
+            settingsStatusIsError = false
+            await model.refreshAll()
+        } catch {
+            settingsStatus = "Delete failed: \(error.localizedDescription)"
+            settingsStatusIsError = true
+        }
+    }
+
+    private func loadEnvFile() async {
+        do {
+            let response = try await model.client.envSettings()
+            envContent = response.content ?? ""
+            envStatus = response.exists == false ? "No .env exists yet. Saving will create one." : nil
+            envStatusIsError = false
+        } catch {
+            envStatus = "Failed to load .env: \(error.localizedDescription)"
+            envStatusIsError = true
+        }
+    }
+
+    private func saveEnvFile() async {
+        do {
+            _ = try await model.client.saveEnvSettings(envContent)
+            envStatus = ".env saved."
+            envStatusIsError = false
+        } catch {
+            envStatus = "Failed to save .env: \(error.localizedDescription)"
+            envStatusIsError = true
+        }
+    }
+
+    private func restartServices() async {
+        do {
+            let response = try await model.client.restartServices()
+            if let results = response.results, !results.isEmpty {
+                envStatus = results.map { "\($0.key): \($0.value)" }.sorted().joined(separator: "\n")
+            } else {
+                envStatus = response.message ?? "Restart requested."
+            }
+            envStatusIsError = false
+        } catch {
+            envStatus = "Restart request sent. The API may reconnect shortly."
+            envStatusIsError = false
+        }
+    }
+
+    private func loadNotificationToggle() async {
+        do {
+            notificationsEnabled = try await model.client.notificationSettings().notificationsEnabled
+        } catch {
+            settingsStatus = "Notification setting unavailable: \(error.localizedDescription)"
+            settingsStatusIsError = true
+        }
+    }
+
+    private func saveNotificationToggle(enabled: Bool) async {
+        do {
+            notificationsEnabled = try await model.client.saveNotificationSettings(enabled: enabled).notificationsEnabled
+        } catch {
+            settingsStatus = "Notification save failed: \(error.localizedDescription)"
+            settingsStatusIsError = true
+        }
+    }
+
+    private func optionalTextBinding(_ keyPath: WritableKeyPath<AgentConfiguration, String?>) -> Binding<String> {
+        Binding(
+            get: { draftAgent[keyPath: keyPath] ?? "" },
+            set: { value in
+                let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                draftAgent[keyPath: keyPath] = trimmed.isEmpty ? nil : value
+            }
+        )
+    }
+
+    private func arrayBinding(get: @escaping () -> [String], set: @escaping ([String]) -> Void) -> Binding<String> {
+        Binding(
+            get: { get().joined(separator: "\n") },
+            set: { set(Self.parseLines($0)) }
+        )
+    }
+
+    private func validate(_ agent: AgentConfiguration) -> [String] {
+        var errors: [String] = []
+        let name = agent.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        if name.isEmpty {
+            errors.append("Name is required.")
+        } else if name.range(of: #"^[a-z0-9_-]+$"#, options: .regularExpression) == nil {
+            errors.append("Name must be lowercase with hyphens or underscores only.")
+        }
+        let path = agent.path.trimmingCharacters(in: .whitespacesAndNewlines)
+        if path.isEmpty {
+            errors.append("Working path is required.")
+        } else if !path.hasPrefix("/") && !path.hasPrefix("~") {
+            errors.append("Working path must start with / or ~.")
+        }
+        if let maxConcurrent = agent.maxConcurrent, maxConcurrent < 1 {
+            errors.append("Max concurrent must be at least 1.")
+        }
+        return errors
+    }
+
+    private static func parseLines(_ value: String) -> [String] {
+        value
+            .split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+    }
+}
+
+private struct SettingsSectionBox<Content: View>: View {
+    let title: String
+    let systemImage: String
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label(title, systemImage: systemImage)
+                .font(.headline.weight(.semibold))
+                .foregroundStyle(WeeTheme.textPrimary)
+
+            content
         }
         .padding(13)
         .background(WeeTheme.sunken, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
@@ -225,6 +758,30 @@ private struct FieldRow<Content: View>: View {
                 .foregroundStyle(WeeTheme.textPrimary)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
+                .background(WeeTheme.sunken, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(WeeTheme.glassStroke))
+        }
+    }
+}
+
+private struct TextAreaRow: View {
+    let title: String
+    @Binding var text: String
+    var minHeight: CGFloat
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            Text(title)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(WeeTheme.textMuted)
+                .textCase(.uppercase)
+
+            TextEditor(text: $text)
+                .scrollContentBackground(.hidden)
+                .foregroundStyle(WeeTheme.textPrimary)
+                .font(.system(.body, design: .monospaced))
+                .frame(minHeight: minHeight)
+                .padding(8)
                 .background(WeeTheme.sunken, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(WeeTheme.glassStroke))
         }

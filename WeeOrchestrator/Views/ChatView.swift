@@ -15,14 +15,14 @@ struct ChatView: View {
                 .padding(.horizontal, 16)
                 .padding(.top, 12)
 
-            RecentChatsRail(model: model)
-                .frame(height: 82)
-                .padding(.horizontal, 16)
-                .padding(.top, 8)
+            HStack(spacing: 12) {
+                RecentChatsRail(model: model, layout: .vertical)
+                    .frame(width: 260)
 
-            chatTranscript
-                .padding(.horizontal, 16)
-                .padding(.top, 8)
+                chatTranscript
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 8)
 
             inputBar
                 .padding(16)
@@ -69,7 +69,7 @@ struct ChatView: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 12) {
                     ForEach(model.chatMessages) { message in
-                        ChatBubble(message: message)
+                        ChatBubble(message: message, isStreaming: isStreaming(message))
                             .id(message.id)
                     }
                 }
@@ -85,6 +85,12 @@ struct ChatView: View {
                 }
             }
         }
+    }
+
+    private func isStreaming(_ message: ChatMessage) -> Bool {
+        model.isLoading
+            && message.role == .assistant
+            && model.chatMessages.last?.id == message.id
     }
 
     private var inputBar: some View {
@@ -423,52 +429,87 @@ private struct HeaderChip: View {
     }
 }
 
+private enum RecentChatsRailLayout {
+    case horizontal
+    case vertical
+}
+
 private struct RecentChatsRail: View {
     @Bindable var model: WeeAppModel
+    var layout: RecentChatsRailLayout = .horizontal
 
     var body: some View {
         if model.historySessions.isEmpty { EmptyView() }
         else {
-            ScrollView(.horizontal) {
-                HStack(spacing: 10) {
-                    ForEach(model.historySessions.prefix(12)) { session in
-                        Button {
-                            Task { await model.selectHistorySession(session) }
-                        } label: {
-                            VStack(alignment: .leading, spacing: 5) {
-                                HStack(spacing: 6) {
-                                    Text(session.displayTitle)
-                                        .font(.caption.weight(.semibold))
-                                        .lineLimit(1)
-                                    if session.sessionID == model.currentSessionID {
-                                        Image(systemName: "checkmark.circle.fill")
-                                            .font(.caption)
-                                            .foregroundStyle(WeeTheme.accent)
-                                    }
-                                }
-                                Text(session.agent ?? "agent")
-                                    .font(.caption2.weight(.medium))
-                                    .foregroundStyle(WeeTheme.gold)
-                                    .lineLimit(1)
-                                Text(session.displayPreview)
-                                    .font(.caption2)
-                                    .foregroundStyle(WeeTheme.textSecondary)
-                                    .lineLimit(1)
-                            }
-                            .frame(width: 200, alignment: .leading)
-                            .padding(10)
-                            .background(session.sessionID == model.currentSessionID ? WeeTheme.accent.opacity(0.14) : Color.white.opacity(0.055), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-                            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(session.sessionID == model.currentSessionID ? WeeTheme.accent.opacity(0.34) : WeeTheme.glassStroke))
+            switch layout {
+            case .horizontal:
+                ScrollView(.horizontal) {
+                    HStack(spacing: 10) {
+                        ForEach(model.historySessions.prefix(12)) { session in
+                            sessionButton(session, width: 200)
                         }
-                        .buttonStyle(.plain)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+                }
+                .scrollIndicators(.hidden)
+                .glassPanel()
+
+            case .vertical:
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Previous Chats")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(WeeTheme.textSecondary)
+                        .padding(.horizontal, 12)
+                        .padding(.top, 12)
+
+                    ScrollView {
+                        LazyVStack(spacing: 10) {
+                            ForEach(model.historySessions.prefix(24)) { session in
+                                sessionButton(session)
+                            }
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.bottom, 12)
+                    }
+                    .scrollIndicators(.hidden)
+                }
+                .glassPanel()
+            }
+        }
+    }
+
+    private func sessionButton(_ session: HistorySessionSummary, width: CGFloat? = nil) -> some View {
+        Button {
+            Task { await model.selectHistorySession(session) }
+        } label: {
+            VStack(alignment: .leading, spacing: 5) {
+                HStack(spacing: 6) {
+                    Text(session.displayTitle)
+                        .font(.caption.weight(.semibold))
+                        .lineLimit(1)
+                    if session.sessionID == model.currentSessionID {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.caption)
+                            .foregroundStyle(WeeTheme.accent)
                     }
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 10)
+                Text(session.agent ?? "agent")
+                    .font(.caption2.weight(.medium))
+                    .foregroundStyle(WeeTheme.gold)
+                    .lineLimit(1)
+                Text(session.displayPreview)
+                    .font(.caption2)
+                    .foregroundStyle(WeeTheme.textSecondary)
+                    .lineLimit(width == nil ? 2 : 1)
             }
-            .scrollIndicators(.hidden)
-            .glassPanel()
+            .frame(width: width, alignment: .leading)
+            .frame(maxWidth: width == nil ? .infinity : nil, alignment: .leading)
+            .padding(10)
+            .background(session.sessionID == model.currentSessionID ? WeeTheme.accent.opacity(0.14) : Color.white.opacity(0.055), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(session.sessionID == model.currentSessionID ? WeeTheme.accent.opacity(0.34) : WeeTheme.glassStroke))
         }
+        .buttonStyle(.plain)
     }
 }
 
@@ -556,6 +597,7 @@ private struct HistorySessionRow: View {
 
 private struct ChatBubble: View {
     let message: ChatMessage
+    let isStreaming: Bool
 
     var body: some View {
         HStack {
@@ -594,6 +636,11 @@ private struct ChatBubble: View {
                 if !message.text.isEmpty {
                     MarkdownText(message.text)
                 }
+
+                if isStreaming {
+                    StreamingCursor()
+                        .padding(.top, message.text.isEmpty ? 0 : 2)
+                }
             }
             .padding(13)
             .background(bubbleFill, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
@@ -619,5 +666,21 @@ private struct ChatBubble: View {
         case .assistant: Color.white.opacity(0.07)
         case .system: WeeTheme.sunken
         }
+    }
+}
+
+private struct StreamingCursor: View {
+    @State private var isVisible = true
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: 1.5, style: .continuous)
+            .fill(WeeTheme.gold)
+            .frame(width: 3, height: 18)
+            .opacity(isVisible ? 1 : 0.18)
+            .animation(.easeInOut(duration: 0.55).repeatForever(autoreverses: true), value: isVisible)
+            .task {
+                isVisible = false
+            }
+            .accessibilityLabel("Streaming response")
     }
 }

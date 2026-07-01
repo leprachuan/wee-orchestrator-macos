@@ -233,14 +233,26 @@ final class WeeAppModel {
             if let currentSessionID {
                 sessionID = currentSessionID
             } else {
-                let session = try await client.createSession(agent: selectedAgent, model: selectedModelOrNil, runtime: selectedRuntimeOrNil)
+                let desiredAgent = selectedAgent
+                let desiredRuntime = selectedRuntimeOrNil
+                let desiredModel = selectedModelOrNil
+                let session = try await client.createSession(agent: nil, model: nil, runtime: nil)
                 currentSessionID = session.sessionID
+                if let agent = session.agent, !agent.isEmpty {
+                    selectedAgent = agent
+                }
                 if let runtime = session.runtime, !runtime.isEmpty {
                     selectedRuntime = runtime
                 }
                 if let model = session.model, !model.isEmpty {
                     selectedModel = model
                 }
+                try await applyPendingSessionConfiguration(
+                    sessionID: session.sessionID,
+                    desiredAgent: desiredAgent,
+                    desiredRuntime: desiredRuntime,
+                    desiredModel: desiredModel
+                )
                 try await applySessionPermissionModeIfNeeded(sessionID: session.sessionID)
                 sessionID = session.sessionID
             }
@@ -262,12 +274,12 @@ final class WeeAppModel {
             let bytes = try await client.stream(
                 sessionID: sessionID,
                 query: query,
-                agent: selectedAgent,
-                runtime: selectedRuntimeOrNil,
-                model: selectedModelOrNil
+                agent: nil,
+                runtime: nil,
+                model: nil
             )
 
-            var accumulated = ""
+            var rawStreamText = ""
             for try await line in bytes.lines {
                 guard line.hasPrefix("data: ") else { continue }
                 let json = String(line.dropFirst(6))
@@ -277,15 +289,16 @@ final class WeeAppModel {
                 switch event.type {
                 case "chunk":
                     if let text = event.text {
-                        let cleaned = filterRawProtocolLines(text)
+                        rawStreamText += text
+                        let cleaned = preferredFinalStreamText(accumulated: rawStreamText, doneResponse: nil)
                         if !cleaned.isEmpty {
-                            accumulated += cleaned
-                            chatMessages[streamIndex].text = accumulated
+                            chatMessages[streamIndex].text = cleaned
                         }
                     }
                 case "done":
-                    if let full = event.response {
-                        chatMessages[streamIndex].text = full
+                    let finalText = preferredFinalStreamText(accumulated: rawStreamText, doneResponse: event.response)
+                    if !finalText.isEmpty {
+                        chatMessages[streamIndex].text = finalText
                     }
                     if let runtime = event.runtime, !runtime.isEmpty {
                         selectedRuntime = runtime
@@ -299,7 +312,8 @@ final class WeeAppModel {
             }
 
             if chatMessages[streamIndex].text.isEmpty {
-                chatMessages[streamIndex].text = accumulated.isEmpty ? "(empty response)" : accumulated
+                let finalText = preferredFinalStreamText(accumulated: rawStreamText, doneResponse: nil)
+                chatMessages[streamIndex].text = finalText.isEmpty ? "(empty response)" : finalText
             }
 
             saveConfiguration()
@@ -324,7 +338,10 @@ final class WeeAppModel {
         defer { isLoading = false }
 
         do {
-            let session = try await client.createSession(agent: selectedAgent, model: selectedModelOrNil, runtime: selectedRuntimeOrNil)
+            let desiredAgent = selectedAgent
+            let desiredRuntime = selectedRuntimeOrNil
+            let desiredModel = selectedModelOrNil
+            let session = try await client.createSession(agent: nil, model: nil, runtime: nil)
             currentSessionID = session.sessionID
             if let agent = session.agent, !agent.isEmpty {
                 selectedAgent = agent
@@ -335,6 +352,12 @@ final class WeeAppModel {
             if let model = session.model, !model.isEmpty {
                 selectedModel = model
             }
+            try await applyPendingSessionConfiguration(
+                sessionID: session.sessionID,
+                desiredAgent: desiredAgent,
+                desiredRuntime: desiredRuntime,
+                desiredModel: desiredModel
+            )
             try await applySessionPermissionModeIfNeeded(sessionID: session.sessionID)
             saveConfiguration()
             chatMessages = [ChatMessage(role: .system, text: "New chat ready.")]
@@ -786,6 +809,29 @@ final class WeeAppModel {
         _ = try await client.execute(sessionID: sessionID, query: "/mode \(selectedPermissionMode)", agent: nil, runtime: nil, model: nil)
     }
 
+    private func applyPendingSessionConfiguration(
+        sessionID: String,
+        desiredAgent: String,
+        desiredRuntime: String?,
+        desiredModel: String?
+    ) async throws {
+        let trimmedAgent = desiredAgent.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedAgent.isEmpty, trimmedAgent != selectedAgent {
+            _ = try await client.execute(sessionID: sessionID, query: "/agent set \(trimmedAgent)", agent: nil, runtime: nil, model: nil)
+        }
+
+        if let runtime = desiredRuntime?.trimmingCharacters(in: .whitespacesAndNewlines), !runtime.isEmpty {
+            _ = try await client.execute(sessionID: sessionID, query: "/runtime set \(runtime)", agent: nil, runtime: nil, model: nil)
+        }
+
+        if let model = desiredModel?.trimmingCharacters(in: .whitespacesAndNewlines), !model.isEmpty {
+            let escaped = model.replacingOccurrences(of: "\"", with: "\\\"")
+            _ = try await client.execute(sessionID: sessionID, query: "/model set \"\(escaped)\"", agent: nil, runtime: nil, model: nil)
+        }
+
+        await refreshSessionStatus(sessionID: sessionID)
+    }
+
     private func runSessionConfigurationCommand(
         command: String,
         afterSuccess: @escaping @MainActor () async -> Void = {}
@@ -831,25 +877,108 @@ final class WeeAppModel {
 
     // MARK: - Stream Helpers
 
-    private func filterRawProtocolLines(_ text: String) -> String {
-        text.split(separator: "\n", omittingEmptySubsequences: false)
-            .filter { line in
-                let trimmed = line.trimmingCharacters(in: .whitespaces)
-                guard trimmed.hasPrefix("{"), let data = trimmed.data(using: .utf8),
-                      let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                      let type = obj["type"] as? String else {
-                    return true
+    private func preferredFinalStreamText(accumulated: String, doneResponse: String?) -> String {
+        let normalizedAccumulated = normalizeCodexStreamText(accumulated)
+        if !normalizedAccumulated.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return normalizedAccumulated
+        }
+        return normalizeCodexStreamText(doneResponse ?? "")
+    }
+
+    private func normalizeCodexStreamText(_ text: String) -> String {
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return ""
+        }
+        let isCodexTransport = looksLikeCodexTransportFrames(text)
+        guard isCodexTransport else {
+            return text
+        }
+
+        var output: [String] = []
+        for line in text.split(separator: "\n", omittingEmptySubsequences: false) {
+            let lineText = String(line)
+            let trimmed = lineText.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { continue }
+            guard trimmed.hasPrefix("{") else {
+                output.append(lineText)
+                continue
+            }
+            guard let event = parseJSONDictionary(trimmed) else {
+                if isCodexTransport == false {
+                    output.append(lineText)
                 }
-                if type == "agent_message", let text = obj["text"] as? String, !text.isEmpty {
-                    return true
-                }
-                if ["thread.started", "turn.started", "turn.completed", "turn.failed",
-                    "item.completed", "item.started", "error"].contains(type) {
-                    return false
-                }
+                continue
+            }
+
+            if let agentText = agentMessageText(from: event), !agentText.isEmpty {
+                output.append(agentText)
+            } else if let responseText = responseText(from: event), !responseText.isEmpty {
+                output.append(responseText)
+            }
+        }
+        return output.joined(separator: "\n")
+    }
+
+    private func looksLikeCodexTransportFrames(_ text: String) -> Bool {
+        for line in text.split(separator: "\n", omittingEmptySubsequences: false) {
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard trimmed.hasPrefix("{"), let event = parseJSONDictionary(String(trimmed)) else {
+                continue
+            }
+            if let type = event["type"] as? String,
+               codexTransportEventTypes.contains(type) || agentMessageText(from: event) != nil || responseText(from: event) != nil {
                 return true
             }
-            .joined(separator: "\n")
+        }
+        return false
+    }
+
+    private var codexTransportEventTypes: Set<String> {
+        [
+            "thread.started", "thread.completed", "turn.started", "turn.completed", "turn.failed",
+            "item.started", "item.completed", "response.started", "response.completed"
+        ]
+    }
+
+    private func agentMessageText(from event: [String: Any]) -> String? {
+        if event["type"] as? String == "agent_message" {
+            return event["text"] as? String
+        }
+        guard event["type"] as? String == "item.completed",
+              let item = event["item"] as? [String: Any],
+              item["type"] as? String == "agent_message" else {
+            return nil
+        }
+        return item["text"] as? String
+    }
+
+    private func responseText(from event: [String: Any]) -> String? {
+        if let text = event["text"] as? String {
+            return text
+        }
+        if let delta = event["delta"] as? [String: Any],
+           let text = (delta["text"] as? String) ?? (delta["content"] as? String) {
+            return text
+        }
+        if let item = event["item"] as? [String: Any],
+           let text = item["text"] as? String {
+            return text
+        }
+        if let response = event["response"] as? [String: Any] {
+            return responseText(from: response)
+        }
+        if let output = event["output"] as? [[String: Any]] {
+            return output.compactMap { responseText(from: $0) }.joined(separator: "\n")
+        }
+        if let content = event["content"] as? [[String: Any]] {
+            return content.compactMap { responseText(from: $0) }.joined(separator: "\n")
+        }
+        return nil
+    }
+
+    private func parseJSONDictionary(_ text: String) -> [String: Any]? {
+        guard let data = text.data(using: .utf8) else { return nil }
+        return try? JSONSerialization.jsonObject(with: data) as? [String: Any]
     }
 
     // MARK: - Notifications

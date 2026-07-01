@@ -20,6 +20,7 @@ struct MarkdownText: View {
         case code(language: String, content: String)
         case heading(level: Int, text: String)
         case listItem(text: String)
+        case table(headers: [String], rows: [[String]])
         case image(alt: String, url: URL)
     }
 
@@ -27,7 +28,7 @@ struct MarkdownText: View {
 
     private var blocks: [Block] {
         var result: [Block] = []
-        var lines = source.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        let lines = source.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
         var i = 0
 
         while i < lines.count {
@@ -58,6 +59,15 @@ struct MarkdownText: View {
             } else if let match = line.wholeMatch(of: /^\d+\.\s+(.*)/) {
                 result.append(.listItem(text: String(match.1)))
                 i += 1
+            } else if isTableStart(at: i, in: lines) {
+                let headers = splitTableRow(lines[i])
+                var rows: [[String]] = []
+                i += 2
+                while i < lines.count && isTableRow(lines[i]) {
+                    rows.append(splitTableRow(lines[i]))
+                    i += 1
+                }
+                result.append(.table(headers: headers, rows: rows))
             } else {
                 var para: [String] = []
                 while i < lines.count &&
@@ -66,7 +76,9 @@ struct MarkdownText: View {
                       !lines[i].hasPrefix("## ") &&
                       !lines[i].hasPrefix("### ") &&
                       !lines[i].hasPrefix("- ") &&
-                      !lines[i].hasPrefix("* ") {
+                      !lines[i].hasPrefix("* ") &&
+                      lines[i].wholeMatch(of: /^\d+\.\s+(.*)/) == nil &&
+                      !isTableStart(at: i, in: lines) {
                     if lines[i].isEmpty && !para.isEmpty { break }
                     para.append(lines[i])
                     i += 1
@@ -80,6 +92,38 @@ struct MarkdownText: View {
             }
         }
         return result
+    }
+
+    private func isTableStart(at index: Int, in lines: [String]) -> Bool {
+        guard index + 1 < lines.count else { return false }
+        let headers = splitTableRow(lines[index])
+        guard headers.count >= 2 else { return false }
+        return isTableSeparator(lines[index + 1])
+    }
+
+    private func isTableRow(_ line: String) -> Bool {
+        splitTableRow(line).count >= 2
+    }
+
+    private func splitTableRow(_ line: String) -> [String] {
+        var trimmed = line.trimmingCharacters(in: .whitespaces)
+        guard trimmed.contains("|") else { return [] }
+        if trimmed.hasPrefix("|") { trimmed.removeFirst() }
+        if trimmed.hasSuffix("|") { trimmed.removeLast() }
+        return trimmed
+            .split(separator: "|", omittingEmptySubsequences: false)
+            .map { String($0).trimmingCharacters(in: .whitespaces) }
+    }
+
+    private func isTableSeparator(_ line: String) -> Bool {
+        let cells = splitTableRow(line)
+        guard cells.count >= 2 else { return false }
+        return cells.allSatisfy { cell in
+            let stripped = cell
+                .replacingOccurrences(of: ":", with: "")
+                .trimmingCharacters(in: .whitespaces)
+            return stripped.count >= 3 && stripped.allSatisfy { $0 == "-" }
+        }
     }
 
     private func extractImages(from text: String) -> [Block] {
@@ -141,6 +185,9 @@ struct MarkdownText: View {
                 renderInline(stripImageSyntax(text))
             }
 
+        case .table(let headers, let rows):
+            tableView(headers: headers, rows: rows)
+
         case .image(let alt, let url):
             AsyncImage(url: url) { phase in
                 switch phase {
@@ -170,6 +217,34 @@ struct MarkdownText: View {
                     }
                     .padding(8)
                 }
+            }
+        }
+    }
+
+    private func tableView(headers: [String], rows: [[String]]) -> some View {
+        let columnCount = max(headers.count, rows.map(\.count).max() ?? 0)
+        return ScrollView(.horizontal) {
+            VStack(alignment: .leading, spacing: 0) {
+                tableRow(headers, columnCount: columnCount, isHeader: true)
+                ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                    tableRow(row, columnCount: columnCount, isHeader: false)
+                }
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(WeeTheme.glassStroke))
+        }
+        .scrollIndicators(.hidden)
+    }
+
+    private func tableRow(_ cells: [String], columnCount: Int, isHeader: Bool) -> some View {
+        HStack(alignment: .top, spacing: 0) {
+            ForEach(0..<columnCount, id: \.self) { column in
+                renderInline(column < cells.count ? cells[column] : "")
+                    .font(isHeader ? .caption.bold() : .caption)
+                    .frame(minWidth: 120, maxWidth: 240, alignment: .leading)
+                    .padding(8)
+                    .background(isHeader ? Color.white.opacity(0.08) : Color.clear)
+                    .overlay(Rectangle().stroke(WeeTheme.glassStroke.opacity(0.7)))
             }
         }
     }

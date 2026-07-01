@@ -93,6 +93,165 @@ struct AgentsResponse: Decodable {
     let agents: [AgentSummary]
 }
 
+struct AgentsConfigResponse: Codable, Equatable {
+    var agents: [AgentConfiguration]
+}
+
+struct AgentConfiguration: Codable, Identifiable, Equatable {
+    var id: String { name }
+    var name: String
+    var path: String
+    var description: String?
+    var primaryRuntime: String?
+    var primaryModel: String?
+    var fallbackRuntime: String?
+    var fallbackModel: String?
+    var maxConcurrent: Int?
+    var permissions: AgentPermissions
+
+    enum CodingKeys: String, CodingKey {
+        case name
+        case path
+        case description
+        case runtime
+        case model
+        case primaryRuntime = "primary_runtime"
+        case primaryModel = "primary_model"
+        case fallbackRuntime = "fallback_runtime"
+        case fallbackModel = "fallback_model"
+        case maxConcurrent = "max_concurrent"
+        case permissions
+    }
+
+    init(
+        name: String = "new-agent",
+        path: String = "/opt/",
+        description: String? = nil,
+        primaryRuntime: String? = nil,
+        primaryModel: String? = nil,
+        fallbackRuntime: String? = nil,
+        fallbackModel: String? = nil,
+        maxConcurrent: Int? = 1,
+        permissions: AgentPermissions = .defaultRestricted
+    ) {
+        self.name = name
+        self.path = path
+        self.description = description
+        self.primaryRuntime = primaryRuntime
+        self.primaryModel = primaryModel
+        self.fallbackRuntime = fallbackRuntime
+        self.fallbackModel = fallbackModel
+        self.maxConcurrent = maxConcurrent
+        self.permissions = permissions
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        name = try container.decodeIfPresent(String.self, forKey: .name) ?? "new-agent"
+        path = try container.decodeIfPresent(String.self, forKey: .path) ?? "/opt/"
+        description = try container.decodeIfPresent(String.self, forKey: .description)
+        primaryRuntime = try container.decodeIfPresent(String.self, forKey: .primaryRuntime)
+            ?? container.decodeIfPresent(String.self, forKey: .runtime)
+        primaryModel = try container.decodeIfPresent(String.self, forKey: .primaryModel)
+            ?? container.decodeIfPresent(String.self, forKey: .model)
+        fallbackRuntime = try container.decodeIfPresent(String.self, forKey: .fallbackRuntime)
+        fallbackModel = try container.decodeIfPresent(String.self, forKey: .fallbackModel)
+        maxConcurrent = try container.decodeIfPresent(Int.self, forKey: .maxConcurrent)
+        permissions = try container.decodeIfPresent(AgentPermissions.self, forKey: .permissions) ?? .defaultRestricted
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(name, forKey: .name)
+        try container.encode(path, forKey: .path)
+        try container.encodeIfPresent(description.nilIfBlank, forKey: .description)
+        try container.encodeIfPresent(primaryRuntime.nilIfBlank, forKey: .primaryRuntime)
+        try container.encodeIfPresent(primaryModel.nilIfBlank, forKey: .primaryModel)
+        try container.encodeIfPresent(fallbackRuntime.nilIfBlank, forKey: .fallbackRuntime)
+        try container.encodeIfPresent(fallbackModel.nilIfBlank, forKey: .fallbackModel)
+        try container.encodeIfPresent(maxConcurrent, forKey: .maxConcurrent)
+        try container.encode(permissions, forKey: .permissions)
+    }
+}
+
+struct AgentPermissions: Codable, Equatable {
+    var mode: String
+    var directories: DirectoryPermissions
+    var tools: ToolsPermissions
+    var network: NetworkPermissions
+    var mcp: MCPPermissions
+
+    static let defaultRestricted = AgentPermissions(
+        mode: "restricted",
+        directories: DirectoryPermissions(),
+        tools: ToolsPermissions(allow: ["*"], deny: []),
+        network: NetworkPermissions(allowURLs: ["*"], denyURLs: []),
+        mcp: MCPPermissions(allow: [], deny: ["*"])
+    )
+}
+
+struct DirectoryPermissions: Codable, Equatable {
+    var allowRead: [String] = []
+    var allowWrite: [String] = []
+    var deny: [String] = []
+
+    enum CodingKeys: String, CodingKey {
+        case allowRead = "allow_read"
+        case allowWrite = "allow_write"
+        case deny
+    }
+}
+
+struct ToolsPermissions: Codable, Equatable {
+    var allow: [String] = []
+    var deny: [String] = []
+}
+
+struct NetworkPermissions: Codable, Equatable {
+    var allowURLs: [String] = []
+    var denyURLs: [String] = []
+
+    enum CodingKeys: String, CodingKey {
+        case allowURLs = "allow_urls"
+        case denyURLs = "deny_urls"
+    }
+}
+
+struct MCPPermissions: Codable, Equatable {
+    var allow: [String] = []
+    var deny: [String] = []
+}
+
+struct EmptyAPIResponse: Decodable {}
+
+struct EnvSettingsResponse: Decodable, Equatable {
+    let content: String?
+    let exists: Bool?
+}
+
+struct EnvSettingsUpdateRequest: Encodable {
+    let content: String
+}
+
+struct RestartServicesResponse: Decodable, Equatable {
+    let results: [String: String]?
+    let message: String?
+}
+
+struct NotificationSettingsResponse: Codable, Equatable {
+    var notificationsEnabled: Bool
+    let updatedAt: String?
+    let available: Bool?
+    let message: String?
+
+    enum CodingKeys: String, CodingKey {
+        case notificationsEnabled = "notifications_enabled"
+        case updatedAt = "updated_at"
+        case available
+        case message
+    }
+}
+
 struct RuntimeEntry: Decodable, Identifiable, Hashable {
     let id: String
     let label: String?
@@ -164,6 +323,15 @@ struct AgentSummary: Decodable, Identifiable, Hashable {
         case path
         case primaryRuntime = "primary_runtime"
         case primaryModel = "primary_model"
+    }
+}
+
+private extension Optional where Wrapped == String {
+    var nilIfBlank: String? {
+        guard let value = self?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else {
+            return nil
+        }
+        return value
     }
 }
 
@@ -722,6 +890,13 @@ struct CreateSessionResponse: Decodable {
 struct ExecuteRequest: Encodable {
     let query: String
     let timeout: Int?
+    let model: String?
+    let runtime: String?
+    let agent: String?
+}
+
+struct StreamRequest: Encodable {
+    let query: String
     let model: String?
     let runtime: String?
     let agent: String?

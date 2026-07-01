@@ -17,11 +17,25 @@ enum WeeAPIError: LocalizedError {
     }
 }
 
-final class InsecureSessionDelegate: NSObject, URLSessionDelegate {
+final class InsecureSessionDelegate: NSObject, URLSessionDelegate, URLSessionTaskDelegate {
     func urlSession(
         _ session: URLSession,
         didReceive challenge: URLAuthenticationChallenge
     ) async -> (URLSession.AuthChallengeDisposition, URLCredential?) {
+        serverTrustCredential(for: challenge)
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        didReceive challenge: URLAuthenticationChallenge
+    ) async -> (URLSession.AuthChallengeDisposition, URLCredential?) {
+        serverTrustCredential(for: challenge)
+    }
+
+    private func serverTrustCredential(
+        for challenge: URLAuthenticationChallenge
+    ) -> (URLSession.AuthChallengeDisposition, URLCredential?) {
         guard challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust,
               let trust = challenge.protectionSpace.serverTrust else {
             return (.performDefaultHandling, nil)
@@ -59,6 +73,38 @@ struct WeeAPIClient {
     func agents() async throws -> [AgentSummary] {
         let response: AgentsResponse = try await request("GET", path: "/api/v1/agents")
         return response.agents
+    }
+
+    func agentsConfig() async throws -> AgentsConfigResponse {
+        try await request("GET", path: "/api/v1/agents-config")
+    }
+
+    func saveAgentsConfig(_ config: AgentsConfigResponse) async throws {
+        let _: EmptyAPIResponse = try await request("PUT", path: "/api/v1/agents-config", body: config)
+    }
+
+    func reloadAgents() async throws {
+        let _: EmptyAPIResponse = try await request("POST", path: "/api/v1/reload-agents", body: Optional<String>.none)
+    }
+
+    func envSettings() async throws -> EnvSettingsResponse {
+        try await request("GET", path: "/api/v1/settings/env")
+    }
+
+    func saveEnvSettings(_ content: String) async throws -> EmptyAPIResponse {
+        try await request("PUT", path: "/api/v1/settings/env", body: EnvSettingsUpdateRequest(content: content))
+    }
+
+    func restartServices() async throws -> RestartServicesResponse {
+        try await request("POST", path: "/api/v1/settings/restart-services", body: Optional<String>.none)
+    }
+
+    func notificationSettings() async throws -> NotificationSettingsResponse {
+        try await request("GET", path: "/api/v1/settings/notifications")
+    }
+
+    func saveNotificationSettings(enabled: Bool) async throws -> NotificationSettingsResponse {
+        try await request("PUT", path: "/api/v1/settings/notifications", body: NotificationSettingsResponse(notificationsEnabled: enabled, updatedAt: nil, available: nil, message: nil))
     }
 
     func runtimes() async throws -> [RuntimeEntry] {
@@ -222,7 +268,7 @@ struct WeeAPIClient {
             request.setValue(configuration.channel, forHTTPHeaderField: "X-Auth-Channel")
         }
 
-        let body = ExecuteRequest(query: query, timeout: 900, model: model, runtime: runtime, agent: agent)
+        let body = StreamRequest(query: query, model: model, runtime: runtime, agent: agent)
         request.httpBody = try JSONEncoder().encode(body)
 
         let (bytes, response) = try await session.bytes(for: request)
