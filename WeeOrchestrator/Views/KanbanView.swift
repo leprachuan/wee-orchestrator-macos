@@ -77,6 +77,7 @@ struct KanbanView: View {
     private var header: some View {
         PageHeader(title: "Kanban", subtitle: "Plan, prioritize, and dispatch work", symbol: "rectangle.3.group.fill") {
             HStack(spacing: 5) {
+                StatusPill(text: model.activeEnvironment.title, color: WeeTheme.accent, symbol: model.activeEnvironment.symbol)
                 StatusPill(text: "\(visibleColumns.reduce(0) { $0 + cards(for: $1).count }) shown", color: WeeTheme.accent, symbol: "rectangle.3.group")
                 StatusPill(text: "\(dueCount) due", color: dueCount > 0 ? WeeTheme.gold : WeeTheme.textSecondary, symbol: "bell.badge")
                 if activeFilterCount > 0 {

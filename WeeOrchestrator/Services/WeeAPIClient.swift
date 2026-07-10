@@ -87,6 +87,26 @@ struct WeeAPIClient {
         let _: EmptyAPIResponse = try await request("POST", path: "/api/v1/reload-agents", body: Optional<String>.none)
     }
 
+    func botTokenStatus(agent: String, channel: String) async throws -> BotTokenStatus {
+        try await request("GET", path: "/api/v1/agents/\(agent)/bots/\(channel)/token-status")
+    }
+
+    func saveBotToken(agent: String, channel: String, token: String, allowedUsers: [String]) async throws {
+        let _: EmptyAPIResponse = try await request(
+            "PUT",
+            path: "/api/v1/agents/\(agent)/bots/\(channel)/token",
+            body: BotTokenUpdateRequest(token: token, allowedUsers: allowedUsers)
+        )
+    }
+
+    func deleteBotToken(agent: String, channel: String) async throws {
+        let _: EmptyAPIResponse = try await request(
+            "DELETE",
+            path: "/api/v1/agents/\(agent)/bots/\(channel)/token",
+            body: Optional<String>.none
+        )
+    }
+
     func envSettings() async throws -> EnvSettingsResponse {
         try await request("GET", path: "/api/v1/settings/env")
     }

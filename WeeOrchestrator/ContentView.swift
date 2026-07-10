@@ -107,6 +107,16 @@ struct ContentView: View {
                         .foregroundStyle(WeeTheme.textPrimary)
                 }
 
+                HStack(spacing: 6) {
+                    Image(systemName: model.activeEnvironment.symbol)
+                    Text("\(model.activeEnvironment.title) API")
+                    Spacer()
+                    Text(model.agents.count.description)
+                        .foregroundStyle(WeeTheme.accent)
+                }
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(WeeTheme.textSecondary)
+
                 HStack {
                     Text(model.health?.environment ?? model.appConfig?.appEnv ?? "Not connected")
                         .font(.caption2)

@@ -17,6 +17,53 @@ struct APIConfiguration: Equatable {
     )
 }
 
+enum WeeEnvironment: String, CaseIterable, Identifiable, Codable {
+    case local
+    case remote
+
+    var id: String { rawValue }
+    var title: String { rawValue.capitalized }
+    var symbol: String { self == .local ? "desktopcomputer" : "network" }
+}
+
+struct LocalAPIServiceConfiguration: Equatable, Codable {
+    var executablePath: String
+    var arguments: String
+    var workingDirectory: String
+    var autoStart: Bool
+
+    static let defaults = LocalAPIServiceConfiguration(
+        executablePath: "/opt/homebrew/bin/python3",
+        arguments: "agent_manager.py --api",
+        workingDirectory: "/opt/n8n-copilot-shim-dev",
+        autoStart: false
+    )
+}
+
+struct BotTokenStatus: Decodable, Equatable {
+    let agent: String
+    let channel: String
+    let configured: Bool
+    let secretName: String?
+    let allowedUsers: [String]
+
+    enum CodingKeys: String, CodingKey {
+        case agent, channel, configured
+        case secretName = "secret_name"
+        case allowedUsers = "allowed_users"
+    }
+}
+
+struct BotTokenUpdateRequest: Encodable {
+    let token: String
+    let allowedUsers: [String]
+
+    enum CodingKeys: String, CodingKey {
+        case token
+        case allowedUsers = "allowed_users"
+    }
+}
+
 struct PairingRequest: Encodable {
     let identity: String
     let channel: String

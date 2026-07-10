@@ -5,7 +5,15 @@ import UserNotifications
 @MainActor
 @Observable
 final class WeeAppModel {
-    var configuration: APIConfiguration
+    var activeEnvironment: WeeEnvironment
+    var localConfiguration: APIConfiguration
+    var remoteConfiguration: APIConfiguration
+    var localServiceConfiguration: LocalAPIServiceConfiguration
+    var localAgents: [AgentSummary] = []
+    var remoteAgents: [AgentSummary] = []
+    var isLocalServiceRunning = false
+    var localServiceStatus = "Stopped"
+    var localServiceLog = ""
     var health: HealthResponse?
     var appConfig: AppConfigResponse?
     var agents: [AgentSummary] = []
@@ -34,17 +42,43 @@ final class WeeAppModel {
 
     private let defaults = UserDefaults.standard
     private var previousTaskStatuses: [String: String] = [:]
+    @ObservationIgnored private var localAPIProcess: Process?
+    @ObservationIgnored private var localLogPipe: Pipe?
+
+    var configuration: APIConfiguration {
+        get { activeEnvironment == .local ? localConfiguration : remoteConfiguration }
+        set {
+            if activeEnvironment == .local { localConfiguration = newValue }
+            else { remoteConfiguration = newValue }
+        }
+    }
 
     init() {
-        let storedToken = KeychainStore.loadToken()
-        configuration = APIConfiguration(
+        activeEnvironment = WeeEnvironment(rawValue: defaults.string(forKey: "wee.activeEnvironment") ?? "remote") ?? .remote
+        let remoteToken = KeychainStore.loadSecret(account: "api-token-remote")
+        let legacyToken = KeychainStore.loadToken()
+        remoteConfiguration = APIConfiguration(
             baseURLString: defaults.string(forKey: "wee.baseURL") ?? APIConfiguration.defaults.baseURLString,
-            token: storedToken.isEmpty ? Self.launchToken : storedToken,
+            token: remoteToken.isEmpty ? (legacyToken.isEmpty ? Self.launchToken : legacyToken) : remoteToken,
             identity: defaults.string(forKey: "wee.identity") ?? APIConfiguration.defaults.identity,
             channel: defaults.string(forKey: "wee.channel") ?? APIConfiguration.defaults.channel,
             allowInsecureTLS: defaults.object(forKey: "wee.allowInsecureTLS") as? Bool ?? APIConfiguration.defaults.allowInsecureTLS
         )
-        selectedAgent = defaults.string(forKey: "wee.selectedAgent") ?? "orchestrator"
+        localConfiguration = APIConfiguration(
+            baseURLString: defaults.string(forKey: "wee.local.baseURL") ?? "http://127.0.0.1:8001",
+            token: KeychainStore.loadSecret(account: "api-token-local"),
+            identity: defaults.string(forKey: "wee.local.identity") ?? "local-macos",
+            channel: defaults.string(forKey: "wee.local.channel") ?? "webui",
+            allowInsecureTLS: defaults.object(forKey: "wee.local.allowInsecureTLS") as? Bool ?? false
+        )
+        localServiceConfiguration = LocalAPIServiceConfiguration(
+            executablePath: defaults.string(forKey: "wee.localService.executable") ?? LocalAPIServiceConfiguration.defaults.executablePath,
+            arguments: defaults.string(forKey: "wee.localService.arguments") ?? LocalAPIServiceConfiguration.defaults.arguments,
+            workingDirectory: defaults.string(forKey: "wee.localService.workingDirectory") ?? LocalAPIServiceConfiguration.defaults.workingDirectory,
+            autoStart: defaults.bool(forKey: "wee.localService.autoStart")
+        )
+        selectedAgent = defaults.string(forKey: "wee.selectedAgent.\(activeEnvironment.rawValue)")
+            ?? defaults.string(forKey: "wee.selectedAgent") ?? "orchestrator"
         selectedRuntime = defaults.string(forKey: "wee.selectedRuntime") ?? ""
         selectedModel = defaults.string(forKey: "wee.selectedModel") ?? ""
         selectedPermissionMode = defaults.string(forKey: "wee.selectedPermissionMode") ?? "restricted"
@@ -54,12 +88,18 @@ final class WeeAppModel {
         WeeAPIClient(configuration: configuration)
     }
 
+    func client(for environment: WeeEnvironment) -> WeeAPIClient {
+        WeeAPIClient(configuration: environment == .local ? localConfiguration : remoteConfiguration)
+    }
+
     var isAuthenticated: Bool {
         hasAuthToken
     }
 
     func bootstrap() async {
         await requestNotificationPermission()
+        if localServiceConfiguration.autoStart { startLocalAPI() }
+        await refreshAgentSources()
         await refreshAll(useMockOnFailure: true)
     }
 
@@ -69,15 +109,167 @@ final class WeeAppModel {
     }
 
     func saveConfiguration() {
-        defaults.set(configuration.baseURLString, forKey: "wee.baseURL")
-        defaults.set(configuration.identity, forKey: "wee.identity")
-        defaults.set(configuration.channel, forKey: "wee.channel")
-        defaults.set(configuration.allowInsecureTLS, forKey: "wee.allowInsecureTLS")
-        defaults.set(selectedAgent, forKey: "wee.selectedAgent")
+        defaults.set(activeEnvironment.rawValue, forKey: "wee.activeEnvironment")
+        defaults.set(remoteConfiguration.baseURLString, forKey: "wee.baseURL")
+        defaults.set(remoteConfiguration.identity, forKey: "wee.identity")
+        defaults.set(remoteConfiguration.channel, forKey: "wee.channel")
+        defaults.set(remoteConfiguration.allowInsecureTLS, forKey: "wee.allowInsecureTLS")
+        defaults.set(localConfiguration.baseURLString, forKey: "wee.local.baseURL")
+        defaults.set(localConfiguration.identity, forKey: "wee.local.identity")
+        defaults.set(localConfiguration.channel, forKey: "wee.local.channel")
+        defaults.set(localConfiguration.allowInsecureTLS, forKey: "wee.local.allowInsecureTLS")
+        defaults.set(localServiceConfiguration.executablePath, forKey: "wee.localService.executable")
+        defaults.set(localServiceConfiguration.arguments, forKey: "wee.localService.arguments")
+        defaults.set(localServiceConfiguration.workingDirectory, forKey: "wee.localService.workingDirectory")
+        defaults.set(localServiceConfiguration.autoStart, forKey: "wee.localService.autoStart")
+        defaults.set(selectedAgent, forKey: "wee.selectedAgent.\(activeEnvironment.rawValue)")
         defaults.set(selectedRuntime, forKey: "wee.selectedRuntime")
         defaults.set(selectedModel, forKey: "wee.selectedModel")
         defaults.set(selectedPermissionMode, forKey: "wee.selectedPermissionMode")
-        KeychainStore.saveToken(configuration.token)
+        KeychainStore.saveSecret(remoteConfiguration.token, account: "api-token-remote")
+        KeychainStore.saveSecret(localConfiguration.token, account: "api-token-local")
+    }
+
+    func switchEnvironment(to environment: WeeEnvironment) async {
+        guard environment != activeEnvironment else { return }
+        defaults.set(selectedAgent, forKey: "wee.selectedAgent.\(activeEnvironment.rawValue)")
+        activeEnvironment = environment
+        selectedAgent = defaults.string(forKey: "wee.selectedAgent.\(environment.rawValue)")
+            ?? agents(for: environment).first?.name ?? "orchestrator"
+        currentSessionID = nil
+        chatMessages = [ChatMessage(role: .system, text: "Switched to the \(environment.title) environment.")]
+        health = nil
+        appConfig = nil
+        tasks = []
+        scheduledJobs = []
+        historySessions = []
+        kanbanBoard = nil
+        agents = agents(for: environment)
+        saveConfiguration()
+        await refreshAll()
+    }
+
+    func agents(for environment: WeeEnvironment) -> [AgentSummary] {
+        environment == .local ? localAgents : remoteAgents
+    }
+
+    func refreshAgentSources() async {
+        async let localResult: [AgentSummary]? = try? client(for: .local).agents()
+        async let remoteResult: [AgentSummary]? = try? client(for: .remote).agents()
+        if let values = await localResult { localAgents = values }
+        if let values = await remoteResult { remoteAgents = values }
+        agents = agents(for: activeEnvironment)
+    }
+
+    func testConnection(_ environment: WeeEnvironment) async -> String {
+        do {
+            let response = try await client(for: environment).health()
+            return response.status == "ok" ? "Connected" : "Status: \(response.status)"
+        } catch {
+            return error.localizedDescription
+        }
+    }
+
+    func startLocalAPI() {
+        guard localAPIProcess?.isRunning != true else {
+            localServiceStatus = "Already running"
+            return
+        }
+
+        let executable = localServiceConfiguration.executablePath.trimmingCharacters(in: .whitespacesAndNewlines)
+        let workingDirectory = localServiceConfiguration.workingDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard FileManager.default.isExecutableFile(atPath: executable) else {
+            localServiceStatus = "Executable not found or not executable"
+            return
+        }
+        guard FileManager.default.fileExists(atPath: workingDirectory) else {
+            localServiceStatus = "Working directory not found"
+            return
+        }
+
+        let process = Process()
+        let pipe = Pipe()
+        process.executableURL = URL(fileURLWithPath: executable)
+        process.arguments = Self.parseCommandLine(localServiceConfiguration.arguments)
+        process.currentDirectoryURL = URL(fileURLWithPath: workingDirectory, isDirectory: true)
+        process.standardOutput = pipe
+        process.standardError = pipe
+        process.environment = ProcessInfo.processInfo.environment.merging([
+            "PYTHONUNBUFFERED": "1"
+        ]) { _, configured in configured }
+
+        pipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
+            let data = handle.availableData
+            guard !data.isEmpty, let text = String(data: data, encoding: .utf8) else { return }
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.localServiceLog = String((self.localServiceLog + text).suffix(20_000))
+            }
+        }
+        process.terminationHandler = { [weak self] process in
+            Task { @MainActor [weak self] in
+                self?.isLocalServiceRunning = false
+                self?.localServiceStatus = "Stopped (exit \(process.terminationStatus))"
+                self?.localAPIProcess = nil
+                self?.localLogPipe?.fileHandleForReading.readabilityHandler = nil
+                self?.localLogPipe = nil
+            }
+        }
+
+        do {
+            try process.run()
+            localAPIProcess = process
+            localLogPipe = pipe
+            isLocalServiceRunning = true
+            localServiceStatus = "Running (PID \(process.processIdentifier))"
+            saveConfiguration()
+        } catch {
+            localServiceStatus = "Launch failed: \(error.localizedDescription)"
+        }
+    }
+
+    func stopLocalAPI() {
+        guard let process = localAPIProcess, process.isRunning else {
+            isLocalServiceRunning = false
+            localServiceStatus = "Stopped"
+            return
+        }
+        process.terminate()
+        localServiceStatus = "Stopping…"
+    }
+
+    func restartLocalAPI() {
+        stopLocalAPI()
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(500))
+            self?.startLocalAPI()
+        }
+    }
+
+    private static func parseCommandLine(_ value: String) -> [String] {
+        var arguments: [String] = []
+        var current = ""
+        var quote: Character?
+        var escaped = false
+        for character in value {
+            if escaped {
+                current.append(character)
+                escaped = false
+            } else if character == "\\" {
+                escaped = true
+            } else if let activeQuote = quote {
+                if character == activeQuote { quote = nil }
+                else { current.append(character) }
+            } else if character == "\"" || character == "'" {
+                quote = character
+            } else if character.isWhitespace {
+                if !current.isEmpty { arguments.append(current); current = "" }
+            } else {
+                current.append(character)
+            }
+        }
+        if !current.isEmpty { arguments.append(current) }
+        return arguments
     }
 
     func requestTelegramPairing(identity: String) async {
@@ -173,6 +365,8 @@ final class WeeAppModel {
             health = try await healthResponse
             appConfig = try await configResponse
             agents = try await agentResponse
+            if activeEnvironment == .local { localAgents = agents }
+            else { remoteAgents = agents }
             if !agents.contains(where: { $0.name == selectedAgent }) {
                 selectedAgent = agents.first?.name ?? "orchestrator"
             }

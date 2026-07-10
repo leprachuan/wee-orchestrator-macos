@@ -18,12 +18,26 @@ struct SettingsView: View {
     @State private var envStatusIsError = false
     @State private var notificationsEnabled = true
     @State private var showDeleteConfirmation = false
+    @State private var connectorAgent = ""
+    @State private var connectorChannel = "telegram"
+    @State private var connectorToken = ""
+    @State private var connectorAllowedUsers = ""
+    @State private var connectorStatus: String?
+    @State private var connectorConfigured = false
+    @State private var showRemoveConnectorConfirmation = false
 
     private let runtimeFallbacks = ["copilot", "copilot-sdk", "claude", "claude-sdk", "gemini", "opencode", "codex", "devin"]
 
     var body: some View {
         VStack(spacing: 8) {
             PageHeader(title: "Settings", subtitle: "Authentication, connection, notifications, and service configuration", symbol: "slider.horizontal.3") {
+                Picker("Environment", selection: environmentBinding) {
+                    ForEach(WeeEnvironment.allCases) { environment in
+                        Label(environment.title, systemImage: environment.symbol).tag(environment)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .frame(width: 190)
                 StatusPill(
                     text: model.isAuthenticated ? "authenticated" : "sign-in required",
                     color: model.isAuthenticated ? WeeTheme.emerald : WeeTheme.gold,
@@ -34,14 +48,19 @@ struct SettingsView: View {
             ScrollView {
                 HStack(alignment: .top, spacing: 8) {
                     VStack(spacing: 8) {
-                        telegramAuthSection
                         connectionSection
+                        if model.activeEnvironment == .local { localServiceSection }
+                        connectorSection
+                        telegramAuthSection
                         advancedTokenSection
                         connectionSummary
                     }
                     .frame(minWidth: 300, idealWidth: 360, maxWidth: 420)
 
-                    environmentSection
+                    VStack(spacing: 8) {
+                        environmentSection
+                        agentSettingsSection
+                    }
                         .frame(maxWidth: .infinity, alignment: .top)
                 }
             }
@@ -52,7 +71,10 @@ struct SettingsView: View {
             if telegramIdentity.isEmpty {
                 telegramIdentity = model.configuration.identity
             }
+            connectorAgent = model.agents.first?.name ?? model.selectedAgent
             await loadWebSettingsIfNeeded()
+            await loadAgentSettings()
+            await loadConnectorStatus()
         }
         .confirmationDialog("Delete Agent?", isPresented: $showDeleteConfirmation, titleVisibility: .visible) {
             Button("Delete \(selectedAgentName)", role: .destructive) {
@@ -60,6 +82,13 @@ struct SettingsView: View {
             }
         } message: {
             Text("This removes the agent from the shared agents config.")
+        }
+        .confirmationDialog("Remove \(connectorChannel.capitalized) Connection?", isPresented: $showRemoveConnectorConfirmation, titleVisibility: .visible) {
+            Button("Remove token", role: .destructive) {
+                Task { await deleteConnector() }
+            }
+        } message: {
+            Text("This removes the bot token for \(connectorAgent) from the \(model.activeEnvironment.title) API secure store.")
         }
     }
 
@@ -69,8 +98,25 @@ struct SettingsView: View {
         }
     }
 
+    private var environmentBinding: Binding<WeeEnvironment> {
+        Binding(
+            get: { model.activeEnvironment },
+            set: { environment in
+                Task {
+                    await model.switchEnvironment(to: environment)
+                    telegramIdentity = model.configuration.identity
+                    connectorAgent = model.agents.first?.name ?? model.selectedAgent
+                    connectorToken = ""
+                    await loadWebSettingsIfNeeded(force: true)
+                    await loadAgentSettings()
+                    await loadConnectorStatus()
+                }
+            }
+        )
+    }
+
     private var connectionSection: some View {
-        SettingsSectionBox(title: "Connection", systemImage: "network") {
+        SettingsSectionBox(title: "\(model.activeEnvironment.title) API", systemImage: model.activeEnvironment.symbol) {
             FieldRow(title: "Backend URL") {
                 TextField("https://host:8000", text: $model.configuration.baseURLString)
             }
@@ -109,6 +155,141 @@ struct SettingsView: View {
                 Text(testResult)
                     .font(.caption)
                     .foregroundStyle(testResult == "Connected" || testResult == "Saved" ? WeeTheme.accent : WeeTheme.danger)
+            }
+        }
+    }
+
+    private var localServiceSection: some View {
+        SettingsSectionBox(title: "Local API Service", systemImage: "terminal.fill") {
+            HStack {
+                StatusPill(
+                    text: model.isLocalServiceRunning ? "running" : "stopped",
+                    color: model.isLocalServiceRunning ? WeeTheme.emerald : WeeTheme.gold,
+                    symbol: model.isLocalServiceRunning ? "play.circle.fill" : "stop.circle"
+                )
+                Text(model.localServiceStatus)
+                    .font(.caption)
+                    .foregroundStyle(WeeTheme.textSecondary)
+                    .lineLimit(1)
+            }
+
+            FieldRow(title: "Executable") {
+                TextField("/path/to/python3", text: $model.localServiceConfiguration.executablePath)
+            }
+            FieldRow(title: "Arguments") {
+                TextField("agent_manager.py --port 8001", text: $model.localServiceConfiguration.arguments)
+            }
+            FieldRow(title: "Working Directory") {
+                TextField("/path/to/Wee-Orchestrator", text: $model.localServiceConfiguration.workingDirectory)
+            }
+
+            Toggle("Start local API when Wee opens", isOn: $model.localServiceConfiguration.autoStart)
+                .tint(WeeTheme.accent)
+
+            HStack {
+                Button {
+                    model.saveConfiguration()
+                    model.startLocalAPI()
+                } label: {
+                    Label("Start", systemImage: "play.fill")
+                }
+                .buttonStyle(WeePrimaryButtonStyle())
+                .disabled(model.isLocalServiceRunning)
+
+                Button {
+                    model.stopLocalAPI()
+                } label: {
+                    Label("Stop", systemImage: "stop.fill")
+                }
+                .buttonStyle(WeeGhostButtonStyle())
+                .disabled(!model.isLocalServiceRunning)
+
+                Button {
+                    model.saveConfiguration()
+                    model.restartLocalAPI()
+                } label: {
+                    Label("Restart", systemImage: "arrow.clockwise")
+                }
+                .buttonStyle(WeeGhostButtonStyle())
+            }
+
+            if !model.localServiceLog.isEmpty {
+                DisclosureGroup("Recent service output") {
+                    ScrollView {
+                        Text(model.localServiceLog)
+                            .font(.system(.caption, design: .monospaced))
+                            .foregroundStyle(WeeTheme.textSecondary)
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .frame(height: 120)
+                    .padding(8)
+                    .background(WeeTheme.sunken, in: RoundedRectangle(cornerRadius: 7))
+                }
+            }
+
+            Text("The local service runs only the executable and arguments configured above. It is never enabled automatically unless you opt in.")
+                .font(.caption)
+                .foregroundStyle(WeeTheme.gold)
+        }
+    }
+
+    private var connectorSection: some View {
+        SettingsSectionBox(title: "Telegram & Webex", systemImage: "antenna.radiowaves.left.and.right") {
+            Picker("Agent", selection: $connectorAgent) {
+                ForEach(model.agents) { agent in Text(agent.name).tag(agent.name) }
+            }
+            .onChange(of: connectorAgent) { Task { await loadConnectorStatus() } }
+
+            Picker("Channel", selection: $connectorChannel) {
+                Text("Telegram").tag("telegram")
+                Text("Webex").tag("webex")
+            }
+            .pickerStyle(.segmented)
+            .onChange(of: connectorChannel) { Task { await loadConnectorStatus() } }
+
+            HStack {
+                StatusPill(
+                    text: connectorConfigured ? "configured" : "not configured",
+                    color: connectorConfigured ? WeeTheme.emerald : WeeTheme.gold,
+                    symbol: connectorConfigured ? "checkmark.shield.fill" : "exclamationmark.shield"
+                )
+                Text(model.activeEnvironment.title)
+                    .font(.caption)
+                    .foregroundStyle(WeeTheme.textMuted)
+            }
+
+            FieldRow(title: "Bot Token") {
+                SecureField(connectorConfigured ? "Enter replacement token" : "Required", text: $connectorToken)
+            }
+            TextAreaRow(title: "Allowed Users", text: $connectorAllowedUsers, minHeight: 58)
+
+            HStack {
+                Button {
+                    Task { await saveConnector() }
+                } label: {
+                    Label("Save Connection", systemImage: "lock.shield.fill")
+                }
+                .buttonStyle(WeePrimaryButtonStyle())
+                .disabled(connectorAgent.isEmpty || connectorToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+                Button(role: .destructive) {
+                    showRemoveConnectorConfirmation = true
+                } label: {
+                    Label("Remove", systemImage: "trash")
+                }
+                .buttonStyle(WeeGhostButtonStyle())
+                .disabled(!connectorConfigured)
+            }
+
+            Text("Tokens are sent directly to the selected Wee API and stored by its secure secret store; they are never written to app preferences.")
+                .font(.caption)
+                .foregroundStyle(WeeTheme.textMuted)
+
+            if let connectorStatus {
+                Text(connectorStatus)
+                    .font(.caption)
+                    .foregroundStyle(connectorStatus.localizedCaseInsensitiveContains("failed") ? WeeTheme.danger : WeeTheme.accent)
             }
         }
     }
@@ -216,7 +397,7 @@ struct SettingsView: View {
     }
 
     private var agentSettingsSection: some View {
-        SettingsSectionBox(title: "Agent Settings", systemImage: "person.3.fill") {
+        SettingsSectionBox(title: "\(model.activeEnvironment.title) Agent Settings", systemImage: "person.3.fill") {
             HStack {
                 Picker("Agent", selection: selectedAgentBinding) {
                     ForEach(agentsConfig?.agents.map(\.name) ?? [], id: \.self) { name in
@@ -521,11 +702,56 @@ struct SettingsView: View {
         )
     }
 
-    private func loadWebSettingsIfNeeded() async {
-        guard !hasLoadedWebSettings else { return }
+    private func loadWebSettingsIfNeeded(force: Bool = false) async {
+        guard force || !hasLoadedWebSettings else { return }
         hasLoadedWebSettings = true
         await loadEnvFile()
         await loadNotificationToggle()
+    }
+
+    private func loadConnectorStatus() async {
+        guard !connectorAgent.isEmpty else {
+            connectorConfigured = false
+            connectorStatus = model.agents.isEmpty ? "No agents are available in this environment." : nil
+            return
+        }
+        do {
+            let response = try await model.client.botTokenStatus(agent: connectorAgent, channel: connectorChannel)
+            connectorConfigured = response.configured
+            connectorAllowedUsers = response.allowedUsers.joined(separator: "\n")
+            connectorStatus = nil
+        } catch {
+            connectorConfigured = false
+            connectorStatus = "Status unavailable: \(error.localizedDescription)"
+        }
+    }
+
+    private func saveConnector() async {
+        let token = connectorToken.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !connectorAgent.isEmpty, !token.isEmpty else { return }
+        let users = connectorAllowedUsers
+            .split(whereSeparator: { $0.isNewline || $0 == "," })
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        do {
+            try await model.client.saveBotToken(agent: connectorAgent, channel: connectorChannel, token: token, allowedUsers: users)
+            connectorToken = ""
+            connectorConfigured = true
+            connectorStatus = "\(connectorChannel.capitalized) configured for \(connectorAgent) on \(model.activeEnvironment.title)."
+        } catch {
+            connectorStatus = "Save failed: \(error.localizedDescription)"
+        }
+    }
+
+    private func deleteConnector() async {
+        do {
+            try await model.client.deleteBotToken(agent: connectorAgent, channel: connectorChannel)
+            connectorToken = ""
+            connectorConfigured = false
+            connectorStatus = "\(connectorChannel.capitalized) connection removed."
+        } catch {
+            connectorStatus = "Remove failed: \(error.localizedDescription)"
+        }
     }
 
     private func loadAgentSettings() async {
@@ -533,7 +759,12 @@ struct SettingsView: View {
             let config = try await model.client.agentsConfig()
             agentsConfig = config
             if let first = config.agents.first {
-                selectAgent(named: selectedAgentName.isEmpty ? first.name : selectedAgentName)
+                let preferred = config.agents.contains(where: { $0.name == selectedAgentName }) ? selectedAgentName : first.name
+                selectAgent(named: preferred)
+            } else {
+                selectedAgentName = ""
+                draftAgent = AgentConfiguration()
+                originalAgent = AgentConfiguration()
             }
             settingsStatus = nil
         } catch {

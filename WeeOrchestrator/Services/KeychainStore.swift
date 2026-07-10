@@ -6,10 +6,14 @@ enum KeychainStore {
     private static let tokenAccount = "api-token"
 
     static func loadToken() -> String {
+        loadSecret(account: tokenAccount)
+    }
+
+    static func loadSecret(account: String) -> String {
         var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
-            kSecAttrAccount as String: tokenAccount,
+            kSecAttrAccount as String: account,
             kSecReturnData as String: true,
             kSecMatchLimit as String: kSecMatchLimitOne
         ]
@@ -28,14 +32,18 @@ enum KeychainStore {
     }
 
     static func saveToken(_ token: String) {
-        let data = Data(token.utf8)
+        saveSecret(token, account: tokenAccount)
+    }
+
+    static func saveSecret(_ secret: String, account: String) {
+        let data = Data(secret.utf8)
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
-            kSecAttrAccount as String: tokenAccount
+            kSecAttrAccount as String: account
         ]
 
-        if token.isEmpty {
+        if secret.isEmpty {
             SecItemDelete(query as CFDictionary)
             return
         }

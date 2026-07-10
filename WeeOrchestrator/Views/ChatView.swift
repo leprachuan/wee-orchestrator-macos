@@ -302,6 +302,7 @@ private struct HeaderPanel: View {
             Divider().frame(height: 28).overlay(WeeTheme.divider)
 
             HStack(spacing: 6) {
+                environmentMenu
                 agentMenu
                 runtimeMenu
                 modelMenu
@@ -339,6 +340,29 @@ private struct HeaderPanel: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 9)
         .glassPanel()
+    }
+
+    private var environmentMenu: some View {
+        Menu {
+            ForEach(WeeEnvironment.allCases) { environment in
+                Button {
+                    Task { await model.switchEnvironment(to: environment) }
+                } label: {
+                    Label(environment.title, systemImage: environment == model.activeEnvironment ? "checkmark.circle.fill" : environment.symbol)
+                }
+            }
+        } label: {
+            HeaderChip(
+                symbol: model.activeEnvironment.symbol,
+                text: model.activeEnvironment.title,
+                background: WeeTheme.accent.opacity(0.18),
+                foreground: WeeTheme.accent,
+                showsDisclosure: true
+            )
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .disabled(model.isLoading)
     }
 
     private var agentMenu: some View {

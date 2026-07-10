@@ -6,7 +6,15 @@ struct AgentsView: View {
 
     var body: some View {
         VStack(spacing: 8) {
-            PageHeader(title: "Agents", subtitle: "\(model.agents.count) configured · select the active workspace agent", symbol: "person.2.fill") {
+            PageHeader(title: "Agents", subtitle: "\(model.localAgents.count) local · \(model.remoteAgents.count) remote", symbol: "person.2.fill") {
+                Picker("Environment", selection: environmentBinding) {
+                    ForEach(WeeEnvironment.allCases) { environment in
+                        Label(environment.title, systemImage: environment.symbol).tag(environment)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .frame(width: 190)
+
                 Picker("Active", selection: $model.selectedAgent) {
                     ForEach(model.agents) { agent in
                         Text(agent.name).tag(agent.name)
@@ -25,21 +33,9 @@ struct AgentsView: View {
             }
 
             ScrollView {
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 360, maximum: 520), spacing: 8, alignment: .top)], alignment: .leading, spacing: 8) {
-                    ForEach(model.agents) { agent in
-                        AgentCard(
-                            agent: agent,
-                            isSelected: agent.name == model.selectedAgent,
-                            onEdit: {
-                                editorContext = AgentEditorContext(agentName: agent.name)
-                            }
-                        )
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            model.selectedAgent = agent.name
-                            model.saveConfiguration()
-                        }
-                    }
+                VStack(alignment: .leading, spacing: 14) {
+                    agentSection(.local)
+                    agentSection(.remote)
                 }
                 .padding(10)
             }
@@ -50,6 +46,71 @@ struct AgentsView: View {
         .sheet(item: $editorContext) { context in
             AgentEditorSheet(model: model, agentName: context.agentName)
                 .frame(width: 760, height: 720)
+        }
+    }
+
+    private var environmentBinding: Binding<WeeEnvironment> {
+        Binding(
+            get: { model.activeEnvironment },
+            set: { environment in Task { await model.switchEnvironment(to: environment) } }
+        )
+    }
+
+    @ViewBuilder
+    private func agentSection(_ environment: WeeEnvironment) -> some View {
+        let sourceAgents = model.agents(for: environment)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Label("\(environment.title) Agents", systemImage: environment.symbol)
+                    .font(.headline.weight(.semibold))
+                    .foregroundStyle(model.activeEnvironment == environment ? WeeTheme.accent : WeeTheme.textPrimary)
+                StatusPill(text: "\(sourceAgents.count)", color: model.activeEnvironment == environment ? WeeTheme.accent : WeeTheme.textSecondary)
+                if model.activeEnvironment == environment {
+                    StatusPill(text: "active environment", color: WeeTheme.emerald, symbol: "checkmark.circle.fill")
+                }
+                Spacer()
+                Button {
+                    Task {
+                        await model.switchEnvironment(to: environment)
+                        editorContext = AgentEditorContext(agentName: nil)
+                    }
+                } label: {
+                    Label("Add", systemImage: "plus")
+                }
+                .buttonStyle(WeeGhostButtonStyle())
+            }
+
+            if sourceAgents.isEmpty {
+                Text(environment == .local ? "Start or connect to the local API to load local agents." : "Configure the remote API in Settings to load remote agents.")
+                    .font(.subheadline)
+                    .foregroundStyle(WeeTheme.textSecondary)
+                    .padding(14)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(WeeTheme.surface, in: RoundedRectangle(cornerRadius: 9))
+            } else {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 340, maximum: 520), spacing: 8, alignment: .top)], alignment: .leading, spacing: 8) {
+                    ForEach(sourceAgents) { agent in
+                        AgentCard(
+                            agent: agent,
+                            isSelected: model.activeEnvironment == environment && agent.name == model.selectedAgent,
+                            onEdit: {
+                                Task {
+                                    await model.switchEnvironment(to: environment)
+                                    editorContext = AgentEditorContext(agentName: agent.name)
+                                }
+                            }
+                        )
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            Task {
+                                await model.switchEnvironment(to: environment)
+                                model.selectedAgent = agent.name
+                                model.saveConfiguration()
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }

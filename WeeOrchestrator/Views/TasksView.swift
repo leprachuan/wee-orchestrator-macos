@@ -9,7 +9,7 @@ struct TasksView: View {
     @Bindable var model: WeeAppModel
     let mode: TasksViewMode
     @State private var prompt = ""
-    @State private var scheduledEditor: ScheduledEditorContext?
+    @State private var scheduledEditor: ModernScheduledEditorContext?
     @AppStorage("wee.tasks.scheduledCollapsed") private var scheduledTasksCollapsed = false
     @AppStorage("wee.tasks.backgroundCollapsed") private var backgroundTasksCollapsed = false
 
@@ -20,6 +20,7 @@ struct TasksView: View {
     var body: some View {
         VStack(spacing: 8) {
             PageHeader(title: pageTitle, subtitle: pageSubtitle, symbol: pageSymbol) {
+                StatusPill(text: model.activeEnvironment.title, color: WeeTheme.accent, symbol: model.activeEnvironment.symbol)
                 if mode == .background {
                     StatusPill(text: "\(running) running", color: WeeTheme.emerald, symbol: "bolt.fill")
                     StatusPill(text: "\(queued) queued", color: WeeTheme.gold, symbol: "clock.fill")
@@ -28,7 +29,7 @@ struct TasksView: View {
                     StatusPill(text: "\(scheduledEnabled) enabled", color: WeeTheme.emerald, symbol: "calendar.badge.checkmark")
                     StatusPill(text: "\(model.scheduledJobs.count) total", color: WeeTheme.textSecondary, symbol: "calendar")
                     Button {
-                        scheduledEditor = ScheduledEditorContext(job: nil)
+                        scheduledEditor = ModernScheduledEditorContext(job: nil)
                     } label: {
                         Label("New Task", systemImage: "plus")
                     }
@@ -68,7 +69,7 @@ struct TasksView: View {
                 .frame(width: 560, height: 480)
         }
         .sheet(item: $scheduledEditor) { context in
-            ScheduledJobEditorSheet(model: model, job: context.job)
+            ModernScheduledJobEditorSheet(model: model, job: context.job)
                 .frame(minWidth: 980, idealWidth: 1120, maxWidth: 1280, minHeight: 700, idealHeight: 800, maxHeight: 920)
         }
     }
@@ -114,7 +115,7 @@ struct TasksView: View {
                     LazyVStack(spacing: 6) {
                         ForEach(model.scheduledJobs) { job in
                             Button {
-                                scheduledEditor = ScheduledEditorContext(job: job)
+                                scheduledEditor = ModernScheduledEditorContext(job: job)
                             } label: {
                                 ScheduledJobRow(job: job)
                             }
@@ -200,7 +201,7 @@ struct TasksView: View {
     }
 }
 
-private struct ScheduledEditorContext: Identifiable {
+private struct ModernScheduledEditorContext: Identifiable {
     let id = UUID()
     let job: ScheduledJobSummary?
 }
@@ -213,7 +214,7 @@ private enum SchedulerExecutionMode: String, CaseIterable, Identifiable {
     var symbol: String { self == .ai ? "sparkles" : "terminal" }
 }
 
-private struct ScheduledJobEditorSheet: View {
+private struct ModernScheduledJobEditorSheet: View {
     @Bindable var model: WeeAppModel
     let job: ScheduledJobSummary?
     @Environment(\.dismiss) private var dismiss
