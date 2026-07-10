@@ -56,10 +56,9 @@ final class WeeAppModel {
     init() {
         activeEnvironment = WeeEnvironment(rawValue: defaults.string(forKey: "wee.activeEnvironment") ?? "remote") ?? .remote
         let remoteToken = KeychainStore.loadSecret(account: "api-token-remote")
-        let legacyToken = KeychainStore.loadToken()
         remoteConfiguration = APIConfiguration(
             baseURLString: defaults.string(forKey: "wee.baseURL") ?? APIConfiguration.defaults.baseURLString,
-            token: remoteToken.isEmpty ? (legacyToken.isEmpty ? Self.launchToken : legacyToken) : remoteToken,
+            token: remoteToken.isEmpty ? Self.launchToken : remoteToken,
             identity: defaults.string(forKey: "wee.identity") ?? APIConfiguration.defaults.identity,
             channel: defaults.string(forKey: "wee.channel") ?? APIConfiguration.defaults.channel,
             allowInsecureTLS: defaults.object(forKey: "wee.allowInsecureTLS") as? Bool ?? APIConfiguration.defaults.allowInsecureTLS
