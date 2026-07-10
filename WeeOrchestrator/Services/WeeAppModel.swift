@@ -568,6 +568,16 @@ final class WeeAppModel {
         }
     }
 
+    func saveScheduledJob(_ request: ScheduledJobMutationRequest, id: String?) async throws {
+        if let id {
+            try await client.updateScheduledJob(id: id, job: request)
+        } else {
+            try await client.createScheduledJob(request)
+        }
+        await loadScheduledJobs()
+        schedulerStatusMessage = id == nil ? "Scheduled task created." : "Scheduled task updated."
+    }
+
     func loadKanbanBoard() async {
         guard hasAuthToken else {
             kanbanBoard = nil

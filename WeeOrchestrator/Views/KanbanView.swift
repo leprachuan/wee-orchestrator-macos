@@ -8,7 +8,6 @@ struct KanbanView: View {
     @State private var customDueStart = Calendar.current.startOfDay(for: Date())
     @State private var customDueEnd = Calendar.current.date(byAdding: .day, value: 7, to: Calendar.current.startOfDay(for: Date())) ?? Date()
     @State private var labelFilter = ""
-    @State private var isDueSoonExpanded = true
     @State private var showDoneColumn = false
 
     private var board: KanbanBoardResponse? {
@@ -71,7 +70,7 @@ struct KanbanView: View {
         }
         .sheet(item: $selectedCard) { card in
             KanbanItemDetailSheet(model: model, card: card)
-                .frame(minWidth: 760, idealWidth: 920, maxWidth: 1100, minHeight: 680, idealHeight: 820, maxHeight: 920)
+                .frame(minWidth: 1080, idealWidth: 1240, maxWidth: 1480, minHeight: 740, idealHeight: 880, maxHeight: 1040)
         }
     }
 
@@ -165,45 +164,87 @@ struct KanbanView: View {
         if cards.isEmpty {
             if let status = model.kanbanStatusMessage {
                 EmptyKanbanState(title: status, symbol: "rectangle.stack.badge.minus")
-                    .padding(14)
+                    .padding(8)
                     .glassPanel()
             }
         } else {
-            VStack(alignment: .leading, spacing: 8) {
-                Button {
-                    withAnimation(.snappy) {
-                        isDueSoonExpanded.toggle()
-                    }
-                } label: {
-                    HStack(spacing: 8) {
-                        Image(systemName: isDueSoonExpanded ? "chevron.down" : "chevron.right")
-                            .font(.caption.weight(.bold))
-                            .foregroundStyle(WeeTheme.textSecondary)
-                        Image(systemName: "bell.badge")
-                            .foregroundStyle(WeeTheme.gold)
-                        Text("Due Soon")
-                            .font(.headline.weight(.semibold))
-                            .foregroundStyle(WeeTheme.textPrimary)
-                        Spacer()
-                        StatusPill(text: "\(cards.count)", color: WeeTheme.gold)
-                    }
+            HStack(spacing: 8) {
+                HStack(spacing: 6) {
+                    Image(systemName: "bell.badge.fill")
+                        .foregroundStyle(WeeTheme.gold)
+                    Text("DUE SOON")
+                        .font(.system(size: 9, weight: .bold))
+                        .tracking(0.8)
+                        .foregroundStyle(WeeTheme.textSecondary)
+                    StatusPill(text: "\(cards.count)", color: WeeTheme.gold)
                 }
-                .buttonStyle(.plain)
+                .fixedSize()
 
-                if isDueSoonExpanded {
-                    LazyVStack(spacing: 6) {
-                        ForEach(cards.prefix(6)) { card in
-                            KanbanCardRow(card: card)
-                                .contentShape(Rectangle())
-                                .onTapGesture {
-                                    selectedCard = card
+                Rectangle()
+                    .fill(WeeTheme.divider)
+                    .frame(width: 1, height: 26)
+
+                ScrollView(.horizontal) {
+                    HStack(spacing: 6) {
+                        ForEach(cards.prefix(12)) { card in
+                            Button {
+                                selectedCard = card
+                            } label: {
+                                HStack(spacing: 6) {
+                                    Circle()
+                                        .fill(dueColor(for: card))
+                                        .frame(width: 6, height: 6)
+                                    Text(card.title)
+                                        .font(.caption.weight(.semibold))
+                                        .foregroundStyle(WeeTheme.textPrimary)
+                                        .lineLimit(1)
+                                        .frame(maxWidth: 210, alignment: .leading)
+                                    Text(compactDueText(for: card))
+                                        .font(.caption2.weight(.semibold))
+                                        .foregroundStyle(dueColor(for: card))
+                                        .lineLimit(1)
+                                    Image(systemName: "chevron.right")
+                                        .font(.system(size: 8, weight: .bold))
+                                        .foregroundStyle(WeeTheme.textMuted)
                                 }
+                                .padding(.horizontal, 8)
+                                .frame(height: 30)
+                                .background(WeeTheme.surfaceRaised, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                                .overlay(RoundedRectangle(cornerRadius: 7, style: .continuous).stroke(WeeTheme.glassStroke))
+                            }
+                            .buttonStyle(.plain)
+                        }
+
+                        if cards.count > 12 {
+                            Text("+\(cards.count - 12) more")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(WeeTheme.textSecondary)
+                                .padding(.horizontal, 8)
                         }
                     }
                 }
+                .scrollIndicators(.hidden)
             }
-            .padding(10)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
             .glassPanel()
+        }
+    }
+
+    private func dueColor(for card: KanbanCard) -> Color {
+        switch card.dueBucket {
+        case "overdue": WeeTheme.danger
+        case "today", "soon": WeeTheme.gold
+        default: WeeTheme.textSecondary
+        }
+    }
+
+    private func compactDueText(for card: KanbanCard) -> String {
+        switch card.dueBucket {
+        case "overdue": return "Overdue"
+        case "today": return "Today"
+        case "soon": return card.dueDate?.formatted(.dateTime.month(.abbreviated).day()) ?? "Soon"
+        default: return card.dueDate?.formatted(.dateTime.month(.abbreviated).day()) ?? "Due"
         }
     }
 
@@ -461,26 +502,44 @@ private struct KanbanItemDetailSheet: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
-                Text("TODO Detail")
-                    .font(.title3.weight(.bold))
-                    .foregroundStyle(WeeTheme.textPrimary)
-                Spacer()
-                Button("Done") { dismiss() }
-                    .keyboardShortcut(.cancelAction)
-            }
-            .padding()
+            modalHeader
 
-            ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
-                    summary
-                    editor
-                    commentPanel
-                    dispatchPanel
-                    actionPanel
-                    commentsPanel
+            Rectangle()
+                .fill(WeeTheme.divider)
+                .frame(height: 1)
+
+            HStack(spacing: 0) {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 12) {
+                        editor
+                        commentsPanel
+                    }
+                    .padding(14)
                 }
-                .padding(16)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                Rectangle()
+                    .fill(WeeTheme.divider)
+                    .frame(width: 1)
+
+                VStack(spacing: 0) {
+                    ScrollView {
+                        VStack(spacing: 10) {
+                            commentPanel
+                            dispatchPanel
+                        }
+                        .padding(12)
+                    }
+
+                    Rectangle()
+                        .fill(WeeTheme.divider)
+                        .frame(height: 1)
+
+                    actionPanel
+                        .padding(12)
+                }
+                .frame(width: 350)
+                .background(WeeTheme.sidebar.opacity(0.55))
             }
         }
         .background(WeeTheme.background)
@@ -489,88 +548,174 @@ private struct KanbanItemDetailSheet: View {
         }
     }
 
-    private var summary: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 8) {
-                StatusPill(text: detail?.repo ?? "GitHub", color: WeeTheme.gold, symbol: "number")
-                if let issue = card.githubIssueNumber {
-                    StatusPill(text: "#\(issue)", color: WeeTheme.textSecondary)
+    private var modalHeader: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "checklist")
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(WeeTheme.accent)
+                .frame(width: 36, height: 36)
+                .background(WeeTheme.accent.opacity(0.13), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 6) {
+                    Text("KANBAN ITEM")
+                        .font(.system(size: 9, weight: .bold))
+                        .tracking(1)
+                        .foregroundStyle(WeeTheme.textMuted)
+                    StatusPill(text: KanbanColumnID(rawValue: status)?.title ?? status, color: WeeTheme.accent)
+                    if let issue = card.githubIssueNumber {
+                        StatusPill(text: "#\(issue)", color: WeeTheme.gold, symbol: "number")
+                    }
                 }
-                Spacer()
+                Text(title.isEmpty ? card.title : title)
+                    .font(.system(size: 18, weight: .bold))
+                    .foregroundStyle(WeeTheme.textPrimary)
+                    .lineLimit(1)
             }
-            Text(title.isEmpty ? card.title : title)
-                .font(.headline.weight(.semibold))
-                .foregroundStyle(WeeTheme.textPrimary)
+
+            Spacer(minLength: 12)
+
+            if let url = card.url, let link = URL(string: url) {
+                Link(destination: link) {
+                    Label("Open Source", systemImage: "arrow.up.right.square")
+                }
+                .buttonStyle(WeeGhostButtonStyle())
+            }
+
+            Button("Done") { dismiss() }
+                .buttonStyle(WeeGhostButtonStyle())
+                .keyboardShortcut(.cancelAction)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(WeeTheme.surface)
+        .overlay(alignment: .bottom) {
             if let statusMessage {
                 Text(statusMessage)
                     .font(.caption)
                     .foregroundStyle(WeeTheme.accent)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(WeeTheme.background, in: Capsule())
+                    .offset(y: 14)
             }
         }
-        .padding(14)
-        .glassPanel()
     }
 
     private var editor: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Edit")
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(WeeTheme.textPrimary)
-
-            TextField("Title", text: $title)
-                .textFieldStyle(.roundedBorder)
-
-            TextEditor(text: $details)
-                .frame(minHeight: 100)
-                .scrollContentBackground(.hidden)
-                .padding(8)
-                .background(Color.white.opacity(0.055), in: RoundedRectangle(cornerRadius: 8))
-
+        VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Picker("Status", selection: $status) {
-                    ForEach(KanbanColumnID.allCases) { column in
-                        Text(column.title).tag(column.rawValue)
+                Label("Task details", systemImage: "square.and.pencil")
+                    .font(.headline.weight(.semibold))
+                    .foregroundStyle(WeeTheme.textPrimary)
+                Spacer()
+                if isWorking { ProgressView().controlSize(.small).tint(WeeTheme.accent) }
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                editorLabel("Title")
+                TextField("Task title", text: $title)
+                    .textFieldStyle(.plain)
+                    .font(.body.weight(.medium))
+                    .foregroundStyle(WeeTheme.textPrimary)
+                    .padding(10)
+                    .background(WeeTheme.sunken, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 7, style: .continuous).stroke(WeeTheme.glassStroke))
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                editorLabel("Description")
+                TextEditor(text: $details)
+                    .font(.body)
+                    .foregroundStyle(WeeTheme.textPrimary)
+                    .scrollContentBackground(.hidden)
+                    .frame(minHeight: 270)
+                    .padding(9)
+                    .background(WeeTheme.sunken, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 7, style: .continuous).stroke(WeeTheme.glassStroke))
+            }
+
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], alignment: .leading, spacing: 10) {
+                VStack(alignment: .leading, spacing: 6) {
+                    editorLabel("Status")
+                    Picker("Status", selection: $status) {
+                        ForEach(KanbanColumnID.allCases) { column in
+                            Text(column.title).tag(column.rawValue)
+                        }
                     }
+                    .labelsHidden()
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .frame(width: 180)
 
-                TextField("Agent", text: $agent)
-                    .textFieldStyle(.roundedBorder)
+                VStack(alignment: .leading, spacing: 6) {
+                    editorLabel("Assigned agent")
+                    TextField("Unassigned", text: $agent)
+                        .textFieldStyle(.plain)
+                        .padding(8)
+                        .background(WeeTheme.sunken, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 7, style: .continuous).stroke(WeeTheme.glassStroke))
+                }
+
+                VStack(alignment: .leading, spacing: 6) {
+                    editorLabel("Due date")
+                    TextField("YYYY-MM-DD", text: $due)
+                        .textFieldStyle(.plain)
+                        .padding(8)
+                        .background(WeeTheme.sunken, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 7, style: .continuous).stroke(WeeTheme.glassStroke))
+                }
+
+                VStack(alignment: .leading, spacing: 6) {
+                    editorLabel("Priority")
+                    TextField("normal", text: $priority)
+                        .textFieldStyle(.plain)
+                        .padding(8)
+                        .background(WeeTheme.sunken, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 7, style: .continuous).stroke(WeeTheme.glassStroke))
+                }
+
+                VStack(alignment: .leading, spacing: 6) {
+                    editorLabel("Urgency")
+                    Picker("Urgency", selection: $urgency) {
+                        Text("Normal").tag("normal")
+                        Text("Urgent").tag("urgent")
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                }
             }
 
             HStack {
-                TextField("Due date", text: $due)
-                    .textFieldStyle(.roundedBorder)
-
-                TextField("Priority", text: $priority)
-                    .textFieldStyle(.roundedBorder)
-
-                Picker("Urgency", selection: $urgency) {
-                    Text("normal").tag("normal")
-                    Text("urgent").tag("urgent")
+                Text("Changes apply to the linked Kanban source.")
+                    .font(.caption)
+                    .foregroundStyle(WeeTheme.textMuted)
+                Spacer()
+                Button {
+                    Task { await save() }
+                } label: {
+                    Label("Save Changes", systemImage: "square.and.arrow.down")
                 }
-                .frame(width: 120)
+                .buttonStyle(WeePrimaryButtonStyle())
+                .disabled(isWorking || title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
-
-            Button {
-                Task { await save() }
-            } label: {
-                Label("Save Changes", systemImage: "square.and.arrow.down")
-            }
-            .buttonStyle(WeePrimaryButtonStyle())
-            .disabled(isWorking || title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         }
-        .padding(14)
+        .padding(13)
         .glassPanel()
+    }
+
+    private func editorLabel(_ text: String) -> some View {
+        Text(text.uppercased())
+            .font(.system(size: 9, weight: .bold))
+            .tracking(0.8)
+            .foregroundStyle(WeeTheme.textMuted)
     }
 
     private var commentPanel: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Comment")
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(WeeTheme.textPrimary)
+            Label("Add comment", systemImage: "text.bubble")
+                .font(.subheadline.weight(.semibold)).foregroundStyle(WeeTheme.textPrimary)
             TextEditor(text: $comment)
-                .frame(minHeight: 70)
+                .frame(minHeight: 90)
                 .scrollContentBackground(.hidden)
                 .padding(8)
                 .background(Color.white.opacity(0.055), in: RoundedRectangle(cornerRadius: 8))
@@ -582,15 +727,14 @@ private struct KanbanItemDetailSheet: View {
             .buttonStyle(WeeGhostButtonStyle())
             .disabled(isWorking || comment.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         }
-        .padding(14)
+        .padding(11)
         .glassPanel()
     }
 
     private var dispatchPanel: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Dispatch")
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(WeeTheme.textPrimary)
+            Label("Dispatch", systemImage: "paperplane.fill")
+                .font(.subheadline.weight(.semibold)).foregroundStyle(WeeTheme.textPrimary)
 
             if agentNames.isEmpty {
                 TextField("Agent", text: $dispatchAgent)
@@ -601,11 +745,11 @@ private struct KanbanItemDetailSheet: View {
                         Text(name).tag(name)
                     }
                 }
-                .frame(width: 200)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
 
             TextEditor(text: $dispatchPrompt)
-                .frame(minHeight: 60)
+                .frame(minHeight: 100)
                 .scrollContentBackground(.hidden)
                 .padding(8)
                 .background(Color.white.opacity(0.055), in: RoundedRectangle(cornerRadius: 8))
@@ -618,18 +762,19 @@ private struct KanbanItemDetailSheet: View {
             .buttonStyle(WeePrimaryButtonStyle())
             .disabled(isWorking || dispatchAgent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         }
-        .padding(14)
+        .padding(11)
         .glassPanel()
     }
 
     private var actionPanel: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 8) {
             Button {
                 Task { await complete() }
             } label: {
                 Label("Complete", systemImage: "checkmark.circle")
             }
             .buttonStyle(WeeGhostButtonStyle())
+            .frame(maxWidth: .infinity)
 
             Button(role: .destructive) {
                 Task { await close() }
@@ -637,6 +782,7 @@ private struct KanbanItemDetailSheet: View {
                 Label("Close", systemImage: "xmark.circle")
             }
             .buttonStyle(WeeGhostButtonStyle())
+            .frame(maxWidth: .infinity)
         }
         .disabled(isWorking)
     }
@@ -646,9 +792,13 @@ private struct KanbanItemDetailSheet: View {
         let comments = detail?.comments ?? []
         if !comments.isEmpty {
             VStack(alignment: .leading, spacing: 10) {
-                Text("Comments")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(WeeTheme.textPrimary)
+                HStack {
+                    Label("Activity", systemImage: "clock.arrow.circlepath")
+                        .font(.headline.weight(.semibold))
+                        .foregroundStyle(WeeTheme.textPrimary)
+                    Spacer()
+                    StatusPill(text: "\(comments.count)", color: WeeTheme.textSecondary)
+                }
                 ForEach(comments) { item in
                     VStack(alignment: .leading, spacing: 5) {
                         Text(item.author?.login ?? "comment")

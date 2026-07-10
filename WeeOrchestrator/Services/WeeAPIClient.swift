@@ -137,6 +137,22 @@ struct WeeAPIClient {
         return response.result
     }
 
+    func createScheduledJob(_ job: ScheduledJobMutationRequest) async throws {
+        let _: EmptyAPIResponse = try await request("POST", path: "/api/v1/scheduler/jobs", body: job)
+    }
+
+    func updateScheduledJob(id: String, job: ScheduledJobMutationRequest) async throws {
+        let _: EmptyAPIResponse = try await request("PUT", path: "/api/v1/scheduler/jobs/\(id)", body: job)
+    }
+
+    func validateSchedule(_ schedule: String) async throws -> ScheduleValidationResponse {
+        try await request(
+            "POST",
+            path: "/api/v1/scheduler/validate-schedule",
+            body: ScheduleValidationRequest(schedule: schedule)
+        )
+    }
+
     func kanbanBoard() async throws -> KanbanBoardResponse {
         do {
             return try await request("GET", path: "/api/v1/kanban/board")

@@ -1,14 +1,15 @@
 import SwiftUI
 
 enum AppSection: String, CaseIterable, Identifiable {
-    case chat, kanban, tasks, agents, settings
+    case chat, kanban, backgroundTasks, scheduledTasks, agents, settings
     var id: String { rawValue }
 
     var title: String {
         switch self {
         case .chat: "Chat"
         case .kanban: "Kanban"
-        case .tasks: "Tasks"
+        case .backgroundTasks: "Background Tasks"
+        case .scheduledTasks: "Scheduled Tasks"
         case .agents: "Agents"
         case .settings: "Settings"
         }
@@ -18,7 +19,8 @@ enum AppSection: String, CaseIterable, Identifiable {
         switch self {
         case .chat: "CONVERSE"
         case .kanban: "PLAN"
-        case .tasks: "EXECUTE"
+        case .backgroundTasks: "EXECUTE"
+        case .scheduledTasks: "AUTOMATE"
         case .agents: "TEAM"
         case .settings: "SYSTEM"
         }
@@ -28,7 +30,8 @@ enum AppSection: String, CaseIterable, Identifiable {
         switch self {
         case .chat: "bubble.left.and.text.bubble.right.fill"
         case .kanban: "rectangle.3.group.fill"
-        case .tasks: "bolt.fill"
+        case .backgroundTasks: "bolt.fill"
+        case .scheduledTasks: "calendar.badge.clock"
         case .agents: "person.2.fill"
         case .settings: "slider.horizontal.3"
         }
@@ -148,6 +151,8 @@ struct ContentView: View {
                     Text(section.title)
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(selectedSection == section ? WeeTheme.textPrimary : WeeTheme.textSecondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.82)
                     Text(section.eyebrow)
                         .font(.system(size: 8, weight: .bold))
                         .tracking(0.7)
@@ -181,7 +186,8 @@ struct ContentView: View {
         switch selectedSection {
         case .chat: ChatView(model: model)
         case .kanban: KanbanView(model: model)
-        case .tasks: TasksView(model: model)
+        case .backgroundTasks: TasksView(model: model, mode: .background)
+        case .scheduledTasks: TasksView(model: model, mode: .scheduled)
         case .agents: AgentsView(model: model)
         case .settings: SettingsView(model: model)
         }
@@ -189,12 +195,14 @@ struct ContentView: View {
 
     private var isHealthy: Bool { model.health?.status == "ok" }
     private var runningCount: Int { model.tasks.filter { $0.status == "running" }.count }
+    private var scheduledCount: Int { model.scheduledJobs.filter { $0.enabled != false }.count }
     private var dueCount: Int { model.kanbanBoard?.dueCards.count ?? 0 }
 
     private func badgeCount(for section: AppSection) -> Int {
         switch section {
         case .kanban: dueCount
-        case .tasks: runningCount
+        case .backgroundTasks: runningCount
+        case .scheduledTasks: scheduledCount
         default: 0
         }
     }

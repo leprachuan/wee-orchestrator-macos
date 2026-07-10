@@ -345,6 +345,50 @@ struct ScheduledJobsResponse: Decodable {
     let message: String?
 }
 
+struct ScheduledJobMutationRequest: Encodable {
+    let name: String
+    let schedule: String
+    let agent: String?
+    let runtime: String?
+    let model: String?
+    let fallbackRuntime: String?
+    let fallbackModel: String?
+    let mode: String
+    let task: String
+    let notify: Bool
+    let recurring: Bool
+    let timeout: Int
+    let permissionMode: String?
+    let workingDir: String?
+
+    enum CodingKeys: String, CodingKey {
+        case name, schedule, agent, runtime, model, mode, task, notify, recurring, timeout
+        case fallbackRuntime = "fallback_runtime"
+        case fallbackModel = "fallback_model"
+        case permissionMode = "permission_mode"
+        case workingDir = "working_dir"
+    }
+}
+
+struct ScheduleValidationRequest: Encodable {
+    let schedule: String
+}
+
+struct ScheduleValidationResponse: Decodable {
+    let success: Bool?
+    let cron: String?
+    let humanReadable: String?
+    let nextRun: String?
+    let method: String?
+    let message: String?
+
+    enum CodingKeys: String, CodingKey {
+        case success, cron, method, message
+        case humanReadable = "human_readable"
+        case nextRun = "next_run"
+    }
+}
+
 struct ScheduledJobSummary: Decodable, Identifiable, Hashable {
     var id: String { jobID }
 
