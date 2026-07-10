@@ -3,19 +3,19 @@ import SwiftUI
 enum WeeTheme {
     // A restrained, high-contrast desktop palette. Surfaces are deliberately
     // opaque so text remains readable regardless of what sits behind a panel.
-    static let background = Color(red: 0.035, green: 0.047, blue: 0.067)
-    static let sidebar = Color(red: 0.047, green: 0.063, blue: 0.086)
-    static let surface = Color(red: 0.067, green: 0.086, blue: 0.114)
-    static let surfaceRaised = Color(red: 0.082, green: 0.106, blue: 0.137)
-    static let surfaceHover = Color(red: 0.102, green: 0.133, blue: 0.169)
+    static let background = Color(red: 0.025, green: 0.020, blue: 0.040)
+    static let sidebar = Color(red: 0.055, green: 0.035, blue: 0.095)
+    static let surface = Color(red: 0.075, green: 0.052, blue: 0.125)
+    static let surfaceRaised = Color(red: 0.105, green: 0.075, blue: 0.170)
+    static let surfaceHover = Color(red: 0.145, green: 0.105, blue: 0.225)
 
-    static let emerald = Color(red: 0.31, green: 0.88, blue: 0.67)
-    static let accent = Color(red: 0.31, green: 0.78, blue: 1.0)
+    static let emerald = Color(red: 0.243, green: 0.812, blue: 0.557)
+    static let accent = emerald
     static let gold = Color(red: 1.0, green: 0.76, blue: 0.32)
     static let danger = Color(red: 1.0, green: 0.39, blue: 0.43)
-    static let textPrimary = Color(red: 0.94, green: 0.97, blue: 1.0)
-    static let textSecondary = Color(red: 0.72, green: 0.78, blue: 0.85)
-    static let textMuted = Color(red: 0.53, green: 0.60, blue: 0.69)
+    static let textPrimary = Color(red: 0.95, green: 0.98, blue: 0.96)
+    static let textSecondary = Color(red: 0.74, green: 0.80, blue: 0.76)
+    static let textMuted = Color(red: 0.54, green: 0.61, blue: 0.57)
     static let glassFill = surface
     static let glassStroke = Color.white.opacity(0.10)
     static let divider = Color.white.opacity(0.09)
@@ -149,7 +149,7 @@ struct WeePrimaryButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.subheadline.weight(.semibold))
-            .foregroundStyle(Color(red: 0.02, green: 0.10, blue: 0.16))
+            .foregroundStyle(Color(red: 0.015, green: 0.075, blue: 0.045))
             .padding(.horizontal, 12)
             .padding(.vertical, 7)
             .background(WeeTheme.accent, in: RoundedRectangle(cornerRadius: 7, style: .continuous))

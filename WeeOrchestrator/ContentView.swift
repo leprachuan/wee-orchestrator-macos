@@ -58,14 +58,10 @@ struct ContentView: View {
     private var workspaceRail: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 9) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(WeeTheme.accent)
-                    Image(systemName: "command")
-                        .font(.system(size: 15, weight: .black))
-                        .foregroundStyle(Color(red: 0.02, green: 0.10, blue: 0.16))
-                }
-                .frame(width: 32, height: 32)
+                Image("WeeIcon")
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: 38, height: 38)
 
                 VStack(alignment: .leading, spacing: 0) {
                     Text("WEE")
