@@ -11,39 +11,33 @@ struct TasksView: View {
     private var scheduledEnabled: Int { model.scheduledJobs.filter { $0.enabled != false }.count }
 
     var body: some View {
-        VStack(spacing: 12) {
-            HStack {
-                VStack(alignment: .leading, spacing: 5) {
-                    Text("Tasks")
-                        .font(.title3.weight(.bold))
-                        .foregroundStyle(WeeTheme.textPrimary)
-                    HStack {
-                        StatusPill(text: "\(running) run", color: WeeTheme.accent, symbol: "bolt.fill")
-                        StatusPill(text: "\(queued) queue", color: WeeTheme.gold, symbol: "clock.fill")
-                        StatusPill(text: "\(scheduledEnabled) sched", color: WeeTheme.textSecondary, symbol: "calendar")
-                    }
-                }
-                Spacer()
+        VStack(spacing: 8) {
+            PageHeader(title: "Tasks", subtitle: "Launch and monitor asynchronous work", symbol: "bolt.fill") {
+                StatusPill(text: "\(running) running", color: WeeTheme.emerald, symbol: "bolt.fill")
+                StatusPill(text: "\(queued) queued", color: WeeTheme.gold, symbol: "clock.fill")
+                StatusPill(text: "\(scheduledEnabled) scheduled", color: WeeTheme.textSecondary, symbol: "calendar")
                 Button {
                     Task { await model.refreshAll() }
                 } label: {
                     Image(systemName: "arrow.clockwise")
                 }
-                .buttonStyle(WeeGhostButtonStyle())
+                .buttonStyle(CompactIconButtonStyle())
                 .keyboardShortcut("r", modifiers: .command)
             }
-            .padding(14)
-            .glassPanel()
 
             ScrollView {
-                VStack(spacing: 12) {
-                    scheduledJobsSection
-                    backgroundTasksSection
+                VStack(spacing: 8) {
                     backgroundComposer
+                    HStack(alignment: .top, spacing: 8) {
+                        scheduledJobsSection
+                            .frame(maxWidth: .infinity, alignment: .top)
+                        backgroundTasksSection
+                            .frame(maxWidth: .infinity, alignment: .top)
+                    }
                 }
             }
         }
-        .padding(16)
+        .padding(10)
         .task {
             await model.loadScheduledJobs()
         }
@@ -54,7 +48,7 @@ struct TasksView: View {
     }
 
     private var scheduledJobsSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 8) {
             SectionHeader(
                 title: "Scheduled Tasks",
                 symbol: "calendar",
@@ -77,7 +71,7 @@ struct TasksView: View {
                         minHeight: 80
                     )
                 } else {
-                    LazyVStack(spacing: 10) {
+                    LazyVStack(spacing: 6) {
                         ForEach(model.scheduledJobs) { job in
                             ScheduledJobRow(job: job)
                         }
@@ -85,47 +79,43 @@ struct TasksView: View {
                 }
             }
         }
-        .padding(14)
+        .padding(10)
         .glassPanel()
     }
 
     private var backgroundComposer: some View {
-        VStack(spacing: 10) {
-            TextField("Run a background task", text: $prompt, axis: .vertical)
-                .lineLimit(2...6)
+        HStack(alignment: .bottom, spacing: 8) {
+            TextField("Describe a background task to run…", text: $prompt, axis: .vertical)
+                .lineLimit(1...4)
                 .textFieldStyle(.plain)
                 .foregroundStyle(WeeTheme.textPrimary)
-                .padding(12)
-                .background(WeeTheme.sunken, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .padding(10)
+                .background(WeeTheme.sunken, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
 
-            HStack {
-                Picker("Agent", selection: $model.selectedAgent) {
-                    ForEach(model.agents) { agent in
-                        Text(agent.name).tag(agent.name)
-                    }
+            Picker("Agent", selection: $model.selectedAgent) {
+                ForEach(model.agents) { agent in
+                    Text(agent.name).tag(agent.name)
                 }
-                .pickerStyle(.menu)
-                .frame(width: 180)
-
-                Spacer()
-
-                Button {
-                    let taskPrompt = prompt
-                    prompt = ""
-                    Task { await model.createBackgroundTask(prompt: taskPrompt) }
-                } label: {
-                    Label("Start", systemImage: "play.fill")
-                }
-                .buttonStyle(WeePrimaryButtonStyle())
-                .disabled(prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || model.isLoading)
             }
+            .pickerStyle(.menu)
+            .frame(width: 170)
+
+            Button {
+                let taskPrompt = prompt
+                prompt = ""
+                Task { await model.createBackgroundTask(prompt: taskPrompt) }
+            } label: {
+                Label("Run Task", systemImage: "play.fill")
+            }
+            .buttonStyle(WeePrimaryButtonStyle())
+            .disabled(prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || model.isLoading)
         }
-        .padding(14)
+        .padding(9)
         .glassPanel()
     }
 
     private var backgroundTasksSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 8) {
             SectionHeader(
                 title: "Background Tasks",
                 symbol: "bolt.fill",
@@ -144,7 +134,7 @@ struct TasksView: View {
                 if model.tasks.isEmpty {
                     EmptyTaskState(title: "No background tasks", symbol: "bolt.slash", minHeight: 80)
                 } else {
-                    LazyVStack(spacing: 10) {
+                    LazyVStack(spacing: 6) {
                         ForEach(model.tasks) { task in
                             Button {
                                 Task { await model.loadTaskDetail(task) }
@@ -157,7 +147,7 @@ struct TasksView: View {
                 }
             }
         }
-        .padding(14)
+        .padding(10)
         .glassPanel()
         .animation(.easeInOut(duration: 0.18), value: scheduledTasksCollapsed)
         .animation(.easeInOut(duration: 0.18), value: backgroundTasksCollapsed)
@@ -244,7 +234,7 @@ private struct TaskRow: View {
     let task: BackgroundTaskSummary
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 9) {
+        VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
                 StatusPill(text: task.status, color: statusColor, symbol: statusSymbol)
                 Text(task.agent)
@@ -268,9 +258,9 @@ private struct TaskRow: View {
                     .lineLimit(1)
             }
         }
-        .padding(12)
-        .background(Color.white.opacity(0.055), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(WeeTheme.glassStroke))
+        .padding(9)
+        .background(WeeTheme.surfaceRaised, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(WeeTheme.glassStroke))
     }
 
     private var statusColor: Color {
@@ -296,7 +286,7 @@ private struct ScheduledJobRow: View {
     let job: ScheduledJobSummary
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 9) {
+        VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
                 StatusPill(text: job.enabled == false ? "paused" : "enabled", color: job.enabled == false ? WeeTheme.gold : WeeTheme.accent, symbol: job.enabled == false ? "pause.circle.fill" : "checkmark.circle.fill")
                 Text(job.mode == "command" ? "command" : job.agent ?? "orchestrator")
@@ -341,9 +331,9 @@ private struct ScheduledJobRow: View {
                 }
             }
         }
-        .padding(12)
-        .background(Color.white.opacity(0.055), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(WeeTheme.glassStroke))
+        .padding(9)
+        .background(WeeTheme.surfaceRaised, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(WeeTheme.glassStroke))
     }
 }
 

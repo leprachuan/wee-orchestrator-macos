@@ -1,53 +1,35 @@
 import SwiftUI
 
 enum WeeTheme {
-    static let background = Color(red: 0.039, green: 0.055, blue: 0.102)
-    static let emerald = Color(red: 0.243, green: 0.812, blue: 0.557)
-    static let accent = emerald
-    static let gold = Color(red: 0.961, green: 0.773, blue: 0.259)
-    static let danger = Color(red: 1.0, green: 0.373, blue: 0.427)
-    static let textPrimary = Color.white.opacity(0.92)
-    static let textSecondary = Color.white.opacity(0.64)
-    static let textMuted = Color.white.opacity(0.42)
-    static let glassFill = Color(red: 0.071, green: 0.110, blue: 0.098).opacity(0.62)
-    static let glassStroke = Color.white.opacity(0.13)
-    static let sunken = Color.black.opacity(0.28)
+    // A restrained, high-contrast desktop palette. Surfaces are deliberately
+    // opaque so text remains readable regardless of what sits behind a panel.
+    static let background = Color(red: 0.035, green: 0.047, blue: 0.067)
+    static let sidebar = Color(red: 0.047, green: 0.063, blue: 0.086)
+    static let surface = Color(red: 0.067, green: 0.086, blue: 0.114)
+    static let surfaceRaised = Color(red: 0.082, green: 0.106, blue: 0.137)
+    static let surfaceHover = Color(red: 0.102, green: 0.133, blue: 0.169)
+
+    static let emerald = Color(red: 0.31, green: 0.88, blue: 0.67)
+    static let accent = Color(red: 0.31, green: 0.78, blue: 1.0)
+    static let gold = Color(red: 1.0, green: 0.76, blue: 0.32)
+    static let danger = Color(red: 1.0, green: 0.39, blue: 0.43)
+    static let textPrimary = Color(red: 0.94, green: 0.97, blue: 1.0)
+    static let textSecondary = Color(red: 0.72, green: 0.78, blue: 0.85)
+    static let textMuted = Color(red: 0.53, green: 0.60, blue: 0.69)
+    static let glassFill = surface
+    static let glassStroke = Color.white.opacity(0.10)
+    static let divider = Color.white.opacity(0.09)
+    static let sunken = Color.black.opacity(0.24)
 }
 
 struct WeeBackground: View {
     var body: some View {
-        ZStack {
-            WeeTheme.background.ignoresSafeArea()
-
-            RadialGradient(
-                colors: [Color(red: 0.051, green: 0.290, blue: 0.165).opacity(0.72), .clear],
-                center: .topLeading,
-                startRadius: 20,
-                endRadius: 380
-            )
-            .ignoresSafeArea()
-
-            RadialGradient(
-                colors: [WeeTheme.gold.opacity(0.18), .clear],
-                center: .topTrailing,
-                startRadius: 20,
-                endRadius: 310
-            )
-            .ignoresSafeArea()
-
-            RadialGradient(
-                colors: [Color(red: 0.102, green: 0.165, blue: 0.424).opacity(0.56), .clear],
-                center: .bottomTrailing,
-                startRadius: 20,
-                endRadius: 360
-            )
-            .ignoresSafeArea()
-        }
+        WeeTheme.background.ignoresSafeArea()
     }
 }
 
 struct GlassPanel: ViewModifier {
-    var radius: CGFloat = 16
+    var radius: CGFloat = 10
     var fill: Color = WeeTheme.glassFill
 
     func body(content: Content) -> some View {
@@ -60,12 +42,11 @@ struct GlassPanel: ViewModifier {
                 RoundedRectangle(cornerRadius: radius, style: .continuous)
                     .stroke(WeeTheme.glassStroke, lineWidth: 1)
             )
-            .shadow(color: .black.opacity(0.34), radius: 22, x: 0, y: 14)
     }
 }
 
 extension View {
-    func glassPanel(radius: CGFloat = 16, fill: Color = WeeTheme.glassFill) -> some View {
+    func glassPanel(radius: CGFloat = 10, fill: Color = WeeTheme.glassFill) -> some View {
         modifier(GlassPanel(radius: radius, fill: fill))
     }
 }
@@ -76,40 +57,77 @@ struct StatusPill: View {
     var symbol: String?
 
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 4) {
             if let symbol {
                 Image(systemName: symbol)
-                    .font(.caption2.weight(.bold))
+                    .font(.system(size: 9, weight: .bold))
             }
             Text(text)
-                .font(.caption.weight(.semibold))
+                .font(.system(size: 10.5, weight: .semibold))
                 .lineLimit(1)
         }
         .foregroundStyle(color)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .background(color.opacity(0.13), in: Capsule())
-        .overlay(Capsule().stroke(color.opacity(0.24), lineWidth: 1))
+        .padding(.horizontal, 7)
+        .padding(.vertical, 4)
+        .background(color.opacity(0.12), in: RoundedRectangle(cornerRadius: 5, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 5, style: .continuous).stroke(color.opacity(0.22), lineWidth: 1))
+    }
+}
+
+struct PageHeader<Actions: View>: View {
+    let title: String
+    let subtitle: String
+    let symbol: String
+    @ViewBuilder var actions: Actions
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: symbol)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(WeeTheme.accent)
+                .frame(width: 32, height: 32)
+                .background(WeeTheme.accent.opacity(0.12), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.system(size: 17, weight: .bold))
+                    .foregroundStyle(WeeTheme.textPrimary)
+                Text(subtitle)
+                    .font(.caption)
+                    .foregroundStyle(WeeTheme.textSecondary)
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 12)
+            actions
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
+        .glassPanel(radius: 9, fill: WeeTheme.surface)
+    }
+}
+
+struct CompactIconButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundStyle(configuration.isPressed ? WeeTheme.textPrimary : WeeTheme.textSecondary)
+            .frame(minWidth: 28, minHeight: 28)
+            .background(configuration.isPressed ? WeeTheme.surfaceHover : WeeTheme.surfaceRaised, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous).stroke(WeeTheme.glassStroke))
     }
 }
 
 enum RuntimeIcons {
     private static let mapping: [String: String] = [
-        "claude": "RuntimeIcon-claude",
-        "claude-sdk": "RuntimeIcon-claude",
-        "copilot": "RuntimeIcon-copilot",
-        "copilot-sdk": "RuntimeIcon-copilot",
-        "gemini": "RuntimeIcon-gemini",
-        "opencode": "RuntimeIcon-opencode",
-        "codex": "RuntimeIcon-openai",
-        "devin": "RuntimeIcon-devin",
-        "cursor": "RuntimeIcon-cursor",
-        "wee": "RuntimeIcon-wee",
+        "claude": "RuntimeIcon-claude", "claude-sdk": "RuntimeIcon-claude",
+        "copilot": "RuntimeIcon-copilot", "copilot-sdk": "RuntimeIcon-copilot",
+        "gemini": "RuntimeIcon-gemini", "opencode": "RuntimeIcon-opencode",
+        "codex": "RuntimeIcon-openai", "devin": "RuntimeIcon-devin",
+        "cursor": "RuntimeIcon-cursor", "wee": "RuntimeIcon-wee",
     ]
 
-    static func imageName(for runtime: String) -> String? {
-        mapping[runtime]
-    }
+    static func imageName(for runtime: String) -> String? { mapping[runtime] }
 }
 
 struct RuntimeIconView: View {
@@ -118,16 +136,11 @@ struct RuntimeIconView: View {
 
     var body: some View {
         if let name = RuntimeIcons.imageName(for: runtime) {
-            Image(name)
-                .resizable()
-                .aspectRatio(contentMode: .fit)
-                .frame(width: size, height: size)
-                .opacity(0.85)
+            Image(name).resizable().aspectRatio(contentMode: .fit)
+                .frame(width: size, height: size).opacity(0.9)
         } else {
             Image(systemName: "server.rack")
-                .font(.system(size: size * 0.7))
-                .frame(width: size, height: size)
-                .opacity(0.85)
+                .font(.system(size: size * 0.7)).frame(width: size, height: size).opacity(0.9)
         }
     }
 }
@@ -136,19 +149,11 @@ struct WeePrimaryButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.subheadline.weight(.semibold))
-            .foregroundStyle(.black.opacity(0.82))
-            .padding(.horizontal, 14)
-            .padding(.vertical, 8)
-            .background(
-                LinearGradient(
-                    colors: [WeeTheme.accent, Color(red: 0.0, green: 0.71, blue: 0.31)],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                ),
-                in: RoundedRectangle(cornerRadius: 8, style: .continuous)
-            )
-            .opacity(configuration.isPressed ? 0.78 : 1)
-            .scaleEffect(configuration.isPressed ? 0.98 : 1)
+            .foregroundStyle(Color(red: 0.02, green: 0.10, blue: 0.16))
+            .padding(.horizontal, 12)
+            .padding(.vertical, 7)
+            .background(WeeTheme.accent, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+            .opacity(configuration.isPressed ? 0.76 : 1)
     }
 }
 
@@ -156,10 +161,10 @@ struct WeeGhostButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.subheadline.weight(.semibold))
-            .foregroundStyle(WeeTheme.textSecondary)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 8)
-            .background(Color.white.opacity(configuration.isPressed ? 0.14 : 0.08), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(WeeTheme.glassStroke))
+            .foregroundStyle(configuration.isPressed ? WeeTheme.textPrimary : WeeTheme.textSecondary)
+            .padding(.horizontal, 11)
+            .padding(.vertical, 7)
+            .background(configuration.isPressed ? WeeTheme.surfaceHover : WeeTheme.surfaceRaised, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 7, style: .continuous).stroke(WeeTheme.glassStroke))
     }
 }

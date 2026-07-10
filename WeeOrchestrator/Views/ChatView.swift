@@ -12,20 +12,21 @@ struct ChatView: View {
     var body: some View {
         VStack(spacing: 0) {
             HeaderPanel(model: model, isShowingHistory: $isShowingHistory)
-                .padding(.horizontal, 16)
-                .padding(.top, 12)
+                .padding(.horizontal, 10)
+                .padding(.top, 10)
 
-            HStack(spacing: 12) {
+            HStack(spacing: 8) {
                 RecentChatsRail(model: model, layout: .vertical)
-                    .frame(width: 260)
+                    .frame(width: 220)
 
                 chatTranscript
             }
-            .padding(.horizontal, 16)
+            .padding(.horizontal, 10)
             .padding(.top, 8)
 
             inputBar
-                .padding(16)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
         }
         .onDrop(of: [.fileURL, .image, .png, .jpeg, .tiff, .pdf], isTargeted: $isDropTargeted) { providers in
             handleDrop(providers)
@@ -73,7 +74,7 @@ struct ChatView: View {
                             .id(message.id)
                     }
                 }
-                .padding(14)
+                .padding(12)
             }
             .scrollIndicators(.hidden)
             .glassPanel()
@@ -131,7 +132,7 @@ struct ChatView: View {
                 .keyboardShortcut(.return, modifiers: .command)
             }
         }
-        .padding(10)
+        .padding(8)
         .glassPanel()
     }
 
@@ -237,24 +238,31 @@ private struct HeaderPanel: View {
     @Binding var isShowingHistory: Bool
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            VStack(alignment: .leading, spacing: 10) {
+        HStack(spacing: 10) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("CHAT SESSION")
+                    .font(.system(size: 9, weight: .bold))
+                    .tracking(1)
+                    .foregroundStyle(WeeTheme.textMuted)
                 Text(model.currentSessionID ?? "New Session")
-                    .font(.headline.weight(.semibold))
+                    .font(.system(size: 15, weight: .bold))
                     .foregroundStyle(WeeTheme.textPrimary)
                     .lineLimit(1)
+            }
+            .frame(maxWidth: 210, alignment: .leading)
 
-                HStack(spacing: 8) {
-                    agentMenu
-                    runtimeMenu
-                    modelMenu
-                    fullAccessButton
-                }
+            Divider().frame(height: 28).overlay(WeeTheme.divider)
+
+            HStack(spacing: 6) {
+                agentMenu
+                runtimeMenu
+                modelMenu
+                fullAccessButton
             }
 
             Spacer(minLength: 0)
 
-            HStack(spacing: 10) {
+            HStack(spacing: 6) {
                 Button {
                     Task { await model.startNewChat() }
                 } label: {
@@ -280,7 +288,8 @@ private struct HeaderPanel: View {
                 }
             }
         }
-        .padding(14)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
         .glassPanel()
     }
 
@@ -439,10 +448,9 @@ private struct RecentChatsRail: View {
     var layout: RecentChatsRailLayout = .horizontal
 
     var body: some View {
-        if model.historySessions.isEmpty { EmptyView() }
-        else {
-            switch layout {
+        switch layout {
             case .horizontal:
+                if !model.historySessions.isEmpty {
                 ScrollView(.horizontal) {
                     HStack(spacing: 10) {
                         ForEach(model.historySessions.prefix(12)) { session in
@@ -454,28 +462,48 @@ private struct RecentChatsRail: View {
                 }
                 .scrollIndicators(.hidden)
                 .glassPanel()
+                }
 
             case .vertical:
                 VStack(alignment: .leading, spacing: 10) {
-                    Text("Previous Chats")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(WeeTheme.textSecondary)
-                        .padding(.horizontal, 12)
-                        .padding(.top, 12)
+                    HStack {
+                        Text("RECENT CHATS")
+                            .font(.system(size: 9, weight: .bold))
+                            .tracking(1)
+                            .foregroundStyle(WeeTheme.textMuted)
+                        Spacer()
+                        Text("\(model.historySessions.count)")
+                            .font(.caption2.monospacedDigit())
+                            .foregroundStyle(WeeTheme.textMuted)
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.top, 10)
 
                     ScrollView {
-                        LazyVStack(spacing: 10) {
-                            ForEach(model.historySessions.prefix(24)) { session in
-                                sessionButton(session)
+                        if model.historySessions.isEmpty {
+                            VStack(spacing: 8) {
+                                Image(systemName: "bubble.left")
+                                    .foregroundStyle(WeeTheme.textMuted)
+                                Text("Your recent sessions will appear here.")
+                                    .font(.caption)
+                                    .foregroundStyle(WeeTheme.textSecondary)
+                                    .multilineTextAlignment(.center)
                             }
+                            .frame(maxWidth: .infinity)
+                            .padding(18)
+                        } else {
+                            LazyVStack(spacing: 6) {
+                                ForEach(model.historySessions.prefix(24)) { session in
+                                    sessionButton(session)
+                                }
+                            }
+                            .padding(.horizontal, 7)
+                            .padding(.bottom, 9)
                         }
-                        .padding(.horizontal, 10)
-                        .padding(.bottom, 12)
                     }
                     .scrollIndicators(.hidden)
                 }
                 .glassPanel()
-            }
         }
     }
 
@@ -505,7 +533,7 @@ private struct RecentChatsRail: View {
             }
             .frame(width: width, alignment: .leading)
             .frame(maxWidth: width == nil ? .infinity : nil, alignment: .leading)
-            .padding(10)
+            .padding(8)
             .background(session.sessionID == model.currentSessionID ? WeeTheme.accent.opacity(0.14) : Color.white.opacity(0.055), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(session.sessionID == model.currentSessionID ? WeeTheme.accent.opacity(0.34) : WeeTheme.glassStroke))
         }
@@ -602,7 +630,7 @@ private struct ChatBubble: View {
     var body: some View {
         HStack {
             if message.role == .user {
-                Spacer(minLength: 60)
+                Spacer(minLength: 30)
             }
 
             VStack(alignment: .leading, spacing: 6) {
@@ -642,12 +670,12 @@ private struct ChatBubble: View {
                         .padding(.top, message.text.isEmpty ? 0 : 2)
                 }
             }
-            .padding(13)
+            .padding(11)
             .background(bubbleFill, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(WeeTheme.glassStroke))
 
             if message.role != .user {
-                Spacer(minLength: 60)
+                Spacer(minLength: 30)
             }
         }
     }

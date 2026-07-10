@@ -5,17 +5,8 @@ struct AgentsView: View {
     @State private var editorContext: AgentEditorContext?
 
     var body: some View {
-        VStack(spacing: 12) {
-            HStack {
-                VStack(alignment: .leading, spacing: 5) {
-                    Text("Agents")
-                        .font(.title3.weight(.bold))
-                        .foregroundStyle(WeeTheme.textPrimary)
-                    Text("\(model.agents.count) configured")
-                        .font(.caption)
-                        .foregroundStyle(WeeTheme.textSecondary)
-                }
-                Spacer()
+        VStack(spacing: 8) {
+            PageHeader(title: "Agents", subtitle: "\(model.agents.count) configured · select the active workspace agent", symbol: "person.2.fill") {
                 Picker("Active", selection: $model.selectedAgent) {
                     ForEach(model.agents) { agent in
                         Text(agent.name).tag(agent.name)
@@ -32,11 +23,9 @@ struct AgentsView: View {
                 .buttonStyle(WeeGhostButtonStyle())
                 .help("Add Agent")
             }
-            .padding(14)
-            .glassPanel()
 
             ScrollView {
-                LazyVStack(spacing: 12) {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 360, maximum: 520), spacing: 8, alignment: .top)], alignment: .leading, spacing: 8) {
                     ForEach(model.agents) { agent in
                         AgentCard(
                             agent: agent,
@@ -52,12 +41,12 @@ struct AgentsView: View {
                         }
                     }
                 }
-                .padding(14)
+                .padding(10)
             }
             .scrollIndicators(.hidden)
-            .glassPanel()
+            .glassPanel(fill: WeeTheme.background)
         }
-        .padding(16)
+        .padding(10)
         .sheet(item: $editorContext) { context in
             AgentEditorSheet(model: model, agentName: context.agentName)
                 .frame(width: 760, height: 720)
@@ -76,11 +65,20 @@ private struct AgentCard: View {
     let onEdit: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text(agent.name)
-                    .font(.headline.weight(.semibold))
-                    .foregroundStyle(isSelected ? WeeTheme.gold : WeeTheme.textPrimary)
+                HStack(spacing: 8) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 6).fill(isSelected ? WeeTheme.accent.opacity(0.16) : WeeTheme.surfaceHover)
+                        Text(String(agent.name.prefix(1)).uppercased())
+                            .font(.caption.weight(.bold))
+                            .foregroundStyle(isSelected ? WeeTheme.accent : WeeTheme.textSecondary)
+                    }
+                    .frame(width: 27, height: 27)
+                    Text(agent.name)
+                        .font(.headline.weight(.semibold))
+                        .foregroundStyle(isSelected ? WeeTheme.accent : WeeTheme.textPrimary)
+                }
                 Spacer()
                 Button(action: onEdit) {
                     Image(systemName: "pencil")
@@ -89,16 +87,13 @@ private struct AgentCard: View {
                 .buttonStyle(WeeGhostButtonStyle())
                 .help("Edit \(agent.name)")
 
-                if isSelected {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundStyle(WeeTheme.accent)
-                }
+                if isSelected { StatusPill(text: "active", color: WeeTheme.emerald, symbol: "checkmark") }
             }
 
             Text(agent.description)
                 .font(.subheadline)
                 .foregroundStyle(WeeTheme.textSecondary)
-                .lineLimit(3)
+                .lineLimit(2)
 
             HStack {
                 if let runtime = agent.primaryRuntime {
@@ -109,9 +104,10 @@ private struct AgentCard: View {
                 }
             }
         }
-        .padding(14)
-        .background(isSelected ? WeeTheme.accent.opacity(0.12) : Color.white.opacity(0.055), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(isSelected ? WeeTheme.accent.opacity(0.32) : WeeTheme.glassStroke))
+        .padding(11)
+        .frame(maxWidth: .infinity, minHeight: 124, alignment: .topLeading)
+        .background(isSelected ? WeeTheme.accent.opacity(0.09) : WeeTheme.surface, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).stroke(isSelected ? WeeTheme.accent.opacity(0.5) : WeeTheme.glassStroke))
     }
 }
 

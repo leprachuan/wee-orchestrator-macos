@@ -1,12 +1,7 @@
 import SwiftUI
 
 enum AppSection: String, CaseIterable, Identifiable {
-    case chat
-    case kanban
-    case tasks
-    case agents
-    case settings
-
+    case chat, kanban, tasks, agents, settings
     var id: String { rawValue }
 
     var title: String {
@@ -19,13 +14,23 @@ enum AppSection: String, CaseIterable, Identifiable {
         }
     }
 
+    var eyebrow: String {
+        switch self {
+        case .chat: "CONVERSE"
+        case .kanban: "PLAN"
+        case .tasks: "EXECUTE"
+        case .agents: "TEAM"
+        case .settings: "SYSTEM"
+        }
+    }
+
     var symbol: String {
         switch self {
-        case .chat: "bubble.left.and.bubble.right"
-        case .kanban: "rectangle.3.group"
+        case .chat: "bubble.left.and.text.bubble.right.fill"
+        case .kanban: "rectangle.3.group.fill"
         case .tasks: "bolt.fill"
-        case .agents: "person.3.sequence.fill"
-        case .settings: "gearshape.fill"
+        case .agents: "person.2.fill"
+        case .settings: "slider.horizontal.3"
         }
     }
 }
@@ -35,105 +40,160 @@ struct ContentView: View {
     @State private var selectedSection: AppSection = .chat
 
     var body: some View {
-        NavigationSplitView {
-            sidebar
-        } detail: {
+        HStack(spacing: 0) {
+            workspaceRail
+
             ZStack {
                 WeeBackground()
                 sectionView
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .navigationSplitViewStyle(.balanced)
+        .background(WeeTheme.background)
         .preferredColorScheme(.dark)
-        .task {
-            await model.bootstrap()
-        }
+        .frame(minWidth: 960, minHeight: 640)
+        .task { await model.bootstrap() }
     }
 
-    private var sidebar: some View {
-        List(selection: $selectedSection) {
-            Section("Wee Orchestrator") {
+    private var workspaceRail: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 9) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(WeeTheme.accent)
+                    Image(systemName: "command")
+                        .font(.system(size: 15, weight: .black))
+                        .foregroundStyle(Color(red: 0.02, green: 0.10, blue: 0.16))
+                }
+                .frame(width: 32, height: 32)
+
+                VStack(alignment: .leading, spacing: 0) {
+                    Text("WEE")
+                        .font(.system(size: 14, weight: .black, design: .rounded))
+                        .foregroundStyle(WeeTheme.textPrimary)
+                    Text("ORCHESTRATOR")
+                        .font(.system(size: 8, weight: .bold))
+                        .tracking(1.1)
+                        .foregroundStyle(WeeTheme.textMuted)
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.top, 14)
+            .padding(.bottom, 18)
+
+            Text("WORKSPACE")
+                .font(.system(size: 9, weight: .bold))
+                .tracking(1.2)
+                .foregroundStyle(WeeTheme.textMuted)
+                .padding(.horizontal, 14)
+                .padding(.bottom, 6)
+
+            VStack(spacing: 3) {
                 ForEach(AppSection.allCases) { section in
-                    Label {
-                        HStack {
-                            Text(section.title)
-                            Spacer()
-                            if badgeCount(for: section) > 0 {
-                                Text("\(badgeCount(for: section))")
-                                    .font(.caption2.weight(.bold))
-                                    .foregroundStyle(.black)
-                                    .padding(.horizontal, 7)
-                                    .padding(.vertical, 3)
-                                    .background(badgeColor(for: section), in: Capsule())
-                            }
-                        }
-                    } icon: {
-                        Image(systemName: section.symbol)
-                    }
-                    .tag(section)
+                    railButton(section)
                 }
             }
+            .padding(.horizontal, 8)
 
-            Section("Status") {
+            Spacer(minLength: 12)
+
+            VStack(alignment: .leading, spacing: 9) {
+                HStack(spacing: 7) {
+                    Circle()
+                        .fill(isHealthy ? WeeTheme.emerald : WeeTheme.gold)
+                        .frame(width: 7, height: 7)
+                        .shadow(color: (isHealthy ? WeeTheme.emerald : WeeTheme.gold).opacity(0.5), radius: 4)
+                    Text(isHealthy ? "System online" : "Connection pending")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(WeeTheme.textPrimary)
+                }
+
                 HStack {
-                    StatusPill(
-                        text: model.health?.status ?? "unknown",
-                        color: model.health?.status == "ok" ? WeeTheme.accent : WeeTheme.gold,
-                        symbol: model.health?.status == "ok" ? "checkmark.circle.fill" : "wifi.slash"
-                    )
+                    Text(model.health?.environment ?? model.appConfig?.appEnv ?? "Not connected")
+                        .font(.caption2)
+                        .foregroundStyle(WeeTheme.textMuted)
+                        .lineLimit(1)
                     Spacer()
+                    if model.isLoading {
+                        ProgressView().controlSize(.mini).tint(WeeTheme.accent)
+                    }
                 }
 
-                if let env = model.health?.environment ?? model.appConfig?.appEnv {
-                    Text(env)
-                        .font(.caption)
-                        .foregroundStyle(WeeTheme.textSecondary)
-                }
-            }
-
-            Section {
                 Button {
                     Task { await model.refreshAll() }
                 } label: {
-                    Label("Refresh", systemImage: "arrow.clockwise")
+                    Label("Refresh data", systemImage: "arrow.clockwise")
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
+                .buttonStyle(WeeGhostButtonStyle())
+                .keyboardShortcut("r", modifiers: .command)
             }
+            .padding(10)
+            .background(WeeTheme.surface, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).stroke(WeeTheme.glassStroke))
+            .padding(8)
         }
-        .listStyle(.sidebar)
-        .frame(minWidth: 220)
-        .toolbar {
-            ToolbarItem {
-                if model.isLoading {
-                    ProgressView()
-                        .controlSize(.small)
-                }
-            }
-        }
+        .frame(width: 196)
+        .background(WeeTheme.sidebar)
+        .overlay(alignment: .trailing) { Rectangle().fill(WeeTheme.divider).frame(width: 1) }
     }
 
-    @ViewBuilder
-    private var sectionView: some View {
+    private func railButton(_ section: AppSection) -> some View {
+        Button {
+            selectedSection = section
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: section.symbol)
+                    .font(.system(size: 13, weight: .semibold))
+                    .frame(width: 18)
+                    .foregroundStyle(selectedSection == section ? WeeTheme.accent : WeeTheme.textSecondary)
+
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(section.title)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(selectedSection == section ? WeeTheme.textPrimary : WeeTheme.textSecondary)
+                    Text(section.eyebrow)
+                        .font(.system(size: 8, weight: .bold))
+                        .tracking(0.7)
+                        .foregroundStyle(WeeTheme.textMuted)
+                }
+
+                Spacer(minLength: 4)
+                if badgeCount(for: section) > 0 {
+                    Text("\(badgeCount(for: section))")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(section == .kanban ? WeeTheme.gold : WeeTheme.accent)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 2)
+                        .background((section == .kanban ? WeeTheme.gold : WeeTheme.accent).opacity(0.13), in: Capsule())
+                }
+            }
+            .padding(.horizontal, 9)
+            .frame(height: 43)
+            .background(selectedSection == section ? WeeTheme.surfaceRaised : Color.clear, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+            .overlay(alignment: .leading) {
+                if selectedSection == section {
+                    RoundedRectangle(cornerRadius: 2).fill(WeeTheme.accent).frame(width: 3, height: 22)
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    @ViewBuilder private var sectionView: some View {
         switch selectedSection {
-        case .chat:
-            ChatView(model: model)
-        case .kanban:
-            KanbanView(model: model)
-        case .tasks:
-            TasksView(model: model)
-        case .agents:
-            AgentsView(model: model)
-        case .settings:
-            SettingsView(model: model)
+        case .chat: ChatView(model: model)
+        case .kanban: KanbanView(model: model)
+        case .tasks: TasksView(model: model)
+        case .agents: AgentsView(model: model)
+        case .settings: SettingsView(model: model)
         }
     }
 
-    private var runningCount: Int {
-        model.tasks.filter { $0.status == "running" }.count
-    }
-
-    private var dueCount: Int {
-        model.kanbanBoard?.dueCards.count ?? 0
-    }
+    private var isHealthy: Bool { model.health?.status == "ok" }
+    private var runningCount: Int { model.tasks.filter { $0.status == "running" }.count }
+    private var dueCount: Int { model.kanbanBoard?.dueCards.count ?? 0 }
 
     private func badgeCount(for section: AppSection) -> Int {
         switch section {
@@ -141,9 +201,5 @@ struct ContentView: View {
         case .tasks: runningCount
         default: 0
         }
-    }
-
-    private func badgeColor(for section: AppSection) -> Color {
-        section == .kanban ? WeeTheme.gold : WeeTheme.accent
     }
 }

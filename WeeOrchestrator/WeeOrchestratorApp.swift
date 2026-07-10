@@ -8,7 +8,8 @@ struct WeeOrchestratorApp: App {
         WindowGroup {
             ContentView(model: model)
         }
-        .defaultSize(width: 1200, height: 800)
+        .defaultSize(width: 1360, height: 860)
+        .windowStyle(.hiddenTitleBar)
         .commands {
             CommandGroup(replacing: .newItem) {
                 Button("New Chat") {

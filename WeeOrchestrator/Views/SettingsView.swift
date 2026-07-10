@@ -22,23 +22,32 @@ struct SettingsView: View {
     private let runtimeFallbacks = ["copilot", "copilot-sdk", "claude", "claude-sdk", "gemini", "opencode", "codex", "devin"]
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
-                Text("Settings")
-                    .font(.title3.weight(.bold))
-                    .foregroundStyle(WeeTheme.textPrimary)
-
-                telegramAuthSection
-                connectionSection
-                manualTokenSection
-                environmentSection
-                connectionSummary
+        VStack(spacing: 8) {
+            PageHeader(title: "Settings", subtitle: "Authentication, connection, notifications, and service configuration", symbol: "slider.horizontal.3") {
+                StatusPill(
+                    text: model.isAuthenticated ? "authenticated" : "sign-in required",
+                    color: model.isAuthenticated ? WeeTheme.emerald : WeeTheme.gold,
+                    symbol: model.isAuthenticated ? "checkmark.shield.fill" : "exclamationmark.shield.fill"
+                )
             }
-            .padding(16)
-            .glassPanel()
-            .padding(16)
+
+            ScrollView {
+                HStack(alignment: .top, spacing: 8) {
+                    VStack(spacing: 8) {
+                        telegramAuthSection
+                        connectionSection
+                        advancedTokenSection
+                        connectionSummary
+                    }
+                    .frame(minWidth: 300, idealWidth: 360, maxWidth: 420)
+
+                    environmentSection
+                        .frame(maxWidth: .infinity, alignment: .top)
+                }
+            }
+            .scrollIndicators(.hidden)
         }
-        .scrollIndicators(.hidden)
+        .padding(10)
         .task {
             if telegramIdentity.isEmpty {
                 telegramIdentity = model.configuration.identity
@@ -51,6 +60,12 @@ struct SettingsView: View {
             }
         } message: {
             Text("This removes the agent from the shared agents config.")
+        }
+    }
+
+    private var advancedTokenSection: some View {
+        SettingsSectionBox(title: "Advanced Access", systemImage: "key.fill") {
+            manualTokenSection
         }
     }
 
@@ -737,8 +752,10 @@ private struct SettingsSectionBox<Content: View>: View {
 
             content
         }
-        .padding(13)
-        .background(WeeTheme.sunken, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .padding(11)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(WeeTheme.surface, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).stroke(WeeTheme.glassStroke))
     }
 }
 

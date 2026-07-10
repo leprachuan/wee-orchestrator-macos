@@ -40,29 +40,32 @@ struct KanbanView: View {
     }
 
     var body: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 8) {
             header
             filterControls
 
             ScrollView {
-                VStack(spacing: 12) {
+                VStack(spacing: 8) {
                     dueSection
 
-                    HStack(alignment: .top, spacing: 12) {
-                        ForEach(visibleColumns) { column in
-                            KanbanColumnView(
-                                column: column,
-                                cards: cards(for: column),
-                                onSelect: { selectedCard = $0 }
-                            )
-                            .frame(maxWidth: .infinity, alignment: .top)
+                    ScrollView(.horizontal) {
+                        HStack(alignment: .top, spacing: 8) {
+                            ForEach(visibleColumns) { column in
+                                KanbanColumnView(
+                                    column: column,
+                                    cards: cards(for: column),
+                                    onSelect: { selectedCard = $0 }
+                                )
+                                .frame(minWidth: 260, idealWidth: 300, maxWidth: 340, alignment: .top)
+                            }
                         }
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
-                    .frame(maxWidth: .infinity)
+                    .scrollIndicators(.visible)
                 }
             }
         }
-        .padding(16)
+        .padding(10)
         .task {
             await model.loadKanbanBoard()
         }
@@ -73,37 +76,26 @@ struct KanbanView: View {
     }
 
     private var header: some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 5) {
-                Text("Kanban")
-                    .font(.title3.weight(.bold))
-                    .foregroundStyle(WeeTheme.textPrimary)
-                HStack {
-                    StatusPill(text: "\(visibleColumns.reduce(0) { $0 + cards(for: $1).count }) shown", color: WeeTheme.accent, symbol: "rectangle.3.group")
-                    StatusPill(text: "\(dueCount) due", color: dueCount > 0 ? WeeTheme.gold : WeeTheme.textSecondary, symbol: "bell.badge")
-                    if activeFilterCount > 0 {
-                        StatusPill(text: "\(activeFilterCount) filters", color: WeeTheme.textSecondary, symbol: "line.3.horizontal.decrease.circle")
-                    }
-                    if let repo = board?.repo, !repo.isEmpty {
-                        StatusPill(text: "GitHub", color: WeeTheme.textSecondary, symbol: "number")
-                    }
+        PageHeader(title: "Kanban", subtitle: "Plan, prioritize, and dispatch work", symbol: "rectangle.3.group.fill") {
+            HStack(spacing: 5) {
+                StatusPill(text: "\(visibleColumns.reduce(0) { $0 + cards(for: $1).count }) shown", color: WeeTheme.accent, symbol: "rectangle.3.group")
+                StatusPill(text: "\(dueCount) due", color: dueCount > 0 ? WeeTheme.gold : WeeTheme.textSecondary, symbol: "bell.badge")
+                if activeFilterCount > 0 {
+                    StatusPill(text: "\(activeFilterCount) filters", color: WeeTheme.textSecondary, symbol: "line.3.horizontal.decrease.circle")
                 }
             }
-            Spacer()
             Button {
                 Task { await model.loadKanbanBoard() }
             } label: {
                 Image(systemName: "arrow.clockwise")
             }
-            .buttonStyle(WeeGhostButtonStyle())
+            .buttonStyle(CompactIconButtonStyle())
         }
-        .padding(14)
-        .glassPanel()
     }
 
     private var filterControls: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 12) {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(spacing: 8) {
                 Label("Filters", systemImage: "line.3.horizontal.decrease.circle")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(WeeTheme.textPrimary)
@@ -113,14 +105,14 @@ struct KanbanView: View {
                         Text(filter.title).tag(filter)
                     }
                 }
-                .frame(width: 150)
+                .frame(width: 138)
 
                 Picker("Due", selection: $dueFilter) {
                     ForEach(KanbanDueFilter.allCases) { filter in
                         Text(filter.title).tag(filter)
                     }
                 }
-                .frame(width: 170)
+                .frame(width: 154)
 
                 Picker("Label", selection: $labelFilter) {
                     Text("All Labels").tag("")
@@ -128,7 +120,7 @@ struct KanbanView: View {
                         Text(label).tag(label)
                     }
                 }
-                .frame(width: 180)
+                .frame(width: 164)
 
                 Toggle("Show Done", isOn: $showDoneColumn)
                     .toggleStyle(.checkbox)
@@ -149,7 +141,8 @@ struct KanbanView: View {
                 customDateControls
             }
         }
-        .padding(14)
+        .padding(.horizontal, 11)
+        .padding(.vertical, 8)
         .glassPanel()
     }
 
@@ -176,7 +169,7 @@ struct KanbanView: View {
                     .glassPanel()
             }
         } else {
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 8) {
                 Button {
                     withAnimation(.snappy) {
                         isDueSoonExpanded.toggle()
@@ -198,7 +191,7 @@ struct KanbanView: View {
                 .buttonStyle(.plain)
 
                 if isDueSoonExpanded {
-                    LazyVStack(spacing: 10) {
+                    LazyVStack(spacing: 6) {
                         ForEach(cards.prefix(6)) { card in
                             KanbanCardRow(card: card)
                                 .contentShape(Rectangle())
@@ -209,7 +202,7 @@ struct KanbanView: View {
                     }
                 }
             }
-            .padding(14)
+            .padding(10)
             .glassPanel()
         }
     }
@@ -334,7 +327,7 @@ private struct KanbanColumnView: View {
     let onSelect: (KanbanCard) -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
                 Image(systemName: column.symbol)
                     .foregroundStyle(WeeTheme.accent)
@@ -348,7 +341,7 @@ private struct KanbanColumnView: View {
             if cards.isEmpty {
                 EmptyKanbanState(title: "No cards", symbol: "tray")
             } else {
-                LazyVStack(spacing: 10) {
+                LazyVStack(spacing: 6) {
                     ForEach(cards) { card in
                         KanbanCardRow(card: card)
                             .contentShape(Rectangle())
@@ -359,7 +352,7 @@ private struct KanbanColumnView: View {
                 }
             }
         }
-        .padding(14)
+        .padding(10)
         .glassPanel()
     }
 }
@@ -368,7 +361,7 @@ private struct KanbanCardRow: View {
     let card: KanbanCard
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 9) {
+        VStack(alignment: .leading, spacing: 7) {
             HStack(spacing: 8) {
                 StatusPill(text: card.source, color: card.source == "github" ? WeeTheme.gold : WeeTheme.accent, symbol: card.source == "github" ? "number" : "doc.text")
                 if let agent = card.agent, !agent.isEmpty {
@@ -383,7 +376,7 @@ private struct KanbanCardRow: View {
             Text(card.title)
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(WeeTheme.textPrimary)
-                .lineLimit(4)
+                .lineLimit(3)
 
             if let due = card.due, !due.isEmpty {
                 StatusPill(text: dueText(due), color: dueColor, symbol: card.dueBucket == "overdue" ? "exclamationmark.circle.fill" : "calendar")
@@ -393,7 +386,7 @@ private struct KanbanCardRow: View {
                 Text(card.details)
                     .font(.caption)
                     .foregroundStyle(WeeTheme.textSecondary)
-                    .lineLimit(3)
+                .lineLimit(2)
             }
 
             HStack(spacing: 8) {
@@ -419,9 +412,9 @@ private struct KanbanCardRow: View {
                 }
             }
         }
-        .padding(12)
-        .background(Color.white.opacity(0.055), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(WeeTheme.glassStroke))
+        .padding(9)
+        .background(WeeTheme.surfaceRaised, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(WeeTheme.glassStroke))
     }
 
     private var dueColor: Color {
