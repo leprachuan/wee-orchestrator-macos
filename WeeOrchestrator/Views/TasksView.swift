@@ -214,6 +214,11 @@ private enum SchedulerExecutionMode: String, CaseIterable, Identifiable {
     var symbol: String { self == .ai ? "sparkles" : "terminal" }
 }
 
+private enum EditorTab: String, CaseIterable {
+    case edit = "Edit"
+    case history = "Execution History"
+}
+
 private struct ModernScheduledJobEditorSheet: View {
     @Bindable var model: WeeAppModel
     let job: ScheduledJobSummary?
@@ -240,6 +245,11 @@ private struct ModernScheduledJobEditorSheet: View {
     @State private var validationMessage: String?
     @State private var validationIsError = false
     @State private var errorMessage: String?
+    
+    @State private var selectedTab: EditorTab = .edit
+    @State private var executionHistory: [ScheduledExecutionResult] = []
+    @State private var isLoadingHistory = false
+    @State private var historyError: String?
 
     init(model: WeeAppModel, job: ScheduledJobSummary?) {
         self.model = model
@@ -265,24 +275,47 @@ private struct ModernScheduledJobEditorSheet: View {
         VStack(spacing: 0) {
             editorHeader
             Rectangle().fill(WeeTheme.divider).frame(height: 1)
-
-            ScrollView {
-                HStack(alignment: .top, spacing: 10) {
-                    VStack(spacing: 10) {
-                        basicsSection
-                        taskSection
+            
+            if job != nil {
+                HStack(spacing: 12) {
+                    ForEach(EditorTab.allCases, id: \.rawValue) { tab in
+                        Button(action: { selectedTab = tab }) {
+                            Text(tab.rawValue)
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(selectedTab == tab ? WeeTheme.accent : WeeTheme.textSecondary)
+                                .padding(.vertical, 8)
+                                .padding(.horizontal, 12)
+                        }
+                        .background(selectedTab == tab ? WeeTheme.accent.opacity(0.1) : .clear, in: RoundedRectangle(cornerRadius: 6))
                     }
-                    .frame(maxWidth: .infinity, alignment: .top)
-
-                    VStack(spacing: 10) {
-                        executionSection
-                        deliverySection
-                        fallbackSection
-                    }
-                    .frame(width: 340, alignment: .top)
+                    Spacer()
                 }
-                .padding(14)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .background(WeeTheme.surface)
+                Rectangle().fill(WeeTheme.divider).frame(height: 1)
             }
+
+            if selectedTab == .history && job != nil {
+                executionHistoryView
+            } else {
+                ScrollView {
+                    HStack(alignment: .top, spacing: 10) {
+                        VStack(spacing: 10) {
+                            basicsSection
+                            taskSection
+                        }
+                        .frame(maxWidth: .infinity, alignment: .top)
+
+                        VStack(spacing: 10) {
+                            executionSection
+                            deliverySection
+                            fallbackSection
+                        }
+                        .frame(width: 340, alignment: .top)
+                    }
+                    .padding(14)
+                }
 
             Rectangle().fill(WeeTheme.divider).frame(height: 1)
             editorFooter
@@ -291,6 +324,10 @@ private struct ModernScheduledJobEditorSheet: View {
         .task {
             await loadModels(for: runtime, fallback: false)
             if !fallbackRuntime.isEmpty { await loadModels(for: fallbackRuntime, fallback: true) }
+            if job != nil { await loadExecutionHistory() }
+        }
+        .task(id: selectedTab) {
+            if selectedTab == .history && job != nil { await loadExecutionHistory() }
         }
         .task(id: schedule) {
             validationMessage = nil
@@ -336,6 +373,174 @@ private struct ModernScheduledJobEditorSheet: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
         .background(WeeTheme.surface)
+    }
+    
+    private var executionHistoryView: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    Label("Execution History", systemImage: "clock.badge.checkmark")
+                        .font(.headline.weight(.semibold))
+                        .foregroundStyle(WeeTheme.textPrimary)
+                    Spacer()
+                    Button {
+                        Task { await loadExecutionHistory() }
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                    }
+                    .buttonStyle(CompactIconButtonStyle())
+                }
+                
+                if isLoadingHistory {
+                    HStack {
+                        ProgressView()
+                            .scaleEffect(0.9, anchor: .center)
+                        Text("Loading execution history…")
+                            .font(.subheadline)
+                            .foregroundStyle(WeeTheme.textSecondary)
+                        Spacer()
+                    }
+                    .padding(12)
+                    .background(WeeTheme.surfaceRaised, in: RoundedRectangle(cornerRadius: 8))
+                } else if let error = historyError {
+                    HStack {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundStyle(WeeTheme.danger)
+                        Text(error)
+                            .font(.caption)
+                            .foregroundStyle(WeeTheme.danger)
+                        Spacer()
+                    }
+                    .padding(12)
+                    .background(WeeTheme.danger.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
+                } else if executionHistory.isEmpty {
+                    HStack {
+                        Image(systemName: "calendar.badge.exclamationmark")
+                            .foregroundStyle(WeeTheme.textMuted)
+                        Text("No execution history yet")
+                            .font(.subheadline)
+                            .foregroundStyle(WeeTheme.textSecondary)
+                        Spacer()
+                    }
+                    .padding(12)
+                    .background(WeeTheme.surfaceRaised, in: RoundedRectangle(cornerRadius: 8))
+                } else {
+                    VStack(spacing: 8) {
+                        ForEach(executionHistory) { result in
+                            executionResultRow(result)
+                        }
+                    }
+                }
+            }
+            .padding(14)
+        }
+    }
+    
+    private func executionResultRow(_ result: ScheduledExecutionResult) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                StatusPill(
+                    text: result.success ? "success" : "failed",
+                    color: result.success ? WeeTheme.emerald : WeeTheme.danger,
+                    symbol: result.success ? "checkmark.circle.fill" : "xmark.circle.fill"
+                )
+                
+                if let timestamp = result.timestamp {
+                    Text(formatDate(timestamp))
+                        .font(.caption)
+                        .foregroundStyle(WeeTheme.textSecondary)
+                }
+                
+                if let duration = result.durationSeconds {
+                    Text(formatDuration(duration))
+                        .font(.caption)
+                        .foregroundStyle(WeeTheme.textMuted)
+                }
+                
+                Spacer()
+            }
+            
+            if let runtime = result.runtime {
+                HStack(spacing: 8) {
+                    Text(runtime)
+                        .font(.caption2)
+                        .foregroundStyle(WeeTheme.textMuted)
+                    if let model = result.model {
+                        Text(model)
+                            .font(.caption2)
+                            .foregroundStyle(WeeTheme.textMuted)
+                    }
+                }
+            }
+            
+            if let output = result.output, !output.isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Output")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(WeeTheme.textSecondary)
+                    Text(output)
+                        .font(.caption.monospaced())
+                        .foregroundStyle(WeeTheme.textMuted)
+                        .lineLimit(4)
+                        .textSelection(.enabled)
+                        .padding(8)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(WeeTheme.sunken, in: RoundedRectangle(cornerRadius: 6))
+                }
+            }
+            
+            if let error = result.error, !error.isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Error")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(WeeTheme.danger)
+                    Text(error)
+                        .font(.caption.monospaced())
+                        .foregroundStyle(WeeTheme.danger)
+                        .lineLimit(4)
+                        .textSelection(.enabled)
+                        .padding(8)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(WeeTheme.danger.opacity(0.1), in: RoundedRectangle(cornerRadius: 6))
+                }
+            }
+        }
+        .padding(10)
+        .background(WeeTheme.surfaceRaised, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(WeeTheme.glassStroke))
+    }
+    
+    private func formatDate(_ dateString: String) -> String {
+        let formatter = ISO8601DateFormatter()
+        if let date = formatter.date(from: dateString) {
+            let displayFormatter = DateFormatter()
+            displayFormatter.dateFormat = "MMM d, h:mm a"
+            return displayFormatter.string(from: date)
+        }
+        return dateString
+    }
+    
+    private func formatDuration(_ seconds: Double) -> String {
+        if seconds < 60 {
+            return String(format: "%.0fs", seconds)
+        } else if seconds < 3600 {
+            return String(format: "%.1fm", seconds / 60)
+        } else {
+            return String(format: "%.1fh", seconds / 3600)
+        }
+    }
+    
+    private func loadExecutionHistory() async {
+        guard let job = job else { return }
+        isLoadingHistory = true
+        historyError = nil
+        defer { isLoadingHistory = false }
+        
+        do {
+            executionHistory = try await model.client.scheduledJobResults(id: job.id, limit: 50)
+        } catch {
+            historyError = "Failed to load history: \(error.localizedDescription)"
+        }
     }
 
     private var basicsSection: some View {
@@ -462,7 +667,10 @@ private struct ModernScheduledJobEditorSheet: View {
 
     private var editorFooter: some View {
         HStack {
-            if let errorMessage {
+            if selectedTab == .history {
+                Text("Execution history from the last 50 runs.")
+                    .font(.caption).foregroundStyle(WeeTheme.textMuted)
+            } else if let errorMessage {
                 Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
                     .font(.caption.weight(.semibold)).foregroundStyle(WeeTheme.danger).lineLimit(2)
             } else {
@@ -471,14 +679,16 @@ private struct ModernScheduledJobEditorSheet: View {
             }
             Spacer()
             Button("Cancel") { dismiss() }.buttonStyle(WeeGhostButtonStyle())
-            Button {
-                Task { await save() }
-            } label: {
-                Label(isSaving ? "Saving…" : (job == nil ? "Create Task" : "Save Changes"), systemImage: "square.and.arrow.down")
+            if selectedTab == .edit {
+                Button {
+                    Task { await save() }
+                } label: {
+                    Label(isSaving ? "Saving…" : (job == nil ? "Create Task" : "Save Changes"), systemImage: "square.and.arrow.down")
+                }
+                .buttonStyle(WeePrimaryButtonStyle())
+                .disabled(isSaving || name.trimmed.isEmpty || schedule.trimmed.isEmpty || task.trimmed.isEmpty)
+                .keyboardShortcut("s", modifiers: .command)
             }
-            .buttonStyle(WeePrimaryButtonStyle())
-            .disabled(isSaving || name.trimmed.isEmpty || schedule.trimmed.isEmpty || task.trimmed.isEmpty)
-            .keyboardShortcut("s", modifiers: .command)
         }
         .padding(12)
         .background(WeeTheme.surface)
