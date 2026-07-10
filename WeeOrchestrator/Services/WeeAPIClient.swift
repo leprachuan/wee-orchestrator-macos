@@ -153,6 +153,14 @@ struct WeeAPIClient {
         )
     }
 
+    func scheduledJobResults(id: String, limit: Int = 20) async throws -> [ScheduledExecutionResult] {
+        let response: ScheduledJobResultsResponse = try await request(
+            "GET",
+            path: "/api/v1/scheduler/jobs/\(id)/results?limit=\(limit)"
+        )
+        return response.result
+    }
+
     func kanbanBoard() async throws -> KanbanBoardResponse {
         do {
             return try await request("GET", path: "/api/v1/kanban/board")
@@ -174,7 +182,8 @@ struct WeeAPIClient {
         agent: String?,
         due: String?,
         priority: String?,
-        urgency: String?
+        urgency: String?,
+        labels: [String]?
     ) async throws -> KanbanItemDetail {
         let body = KanbanItemUpdateRequest(
             title: title,
@@ -183,7 +192,8 @@ struct WeeAPIClient {
             agent: agent,
             due: due,
             priority: priority,
-            urgency: urgency
+            urgency: urgency,
+            labels: labels
         )
         return try await request("PATCH", path: "/api/v1/kanban/items/\(id)", body: body)
     }

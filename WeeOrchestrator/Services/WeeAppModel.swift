@@ -644,7 +644,8 @@ final class WeeAppModel {
         agent: String,
         due: String,
         priority: String,
-        urgency: String
+        urgency: String,
+        labels: [String] = []
     ) async -> KanbanItemDetail? {
         do {
             let item = try await client.updateKanbanItem(
@@ -655,7 +656,8 @@ final class WeeAppModel {
                 agent: agent.trimmingCharacters(in: .whitespacesAndNewlines),
                 due: due.trimmingCharacters(in: .whitespacesAndNewlines),
                 priority: nilIfEmpty(priority),
-                urgency: nilIfEmpty(urgency)
+                urgency: nilIfEmpty(urgency),
+                labels: labels
             )
             await loadKanbanBoard()
             return item

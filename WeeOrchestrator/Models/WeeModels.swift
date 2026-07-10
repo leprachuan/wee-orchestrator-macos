@@ -389,6 +389,31 @@ struct ScheduleValidationResponse: Decodable {
     }
 }
 
+struct ScheduledJobResultsResponse: Decodable {
+    let success: Bool?
+    let result: [ScheduledExecutionResult]
+    let message: String?
+}
+
+struct ScheduledExecutionResult: Decodable, Identifiable, Hashable {
+    var id: String { "\(timestamp ?? "unknown"):\(success):\(output?.hashValue ?? error?.hashValue ?? 0)" }
+
+    let success: Bool
+    let timestamp: String?
+    let output: String?
+    let error: String?
+    let durationSeconds: Double?
+    let runtime: String?
+    let model: String?
+    let taskID: String?
+
+    enum CodingKeys: String, CodingKey {
+        case success, timestamp, output, error, runtime, model
+        case durationSeconds = "duration_seconds"
+        case taskID = "task_id"
+    }
+}
+
 struct ScheduledJobSummary: Decodable, Identifiable, Hashable {
     var id: String { jobID }
 
@@ -670,6 +695,7 @@ struct KanbanItemUpdateRequest: Encodable {
     let due: String?
     let priority: String?
     let urgency: String?
+    let labels: [String]?
 }
 
 struct KanbanCommentRequest: Encodable {

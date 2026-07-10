@@ -69,7 +69,7 @@ struct KanbanView: View {
             await model.loadKanbanBoard()
         }
         .sheet(item: $selectedCard) { card in
-            KanbanItemDetailSheet(model: model, card: card)
+            KanbanItemDetailSheet(model: model, card: card, availableLabels: availableLabels)
                 .frame(minWidth: 1080, idealWidth: 1240, maxWidth: 1480, minHeight: 740, idealHeight: 880, maxHeight: 1040)
         }
     }
@@ -480,6 +480,7 @@ private struct KanbanCardRow: View {
 private struct KanbanItemDetailSheet: View {
     @Bindable var model: WeeAppModel
     let card: KanbanCard
+    let availableLabels: [String]
     @Environment(\.dismiss) private var dismiss
 
     @State private var detail: KanbanItemDetail?
@@ -490,6 +491,8 @@ private struct KanbanItemDetailSheet: View {
     @State private var due = ""
     @State private var priority = "normal"
     @State private var urgency = "normal"
+    @State private var labels: [String] = []
+    @State private var newLabelInput = ""
     @State private var comment = ""
     @State private var dispatchAgent = ""
     @State private var dispatchPrompt = ""
@@ -498,6 +501,19 @@ private struct KanbanItemDetailSheet: View {
 
     private var agentNames: [String] {
         model.agents.map(\.name).filter { !$0.isEmpty }
+    }
+
+    private var allAvailableLabels: [String] {
+        availableLabels
+    }
+
+    private var filteredLabelSuggestions: [String] {
+        let trimmed = newLabelInput.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !trimmed.isEmpty else { return [] }
+        return allAvailableLabels.filter { label in
+            !labels.contains(where: { $0.caseInsensitiveCompare(label) == .orderedSame })
+                && label.lowercased().contains(trimmed)
+        }.prefix(6).map { $0 }
     }
 
     var body: some View {
@@ -685,6 +701,81 @@ private struct KanbanItemDetailSheet: View {
                 }
             }
 
+            VStack(alignment: .leading, spacing: 8) {
+                editorLabel("Labels")
+                
+                if labels.isEmpty {
+                    Text("No labels on this item")
+                        .font(.caption)
+                        .foregroundStyle(WeeTheme.textSecondary)
+                } else {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 110), spacing: 6)], alignment: .leading, spacing: 6) {
+                        ForEach(labels, id: \.self) { label in
+                            HStack(spacing: 4) {
+                                Text(label)
+                                    .font(.caption.weight(.medium))
+                                Button {
+                                    removeLabel(label)
+                                } label: {
+                                    Image(systemName: "xmark.circle.fill")
+                                        .font(.caption)
+                                }
+                                .buttonStyle(PlainButtonStyle())
+                            }
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(WeeTheme.accent.opacity(0.15), in: Capsule())
+                        }
+                    }
+                }
+                
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 6) {
+                        TextField("Add or search labels", text: $newLabelInput)
+                            .textFieldStyle(.plain)
+                            .padding(8)
+                            .background(WeeTheme.sunken, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                            .overlay(RoundedRectangle(cornerRadius: 7, style: .continuous).stroke(WeeTheme.glassStroke))
+                            .onSubmit { submitLabelQuery() }
+                        
+                        if !newLabelInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                           filteredLabelSuggestions.isEmpty {
+                            Button {
+                                addLabel(newLabelInput)
+                            } label: {
+                                Label("Create", systemImage: "plus.circle.fill")
+                            }
+                            .buttonStyle(PlainButtonStyle())
+                            .foregroundStyle(WeeTheme.accent)
+                        }
+                    }
+                    
+                    if !filteredLabelSuggestions.isEmpty {
+                        VStack(alignment: .leading, spacing: 4) {
+                            ForEach(filteredLabelSuggestions, id: \.self) { suggestion in
+                                Button {
+                                    addLabel(suggestion)
+                                } label: {
+                                    HStack {
+                                        Image(systemName: "tag.fill")
+                                            .foregroundStyle(WeeTheme.textSecondary)
+                                        Text(suggestion)
+                                            .foregroundStyle(WeeTheme.textPrimary)
+                                        Spacer()
+                                    }
+                                    .padding(.vertical, 6)
+                                    .padding(.horizontal, 8)
+                                    .background(WeeTheme.surface.opacity(0.6), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+                                }
+                                .buttonStyle(PlainButtonStyle())
+                            }
+                        }
+                        .padding(8)
+                        .background(WeeTheme.sunken, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                    }
+                }
+            }
+
             HStack {
                 Text("Changes apply to the linked Kanban source.")
                     .font(.caption)
@@ -834,18 +925,33 @@ private struct KanbanItemDetailSheet: View {
         title = card.title; details = card.details; status = card.status
         agent = card.agent ?? ""; due = card.due ?? ""
         priority = card.priority; urgency = card.urgency
+        labels = userFacingLabels(card.labels)
     }
 
     private func populate(from item: KanbanItemDetail) {
         title = item.title; details = item.details; status = item.status
         agent = item.agent ?? ""; due = item.due ?? ""
         priority = item.priority; urgency = item.urgency
+        labels = userFacingLabels(item.labels)
     }
 
     private func save() async {
         isWorking = true; defer { isWorking = false }
-        guard let item = await model.updateKanbanItem(id: card.id, title: title, details: details, status: status, agent: agent, due: due, priority: priority, urgency: urgency) else { return }
+        guard let item = await model.updateKanbanItem(id: card.id, title: title, details: details, status: status, agent: agent, due: due, priority: priority, urgency: urgency, labels: labels) else { return }
         detail = item; populate(from: item); statusMessage = "Saved."
+    }
+
+    private func userFacingLabels(_ source: [String]) -> [String] {
+        source.filter { label in
+            let lower = label.lowercased()
+            return !lower.hasPrefix("agent:")
+                && !lower.hasPrefix("due:")
+                && !lower.hasPrefix("priority:")
+                && !lower.hasPrefix("status:")
+                && !lower.hasPrefix("urgency:")
+                && lower != "urgent"
+        }
+        .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
     }
 
     private func addComment() async {
