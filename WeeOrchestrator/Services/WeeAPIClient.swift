@@ -338,6 +338,58 @@ struct WeeAPIClient {
         return try JSONDecoder().decode(UploadResponse.self, from: responseData)
     }
 
+    func transcribeAudio(sessionID: String, data: Data, filename: String, mimeType: String) async throws -> TranscriptionResponse {
+        guard let baseURL else { throw WeeAPIError.invalidBaseURL }
+        guard let url = makeURL(baseURL: baseURL, path: "/api/v1/sessions/\(sessionID)/transcribe") else {
+            throw WeeAPIError.invalidBaseURL
+        }
+
+        let boundary = "WeeAudio-\(UUID().uuidString)"
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 180
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        applyAuthorization(to: &request)
+
+        var body = Data()
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"file\"; filename=\"\(filename)\"\r\n".data(using: .utf8)!)
+        body.append("Content-Type: \(mimeType)\r\n\r\n".data(using: .utf8)!)
+        body.append(data)
+        body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
+        request.httpBody = body
+
+        let (responseData, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else { throw WeeAPIError.invalidResponse }
+        guard (200..<300).contains(http.statusCode) else {
+            let message = String(data: responseData, encoding: .utf8) ?? HTTPURLResponse.localizedString(forStatusCode: http.statusCode)
+            throw WeeAPIError.httpStatus(http.statusCode, message)
+        }
+        return try JSONDecoder().decode(TranscriptionResponse.self, from: responseData)
+    }
+
+    func textToSpeech(_ text: String, voice: String? = nil) async throws -> Data {
+        guard let baseURL else { throw WeeAPIError.invalidBaseURL }
+        guard let url = makeURL(baseURL: baseURL, path: "/api/v1/tts") else { throw WeeAPIError.invalidBaseURL }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 180
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("audio/mpeg", forHTTPHeaderField: "Accept")
+        applyAuthorization(to: &request)
+        request.httpBody = try JSONEncoder().encode(TextToSpeechRequest(text: text, voice: voice))
+
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else { throw WeeAPIError.invalidResponse }
+        guard (200..<300).contains(http.statusCode) else {
+            let message = String(data: data, encoding: .utf8) ?? HTTPURLResponse.localizedString(forStatusCode: http.statusCode)
+            throw WeeAPIError.httpStatus(http.statusCode, message)
+        }
+        return data
+    }
+
     private func request<T: Decodable>(_ method: String, path: String) async throws -> T {
         try await request(method, path: path, body: Optional<String>.none)
     }
@@ -398,5 +450,14 @@ struct WeeAPIClient {
             return String(trimmed.dropFirst(7)).trimmingCharacters(in: .whitespacesAndNewlines)
         }
         return trimmed
+    }
+
+    private func applyAuthorization(to request: inout URLRequest) {
+        let token = normalizedToken(configuration.token)
+        if !token.isEmpty { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
+        if !configuration.identity.isEmpty {
+            request.setValue(configuration.identity, forHTTPHeaderField: "X-User-Identity")
+            request.setValue(configuration.channel, forHTTPHeaderField: "X-Auth-Channel")
+        }
     }
 }

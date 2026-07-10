@@ -1084,6 +1084,17 @@ struct UploadResponse: Decodable {
     }
 }
 
+struct TranscriptionResponse: Decodable {
+    let text: String?
+    let backend: String?
+    let size: Int?
+}
+
+struct TextToSpeechRequest: Encodable {
+    let text: String
+    let voice: String?
+}
+
 struct StreamEvent: Decodable {
     let type: String
     let event: String?

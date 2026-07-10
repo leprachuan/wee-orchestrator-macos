@@ -1,5 +1,7 @@
 import SwiftUI
 import UniformTypeIdentifiers
+import AVFoundation
+import Observation
 
 struct ChatView: View {
     @Bindable var model: WeeAppModel
@@ -8,6 +10,7 @@ struct ChatView: View {
     @State private var pendingAttachments: [ChatAttachment] = []
     @State private var isDropTargeted = false
     @State private var isShowingFilePicker = false
+    @State private var voice = ChatVoiceController()
 
     var body: some View {
         VStack(spacing: 0) {
@@ -63,6 +66,7 @@ struct ChatView: View {
                 }
             }
         }
+        .onDisappear { voice.cancelAll() }
     }
 
     private var chatTranscript: some View {
@@ -70,7 +74,15 @@ struct ChatView: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 12) {
                     ForEach(model.chatMessages) { message in
-                        ChatBubble(message: message, isStreaming: isStreaming(message))
+                        ChatBubble(
+                            message: message,
+                            isStreaming: isStreaming(message),
+                            isPreparingSpeech: voice.loadingMessageID == message.id,
+                            isSpeaking: voice.speakingMessageID == message.id,
+                            onSpeak: {
+                                Task { await voice.toggleSpeech(for: message, model: model) }
+                            }
+                        )
                             .id(message.id)
                     }
                 }
@@ -100,6 +112,17 @@ struct ChatView: View {
                 attachmentPreview
             }
 
+            if let voiceStatus = voice.statusMessage {
+                HStack(spacing: 6) {
+                    Image(systemName: voice.statusIsError ? "exclamationmark.triangle.fill" : "waveform")
+                    Text(voiceStatus).lineLimit(1)
+                    Spacer()
+                }
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(voice.statusIsError ? WeeTheme.danger : WeeTheme.accent)
+                .padding(.horizontal, 4)
+            }
+
             HStack(alignment: .bottom, spacing: 10) {
                 Button {
                     isShowingFilePicker = true
@@ -109,6 +132,31 @@ struct ChatView: View {
                 }
                 .buttonStyle(WeeGhostButtonStyle())
                 .help("Attach file")
+
+                Button {
+                    Task {
+                        await voice.toggleRecording(model: model) { transcription in
+                            let separator = draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "" : " "
+                            draft += separator + transcription
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 5) {
+                        if voice.isTranscribing {
+                            ProgressView().controlSize(.mini).tint(WeeTheme.accent)
+                        } else {
+                            Image(systemName: voice.isRecording ? "stop.fill" : "mic.fill")
+                        }
+                        if voice.isRecording {
+                            Text(voice.elapsedText)
+                                .font(.caption2.monospacedDigit().weight(.semibold))
+                        }
+                    }
+                    .frame(minWidth: 20, minHeight: 20)
+                }
+                .buttonStyle(WeeGhostButtonStyle())
+                .disabled(voice.isTranscribing)
+                .help(voice.isRecording ? "Stop and transcribe recording" : "Record voice message")
 
                 TextField("Message Wee", text: $draft, axis: .vertical)
                     .lineLimit(1...5)
@@ -626,6 +674,9 @@ private struct HistorySessionRow: View {
 private struct ChatBubble: View {
     let message: ChatMessage
     let isStreaming: Bool
+    let isPreparingSpeech: Bool
+    let isSpeaking: Bool
+    let onSpeak: () -> Void
 
     var body: some View {
         HStack {
@@ -634,10 +685,32 @@ private struct ChatBubble: View {
             }
 
             VStack(alignment: .leading, spacing: 6) {
-                Text(message.role.rawValue.capitalized)
-                    .font(.caption2.weight(.bold))
-                    .foregroundStyle(roleColor)
-                    .textCase(.uppercase)
+                HStack(spacing: 8) {
+                    Text(message.role.rawValue.capitalized)
+                        .font(.caption2.weight(.bold))
+                        .foregroundStyle(roleColor)
+                        .textCase(.uppercase)
+
+                    Spacer(minLength: 8)
+
+                    if message.role == .assistant && !message.text.isEmpty && !isStreaming {
+                        Button(action: onSpeak) {
+                            Group {
+                                if isPreparingSpeech {
+                                    ProgressView().controlSize(.mini).tint(WeeTheme.accent)
+                                } else {
+                                    Image(systemName: isSpeaking ? "stop.fill" : "speaker.wave.2.fill")
+                                        .font(.caption)
+                                }
+                            }
+                            .frame(width: 18, height: 18)
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(isSpeaking ? WeeTheme.gold : WeeTheme.textSecondary)
+                        .help(isSpeaking ? "Stop reading" : "Read response aloud")
+                        .accessibilityLabel(isSpeaking ? "Stop reading response" : "Read response aloud")
+                    }
+                }
 
                 ForEach(message.attachments.filter(\.isImage)) { attachment in
                     if let img = attachment.nsImage {
@@ -710,5 +783,241 @@ private struct StreamingCursor: View {
                 isVisible = false
             }
             .accessibilityLabel("Streaming response")
+    }
+}
+
+@MainActor
+@Observable
+private final class ChatVoiceController: NSObject, AVAudioPlayerDelegate {
+    var isRecording = false
+    var isTranscribing = false
+    var elapsedSeconds = 0
+    var loadingMessageID: UUID?
+    var speakingMessageID: UUID?
+    var statusMessage: String?
+    var statusIsError = false
+
+    private var recorder: AVAudioRecorder?
+    private var recordingURL: URL?
+    private var recordingTimer: Timer?
+    private var recordingModel: WeeAppModel?
+    private var transcriptionHandler: ((String) -> Void)?
+    private var audioPlayer: AVAudioPlayer?
+    private var speechRequestID: UUID?
+
+    var elapsedText: String {
+        String(format: "%02d:%02d", elapsedSeconds / 60, elapsedSeconds % 60)
+    }
+
+    func toggleRecording(model: WeeAppModel, onTranscription: @escaping (String) -> Void) async {
+        if isRecording {
+            await stopRecording()
+        } else {
+            await startRecording(model: model, onTranscription: onTranscription)
+        }
+    }
+
+    func toggleSpeech(for message: ChatMessage, model: WeeAppModel) async {
+        if speakingMessageID == message.id || loadingMessageID == message.id {
+            stopPlayback()
+            statusMessage = nil
+            return
+        }
+
+        stopPlayback()
+        let readableText = sanitizedSpeechText(message.text)
+        guard !readableText.isEmpty else {
+            setError("There is no readable text in this response.")
+            return
+        }
+
+        let requestID = UUID()
+        speechRequestID = requestID
+        loadingMessageID = message.id
+        statusIsError = false
+        statusMessage = "Generating speech…"
+
+        do {
+            let audioData = try await model.client.textToSpeech(readableText)
+            guard speechRequestID == requestID else { return }
+            let player = try AVAudioPlayer(data: audioData)
+            player.delegate = self
+            player.prepareToPlay()
+            guard player.play() else { throw WeeAPIError.invalidResponse }
+            audioPlayer = player
+            loadingMessageID = nil
+            speakingMessageID = message.id
+            statusMessage = "Reading response aloud"
+        } catch {
+            guard speechRequestID == requestID else { return }
+            stopPlayback()
+            setError("Speech playback failed: \(error.localizedDescription)")
+        }
+    }
+
+    func stopPlayback() {
+        speechRequestID = nil
+        audioPlayer?.stop()
+        audioPlayer = nil
+        loadingMessageID = nil
+        speakingMessageID = nil
+    }
+
+    func cancelAll() {
+        recorder?.stop()
+        cleanupRecording()
+        isTranscribing = false
+        stopPlayback()
+        statusMessage = nil
+    }
+
+    nonisolated func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
+        Task { @MainActor [weak self] in
+            self?.finishPlayback()
+        }
+    }
+
+    nonisolated func audioPlayerDecodeErrorDidOccur(_ player: AVAudioPlayer, error: Error?) {
+        Task { @MainActor [weak self] in
+            self?.stopPlayback()
+            self?.setError("Unable to decode generated speech audio.")
+        }
+    }
+
+    private func startRecording(model: WeeAppModel, onTranscription: @escaping (String) -> Void) async {
+        statusMessage = nil
+        statusIsError = false
+
+        guard let sessionID = await model.ensureChatSession() else {
+            setError(model.errorMessage ?? "Start a chat session before recording.")
+            return
+        }
+        guard await microphoneAccessGranted() else {
+            setError("Microphone access is required. Enable it in System Settings → Privacy & Security → Microphone.")
+            return
+        }
+
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("wee-recording-\(UUID().uuidString)")
+            .appendingPathExtension("m4a")
+        let settings: [String: Any] = [
+            AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
+            AVSampleRateKey: 44_100,
+            AVNumberOfChannelsKey: 1,
+            AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue,
+        ]
+
+        do {
+            let recorder = try AVAudioRecorder(url: url, settings: settings)
+            recorder.prepareToRecord()
+            guard recorder.record() else { throw WeeAPIError.invalidResponse }
+            self.recorder = recorder
+            recordingURL = url
+            recordingModel = model
+            transcriptionHandler = onTranscription
+            isRecording = true
+            elapsedSeconds = 0
+            statusMessage = "Recording… click the microphone again to stop"
+
+            let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
+                Task { @MainActor in
+                    guard let self, self.isRecording else { return }
+                    self.elapsedSeconds += 1
+                    if self.elapsedSeconds >= 300 { await self.stopRecording() }
+                }
+            }
+            recordingTimer = timer
+            RunLoop.main.add(timer, forMode: .common)
+            _ = sessionID
+        } catch {
+            cleanupRecording()
+            setError("Could not start recording: \(error.localizedDescription)")
+        }
+    }
+
+    private func stopRecording() async {
+        guard isRecording, let recorder, let url = recordingURL, let model = recordingModel else { return }
+        recorder.stop()
+        recordingTimer?.invalidate()
+        recordingTimer = nil
+        isRecording = false
+        isTranscribing = true
+        statusMessage = "Transcribing recording…"
+
+        defer {
+            isTranscribing = false
+            cleanupRecording()
+        }
+
+        do {
+            guard let sessionID = model.currentSessionID else { throw WeeAPIError.invalidResponse }
+            let data = try Data(contentsOf: url)
+            guard data.count <= 25 * 1024 * 1024 else {
+                setError("Recording exceeds the 25 MB transcription limit.")
+                return
+            }
+            let response = try await model.client.transcribeAudio(
+                sessionID: sessionID,
+                data: data,
+                filename: "recording.m4a",
+                mimeType: "audio/mp4"
+            )
+            let text = response.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            guard !text.isEmpty else {
+                setError("No speech was detected in the recording.")
+                return
+            }
+            transcriptionHandler?(text)
+            statusIsError = false
+            statusMessage = response.backend.map { "Transcribed via \($0)" } ?? "Transcription added to message"
+        } catch {
+            setError("Transcription failed: \(error.localizedDescription)")
+        }
+    }
+
+    private func microphoneAccessGranted() async -> Bool {
+        switch AVCaptureDevice.authorizationStatus(for: .audio) {
+        case .authorized: return true
+        case .denied, .restricted: return false
+        case .notDetermined:
+            return await withCheckedContinuation { continuation in
+                AVCaptureDevice.requestAccess(for: .audio) { granted in
+                    continuation.resume(returning: granted)
+                }
+            }
+        @unknown default: return false
+        }
+    }
+
+    private func cleanupRecording() {
+        recorder = nil
+        recordingTimer?.invalidate()
+        recordingTimer = nil
+        recordingModel = nil
+        transcriptionHandler = nil
+        if let recordingURL { try? FileManager.default.removeItem(at: recordingURL) }
+        recordingURL = nil
+        isRecording = false
+        elapsedSeconds = 0
+    }
+
+    private func finishPlayback() {
+        stopPlayback()
+        statusMessage = nil
+    }
+
+    private func setError(_ message: String) {
+        statusIsError = true
+        statusMessage = message
+    }
+
+    private func sanitizedSpeechText(_ source: String) -> String {
+        source
+            .replacingOccurrences(of: "(?s)```.*?```", with: " ", options: .regularExpression)
+            .replacingOccurrences(of: "`[^`]+`", with: " ", options: .regularExpression)
+            .replacingOccurrences(of: "\\[([^\\]]+)\\]\\([^\\)]+\\)", with: "$1", options: .regularExpression)
+            .replacingOccurrences(of: "[#*_>]", with: " ", options: .regularExpression)
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }

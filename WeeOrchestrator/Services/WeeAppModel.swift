@@ -212,6 +212,37 @@ final class WeeAppModel {
         }
     }
 
+    func ensureChatSession() async -> String? {
+        if let currentSessionID { return currentSessionID }
+        guard hasAuthToken else {
+            errorMessage = "Authentication required. Add a bearer token in Settings first."
+            return nil
+        }
+
+        do {
+            let desiredAgent = selectedAgent
+            let desiredRuntime = selectedRuntimeOrNil
+            let desiredModel = selectedModelOrNil
+            let session = try await client.createSession(agent: nil, model: nil, runtime: nil)
+            currentSessionID = session.sessionID
+            if let agent = session.agent, !agent.isEmpty { selectedAgent = agent }
+            if let runtime = session.runtime, !runtime.isEmpty { selectedRuntime = runtime }
+            if let model = session.model, !model.isEmpty { selectedModel = model }
+            try await applyPendingSessionConfiguration(
+                sessionID: session.sessionID,
+                desiredAgent: desiredAgent,
+                desiredRuntime: desiredRuntime,
+                desiredModel: desiredModel
+            )
+            try await applySessionPermissionModeIfNeeded(sessionID: session.sessionID)
+            saveConfiguration()
+            return session.sessionID
+        } catch {
+            errorMessage = error.localizedDescription
+            return nil
+        }
+    }
+
     func sendChat(_ prompt: String, attachments: [ChatAttachment] = []) async {
         let trimmed = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty || !attachments.isEmpty else { return }
