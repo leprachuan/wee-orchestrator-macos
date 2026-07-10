@@ -941,6 +941,31 @@ private struct KanbanItemDetailSheet: View {
         detail = item; populate(from: item); statusMessage = "Saved."
     }
 
+    private func submitLabelQuery() {
+        let query = newLabelInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let exactMatch = filteredLabelSuggestions.first(where: { $0.caseInsensitiveCompare(query) == .orderedSame }) {
+            addLabel(exactMatch)
+        } else if filteredLabelSuggestions.isEmpty && !query.isEmpty {
+            addLabel(query)
+        }
+    }
+
+    private func addLabel(_ value: String) {
+        let label = String(value.trimmingCharacters(in: .whitespacesAndNewlines).prefix(50))
+        guard !label.isEmpty,
+              !labels.contains(where: { $0.caseInsensitiveCompare(label) == .orderedSame }) else {
+            newLabelInput = ""
+            return
+        }
+        labels.append(label)
+        labels.sort { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+        newLabelInput = ""
+    }
+
+    private func removeLabel(_ label: String) {
+        labels.removeAll { $0.caseInsensitiveCompare(label) == .orderedSame }
+    }
+
     private func userFacingLabels(_ source: [String]) -> [String] {
         source.filter { label in
             let lower = label.lowercased()
