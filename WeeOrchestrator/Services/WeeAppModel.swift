@@ -680,6 +680,7 @@ final class WeeAppModel {
             let desiredModel = selectedModelOrNil
             let session = try await client.createSession(agent: nil, model: nil, runtime: nil)
             currentSessionID = session.sessionID
+            addActiveSessionToHistory(session.sessionID, agent: session.agent)
             if let agent = session.agent, !agent.isEmpty { selectedAgent = agent }
             if let runtime = session.runtime, !runtime.isEmpty { selectedRuntime = runtime }
             if let model = session.model, !model.isEmpty { selectedModel = model }
@@ -724,6 +725,7 @@ final class WeeAppModel {
                 let desiredModel = selectedModelOrNil
                 let session = try await client.createSession(agent: nil, model: nil, runtime: nil)
                 currentSessionID = session.sessionID
+                addActiveSessionToHistory(session.sessionID, agent: session.agent)
                 if let agent = session.agent, !agent.isEmpty {
                     selectedAgent = agent
                 }
@@ -845,6 +847,7 @@ final class WeeAppModel {
             let desiredModel = selectedModelOrNil
             let session = try await client.createSession(agent: nil, model: nil, runtime: nil)
             currentSessionID = session.sessionID
+            addActiveSessionToHistory(session.sessionID, agent: session.agent)
             if let agent = session.agent, !agent.isEmpty {
                 selectedAgent = agent
             }
@@ -882,6 +885,24 @@ final class WeeAppModel {
         } catch {
             historySessions = []
         }
+    }
+
+    /// The API persists a newly created session immediately, but a streaming
+    /// response may take a while to finish. Show that session in Recent Chats
+    /// right away rather than making the sidebar look empty during the stream.
+    private func addActiveSessionToHistory(_ sessionID: String, agent: String?) {
+        guard !historySessions.contains(where: { $0.sessionID == sessionID }) else { return }
+        let now = Date().timeIntervalSince1970
+        let resolvedAgent = (agent ?? selectedAgent).trimmingCharacters(in: .whitespacesAndNewlines)
+        let session = HistorySessionSummary(
+            sessionID: sessionID,
+            title: nil,
+            preview: nil,
+            agent: resolvedAgent.isEmpty ? nil : resolvedAgent,
+            createdAt: now,
+            updatedAt: now
+        )
+        historySessions.insert(session, at: 0)
     }
 
     func selectHistorySession(_ session: HistorySessionSummary) async {
