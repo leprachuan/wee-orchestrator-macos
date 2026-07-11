@@ -49,7 +49,7 @@ struct LocalModelConfiguration: Equatable, Codable {
     var autoStartRunner: Bool
 
     static let defaults = LocalModelConfiguration(
-        selectedModel: "llama3.1:8b",
+        selectedModel: "",
         autoStartRunner: false
     )
 }

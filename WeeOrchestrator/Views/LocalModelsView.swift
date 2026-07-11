@@ -97,10 +97,12 @@ struct LocalModelsView: View {
                 Text("Selected model")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(WeeTheme.textMuted)
-                Text(selectedCatalogModel?.displayName ?? model.localModelConfiguration.selectedModel)
+                Text(selectedCatalogModel?.displayName ?? (model.localModelConfiguration.selectedModel.isEmpty ? "No model selected" : model.localModelConfiguration.selectedModel))
                     .font(.headline)
                     .foregroundStyle(WeeTheme.textPrimary)
-                Text("The Local API is launched with `WEE_OLLAMA_HOST=http://127.0.0.1:11434` and uses `ollama/\(model.localModelConfiguration.selectedModel)` for the `wee` runtime.")
+                Text(model.localModelConfiguration.selectedModel.isEmpty
+                     ? "Download a 64K+ model, then select it to make it the default for the Local API’s `wee` runtime."
+                     : "The Local API is launched with `WEE_OLLAMA_HOST=http://127.0.0.1:11434` and uses `ollama/\(model.localModelConfiguration.selectedModel)` for the `wee` runtime.")
                     .font(.caption)
                     .foregroundStyle(WeeTheme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)

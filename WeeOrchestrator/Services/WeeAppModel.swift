@@ -347,6 +347,11 @@ final class WeeAppModel {
             guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { throw URLError(.badServerResponse) }
             let tags = try JSONDecoder().decode(OllamaTagsResponse.self, from: data)
             ollamaModels = tags.models.map { OllamaModelSummary(name: $0.name, sizeBytes: $0.size) }.sorted { $0.name < $1.name }
+            if !localModelConfiguration.selectedModel.isEmpty,
+               !ollamaModels.contains(where: { $0.name == localModelConfiguration.selectedModel }) {
+                localModelConfiguration.selectedModel = ""
+                saveConfiguration()
+            }
             ollamaStatus = "Running · \(ollamaModels.count) downloaded"
         } catch {
             ollamaModels = []
@@ -440,6 +445,10 @@ final class WeeAppModel {
 
     func selectLocalModel(_ model: LocalModelCatalogItem) {
         guard model.contextWindow >= 64_000 else { return }
+        guard ollamaModels.contains(where: { $0.name == model.name }) else {
+            ollamaStatus = "Download \(model.displayName) before selecting it"
+            return
+        }
         localModelConfiguration.selectedModel = model.name
         saveConfiguration()
         if isLocalServiceRunning { restartLocalAPI() }
@@ -601,7 +610,11 @@ final class WeeAppModel {
         environment["AGENT_CONFIG_FILE"] = agentsConfigurationURL.path
         environment["API_SHARED_KEY"] = localSharedKey
         environment["WEE_OLLAMA_HOST"] = "http://127.0.0.1:11434"
-        environment["WEE_DEFAULT_MODEL"] = "ollama/\(localModelConfiguration.selectedModel)"
+        if !localModelConfiguration.selectedModel.isEmpty {
+            environment["WEE_DEFAULT_MODEL"] = "ollama/\(localModelConfiguration.selectedModel)"
+        } else {
+            environment.removeValue(forKey: "WEE_DEFAULT_MODEL")
+        }
         // Tell the local instance's agents that a separate remote Wee
         // Orchestrator API also exists, so they don't assume this local
         // process is the only one running. Only the URL is shared — never
