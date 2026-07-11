@@ -74,16 +74,21 @@ struct ChatView: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 12) {
                     ForEach(model.chatMessages) { message in
-                        ChatBubble(
-                            message: message,
-                            isStreaming: isStreaming(message),
-                            isPreparingSpeech: voice.loadingMessageID == message.id,
-                            isSpeaking: voice.speakingMessageID == message.id,
-                            onSpeak: {
-                                Task { await voice.toggleSpeech(for: message, model: model) }
-                            }
-                        )
-                            .id(message.id)
+                        if message.isContextBoundary {
+                            ContextBoundaryBanner(text: message.text)
+                                .id(message.id)
+                        } else {
+                            ChatBubble(
+                                message: message,
+                                isStreaming: isStreaming(message),
+                                isPreparingSpeech: voice.loadingMessageID == message.id,
+                                isSpeaking: voice.speakingMessageID == message.id,
+                                onSpeak: {
+                                    Task { await voice.toggleSpeech(for: message, model: model) }
+                                }
+                            )
+                                .id(message.id)
+                        }
                     }
                 }
                 .padding(12)
@@ -791,6 +796,32 @@ private struct ChatBubble: View {
         case .assistant: Color.white.opacity(0.07)
         case .system: WeeTheme.sunken
         }
+    }
+}
+
+private struct ContextBoundaryBanner: View {
+    let text: String
+
+    var body: some View {
+        VStack(spacing: 4) {
+            HStack(spacing: 8) {
+                Rectangle().fill(WeeTheme.danger.opacity(0.35)).frame(height: 1)
+                Label("Context reset — the assistant can no longer see messages above this line", systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(WeeTheme.danger)
+                    .lineLimit(1)
+                    .fixedSize()
+                Rectangle().fill(WeeTheme.danger.opacity(0.35)).frame(height: 1)
+            }
+            if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                Text(text)
+                    .font(.caption2)
+                    .foregroundStyle(WeeTheme.textMuted)
+                    .multilineTextAlignment(.center)
+            }
+        }
+        .padding(.vertical, 6)
+        .accessibilityElement(children: .combine)
     }
 }
 

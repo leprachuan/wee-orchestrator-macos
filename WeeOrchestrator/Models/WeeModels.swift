@@ -1176,17 +1176,23 @@ struct ChatMessage: Identifiable, Hashable {
     var text: String
     let attachments: [ChatAttachment]
     let createdAt = Date()
+    /// True when this message marks a point where the backend reset the
+    /// session's conversation context (see `SessionResetDetector`) — the
+    /// assistant can no longer see anything before this message.
+    var isContextBoundary: Bool = false
 
-    init(role: Role, text: String, attachments: [ChatAttachment] = []) {
+    init(role: Role, text: String, attachments: [ChatAttachment] = [], isContextBoundary: Bool = false) {
         self.role = role
         self.text = text
         self.attachments = attachments
+        self.isContextBoundary = isContextBoundary
     }
 
     init(historyMessage: HistoryMessage) {
         role = Role(rawValue: historyMessage.role) ?? .system
         text = historyMessage.content
         attachments = []
+        isContextBoundary = SessionResetDetector.indicatesReset(historyMessage.content)
     }
 }
 

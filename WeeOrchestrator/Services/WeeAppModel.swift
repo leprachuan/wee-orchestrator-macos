@@ -1298,7 +1298,11 @@ final class WeeAppModel {
             let response = try await client.execute(sessionID: sessionID, query: "/agent set \(agent)", agent: nil, runtime: nil, model: nil)
             selectedAgent = agent
             saveConfiguration()
-            chatMessages.append(ChatMessage(role: .system, text: response.response))
+            chatMessages.append(ChatMessage(
+                role: .system,
+                text: response.response,
+                isContextBoundary: SessionResetDetector.indicatesReset(response.response)
+            ))
             await refreshSessionStatus(sessionID: sessionID)
             await loadHistorySessions()
         } catch {
@@ -1719,7 +1723,11 @@ final class WeeAppModel {
 
         do {
             let response = try await client.execute(sessionID: sessionID, query: command, agent: nil, runtime: nil, model: nil)
-            chatMessages.append(ChatMessage(role: .system, text: response.response))
+            chatMessages.append(ChatMessage(
+                role: .system,
+                text: response.response,
+                isContextBoundary: SessionResetDetector.indicatesReset(response.response)
+            ))
             await afterSuccess()
             saveConfiguration()
             await loadHistorySessions()
