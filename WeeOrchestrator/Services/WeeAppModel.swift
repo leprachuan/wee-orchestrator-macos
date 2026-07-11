@@ -2,6 +2,23 @@ import Foundation
 import Observation
 import UserNotifications
 
+private final class GitOutputCollector: @unchecked Sendable {
+    private let lock = NSLock()
+    private var data = Data()
+
+    func append(_ chunk: Data) {
+        lock.lock()
+        data.append(chunk)
+        lock.unlock()
+    }
+
+    func text() -> String {
+        lock.lock()
+        defer { lock.unlock() }
+        return String(data: data, encoding: .utf8) ?? ""
+    }
+}
+
 @MainActor
 @Observable
 final class WeeAppModel {
@@ -14,6 +31,9 @@ final class WeeAppModel {
     var isLocalServiceRunning = false
     var localServiceStatus = "Stopped"
     var localServiceLog = ""
+    var isLocalSourceWorking = false
+    var localSourceStatus = "Not installed"
+    var localSourceOutput = ""
     var health: HealthResponse?
     var appConfig: AppConfigResponse?
     var agents: [AgentSummary] = []
@@ -74,7 +94,9 @@ final class WeeAppModel {
             executablePath: defaults.string(forKey: "wee.localService.executable") ?? LocalAPIServiceConfiguration.defaults.executablePath,
             arguments: defaults.string(forKey: "wee.localService.arguments") ?? LocalAPIServiceConfiguration.defaults.arguments,
             workingDirectory: defaults.string(forKey: "wee.localService.workingDirectory") ?? LocalAPIServiceConfiguration.defaults.workingDirectory,
-            autoStart: defaults.bool(forKey: "wee.localService.autoStart")
+            autoStart: defaults.bool(forKey: "wee.localService.autoStart"),
+            repositoryURL: defaults.string(forKey: "wee.localService.repositoryURL") ?? LocalAPIServiceConfiguration.defaults.repositoryURL,
+            checkoutDirectory: defaults.string(forKey: "wee.localService.checkoutDirectory") ?? LocalAPIServiceConfiguration.defaults.checkoutDirectory
         )
         selectedAgent = defaults.string(forKey: "wee.selectedAgent.\(activeEnvironment.rawValue)")
             ?? defaults.string(forKey: "wee.selectedAgent") ?? "orchestrator"
@@ -121,6 +143,8 @@ final class WeeAppModel {
         defaults.set(localServiceConfiguration.arguments, forKey: "wee.localService.arguments")
         defaults.set(localServiceConfiguration.workingDirectory, forKey: "wee.localService.workingDirectory")
         defaults.set(localServiceConfiguration.autoStart, forKey: "wee.localService.autoStart")
+        defaults.set(localServiceConfiguration.repositoryURL, forKey: "wee.localService.repositoryURL")
+        defaults.set(localServiceConfiguration.checkoutDirectory, forKey: "wee.localService.checkoutDirectory")
         defaults.set(selectedAgent, forKey: "wee.selectedAgent.\(activeEnvironment.rawValue)")
         defaults.set(selectedRuntime, forKey: "wee.selectedRuntime")
         defaults.set(selectedModel, forKey: "wee.selectedModel")
@@ -167,6 +191,103 @@ final class WeeAppModel {
         } catch {
             return error.localizedDescription
         }
+    }
+
+    func cloneLocalAPISource() async {
+        let repository = localServiceConfiguration.repositoryURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        let destination = Self.expandedPath(localServiceConfiguration.checkoutDirectory)
+        guard !repository.isEmpty else {
+            localSourceStatus = "Repository URL is required"
+            return
+        }
+        guard !destination.isEmpty else {
+            localSourceStatus = "Checkout folder is required"
+            return
+        }
+        guard !FileManager.default.fileExists(atPath: destination) || (try? FileManager.default.contentsOfDirectory(atPath: destination).isEmpty) == true else {
+            localSourceStatus = "Checkout folder already exists and is not empty"
+            return
+        }
+
+        isLocalSourceWorking = true
+        localSourceStatus = "Cloning…"
+        localSourceOutput = ""
+        defer { isLocalSourceWorking = false }
+
+        do {
+            let output = try await runGit(["clone", "--depth", "1", repository, destination])
+            localSourceOutput = output
+            localServiceConfiguration.checkoutDirectory = destination
+            localServiceConfiguration.workingDirectory = destination
+            saveConfiguration()
+            localSourceStatus = "Clone complete"
+        } catch {
+            localSourceStatus = "Clone failed: \(error.localizedDescription)"
+        }
+    }
+
+    func pullLatestLocalAPISource() async {
+        let checkout = Self.expandedPath(localServiceConfiguration.checkoutDirectory)
+        guard FileManager.default.fileExists(atPath: "\(checkout)/.git") else {
+            localSourceStatus = "Choose an existing Git checkout first"
+            return
+        }
+
+        isLocalSourceWorking = true
+        localSourceStatus = "Pulling latest…"
+        localSourceOutput = ""
+        defer { isLocalSourceWorking = false }
+
+        do {
+            let output = try await runGit(["-C", checkout, "pull", "--ff-only"])
+            localSourceOutput = output
+            localServiceConfiguration.workingDirectory = checkout
+            saveConfiguration()
+            localSourceStatus = output.localizedCaseInsensitiveContains("already up to date") ? "Already up to date" : "Updated to latest"
+        } catch {
+            localSourceStatus = "Update failed: \(error.localizedDescription)"
+        }
+    }
+
+    private func runGit(_ arguments: [String]) async throws -> String {
+        try await withCheckedThrowingContinuation { continuation in
+            let process = Process()
+            let pipe = Pipe()
+            let output = GitOutputCollector()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+            process.arguments = arguments
+            process.standardOutput = pipe
+            process.standardError = pipe
+            process.environment = ProcessInfo.processInfo.environment.merging([
+                "GIT_TERMINAL_PROMPT": "0"
+            ]) { _, configured in configured }
+            pipe.fileHandleForReading.readabilityHandler = { handle in
+                output.append(handle.availableData)
+            }
+            process.terminationHandler = { process in
+                pipe.fileHandleForReading.readabilityHandler = nil
+                output.append(pipe.fileHandleForReading.readDataToEndOfFile())
+                let text = output.text()
+                if process.terminationStatus == 0 {
+                    continuation.resume(returning: text)
+                } else {
+                    continuation.resume(throwing: NSError(
+                        domain: "WeeGit",
+                        code: Int(process.terminationStatus),
+                        userInfo: [NSLocalizedDescriptionKey: text.isEmpty ? "git exited with status \(process.terminationStatus)" : text]
+                    ))
+                }
+            }
+            do {
+                try process.run()
+            } catch {
+                continuation.resume(throwing: error)
+            }
+        }
+    }
+
+    private static func expandedPath(_ value: String) -> String {
+        (value as NSString).expandingTildeInPath.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     func startLocalAPI() {

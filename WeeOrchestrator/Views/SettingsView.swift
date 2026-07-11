@@ -27,6 +27,8 @@ struct SettingsView: View {
     @State private var connectorStatus: String?
     @State private var connectorConfigured = false
     @State private var showRemoveConnectorConfirmation = false
+    @State private var showCloneConfirmation = false
+    @State private var showPullConfirmation = false
 
     private let runtimeFallbacks = ["copilot", "copilot-sdk", "claude", "claude-sdk", "gemini", "opencode", "codex", "devin"]
 
@@ -43,7 +45,10 @@ struct SettingsView: View {
             ScrollView {
                 VStack(spacing: 8) {
                     connectionSection
-                    if environment == .local { localServiceSection }
+                    if environment == .local {
+                        localSourceSection
+                        localServiceSection
+                    }
                     connectorSection
                     if environment == .remote { telegramAuthSection }
                     advancedTokenSection
@@ -78,6 +83,20 @@ struct SettingsView: View {
             }
         } message: {
             Text("This removes the bot token for \(connectorAgent) from the \(environment.title) API secure store.")
+        }
+        .confirmationDialog("Clone Local API?", isPresented: $showCloneConfirmation, titleVisibility: .visible) {
+            Button("Clone") {
+                Task { await model.cloneLocalAPISource() }
+            }
+        } message: {
+            Text("This will clone the configured repository into the selected folder. The folder must be empty or not exist.")
+        }
+        .confirmationDialog("Pull Latest API Source?", isPresented: $showPullConfirmation, titleVisibility: .visible) {
+            Button("Pull Latest") {
+                Task { await model.pullLatestLocalAPISource() }
+            }
+        } message: {
+            Text("This will run git pull --ff-only in the configured local checkout. It will not overwrite local commits or force-reset files.")
         }
     }
 
@@ -209,6 +228,64 @@ struct SettingsView: View {
             Text("The local service runs only the executable and arguments configured above. It is never enabled automatically unless you opt in.")
                 .font(.caption)
                 .foregroundStyle(WeeTheme.gold)
+        }
+    }
+
+    private var localSourceSection: some View {
+        SettingsSectionBox(title: "API Source", systemImage: "arrow.down.doc") {
+            Text("Install or update the local Wee API before starting the service.")
+                .font(.caption)
+                .foregroundStyle(WeeTheme.textSecondary)
+
+            FieldRow(title: "Repository") {
+                TextField("https://github.com/owner/repo.git", text: $model.localServiceConfiguration.repositoryURL)
+            }
+            FieldRow(title: "Checkout Folder") {
+                TextField("~/Developer/Wee-Orchestrator", text: $model.localServiceConfiguration.checkoutDirectory)
+            }
+
+            HStack {
+                Button {
+                    model.saveConfiguration()
+                    showCloneConfirmation = true
+                } label: {
+                    Label("Clone", systemImage: "arrow.down.to.line.compact")
+                }
+                .buttonStyle(WeePrimaryButtonStyle())
+                .disabled(model.isLocalSourceWorking)
+
+                Button {
+                    model.saveConfiguration()
+                    showPullConfirmation = true
+                } label: {
+                    Label("Pull Latest", systemImage: "arrow.triangle.2.circlepath")
+                }
+                .buttonStyle(WeeGhostButtonStyle())
+                .disabled(model.isLocalSourceWorking)
+
+                if model.isLocalSourceWorking {
+                    ProgressView().controlSize(.small).tint(WeeTheme.accent)
+                }
+            }
+
+            Text(model.localSourceStatus)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(model.localSourceStatus.localizedCaseInsensitiveContains("failed") ? WeeTheme.danger : WeeTheme.textSecondary)
+
+            if !model.localSourceOutput.isEmpty {
+                DisclosureGroup("Git output") {
+                    ScrollView {
+                        Text(model.localSourceOutput)
+                            .font(.system(.caption, design: .monospaced))
+                            .foregroundStyle(WeeTheme.textSecondary)
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .frame(height: 110)
+                    .padding(8)
+                    .background(WeeTheme.sunken, in: RoundedRectangle(cornerRadius: 7))
+                }
+            }
         }
     }
 

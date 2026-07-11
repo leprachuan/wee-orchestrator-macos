@@ -31,12 +31,16 @@ struct LocalAPIServiceConfiguration: Equatable, Codable {
     var arguments: String
     var workingDirectory: String
     var autoStart: Bool
+    var repositoryURL: String
+    var checkoutDirectory: String
 
     static let defaults = LocalAPIServiceConfiguration(
         executablePath: "/opt/homebrew/bin/python3",
         arguments: "agent_manager.py --api",
         workingDirectory: "/opt/n8n-copilot-shim-dev",
-        autoStart: false
+        autoStart: false,
+        repositoryURL: "https://github.com/leprachuan/Wee-Orchestrator.git",
+        checkoutDirectory: "~/Developer/Wee-Orchestrator"
     )
 }
 
