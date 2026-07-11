@@ -316,6 +316,7 @@ private struct ModernScheduledJobEditorSheet: View {
                     }
                     .padding(14)
                 }
+            }
 
             Rectangle().fill(WeeTheme.divider).frame(height: 1)
             editorFooter

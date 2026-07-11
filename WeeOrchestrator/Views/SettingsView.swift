@@ -2,10 +2,12 @@ import SwiftUI
 
 struct SettingsView: View {
     @Bindable var model: WeeAppModel
+    let environment: WeeEnvironment
     @State private var testResult: String?
     @State private var telegramIdentity = ""
     @State private var pairingCode = ""
     @State private var showManualToken = false
+    @State private var advancedServiceExpanded = false
     @State private var hasLoadedWebSettings = false
     @State private var agentsConfig: AgentsConfigResponse?
     @State private var selectedAgentName = ""
@@ -30,14 +32,7 @@ struct SettingsView: View {
 
     var body: some View {
         VStack(spacing: 8) {
-            PageHeader(title: "Settings", subtitle: "Authentication, connection, notifications, and service configuration", symbol: "slider.horizontal.3") {
-                Picker("Environment", selection: environmentBinding) {
-                    ForEach(WeeEnvironment.allCases) { environment in
-                        Label(environment.title, systemImage: environment.symbol).tag(environment)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .frame(width: 190)
+            PageHeader(title: "\(environment.title) Settings", subtitle: pageSubtitle, symbol: environment.symbol) {
                 StatusPill(
                     text: model.isAuthenticated ? "authenticated" : "sign-in required",
                     color: model.isAuthenticated ? WeeTheme.emerald : WeeTheme.gold,
@@ -46,34 +41,28 @@ struct SettingsView: View {
             }
 
             ScrollView {
-                HStack(alignment: .top, spacing: 8) {
-                    VStack(spacing: 8) {
-                        connectionSection
-                        if model.activeEnvironment == .local { localServiceSection }
-                        connectorSection
-                        telegramAuthSection
-                        advancedTokenSection
-                        connectionSummary
-                    }
-                    .frame(minWidth: 300, idealWidth: 360, maxWidth: 420)
-
-                    VStack(spacing: 8) {
-                        environmentSection
-                        agentSettingsSection
-                    }
-                        .frame(maxWidth: .infinity, alignment: .top)
+                VStack(spacing: 8) {
+                    connectionSection
+                    if environment == .local { localServiceSection }
+                    connectorSection
+                    if environment == .remote { telegramAuthSection }
+                    advancedTokenSection
+                    environmentSection
+                    connectionSummary
                 }
+                .frame(maxWidth: 760, alignment: .leading)
+                .frame(maxWidth: .infinity, alignment: .center)
             }
             .scrollIndicators(.hidden)
         }
         .padding(10)
         .task {
+            await model.switchEnvironment(to: environment)
             if telegramIdentity.isEmpty {
                 telegramIdentity = model.configuration.identity
             }
             connectorAgent = model.agents.first?.name ?? model.selectedAgent
             await loadWebSettingsIfNeeded()
-            await loadAgentSettings()
             await loadConnectorStatus()
         }
         .confirmationDialog("Delete Agent?", isPresented: $showDeleteConfirmation, titleVisibility: .visible) {
@@ -88,7 +77,7 @@ struct SettingsView: View {
                 Task { await deleteConnector() }
             }
         } message: {
-            Text("This removes the bot token for \(connectorAgent) from the \(model.activeEnvironment.title) API secure store.")
+            Text("This removes the bot token for \(connectorAgent) from the \(environment.title) API secure store.")
         }
     }
 
@@ -98,21 +87,10 @@ struct SettingsView: View {
         }
     }
 
-    private var environmentBinding: Binding<WeeEnvironment> {
-        Binding(
-            get: { model.activeEnvironment },
-            set: { environment in
-                Task {
-                    await model.switchEnvironment(to: environment)
-                    telegramIdentity = model.configuration.identity
-                    connectorAgent = model.agents.first?.name ?? model.selectedAgent
-                    connectorToken = ""
-                    await loadWebSettingsIfNeeded(force: true)
-                    await loadAgentSettings()
-                    await loadConnectorStatus()
-                }
-            }
-        )
+    private var pageSubtitle: String {
+        environment == .local
+            ? "Run and configure the API and agents on this Mac"
+            : "Connect to and configure your remote Wee environment"
     }
 
     private var connectionSection: some View {
@@ -547,40 +525,48 @@ struct SettingsView: View {
     }
 
     private var environmentSection: some View {
-        SettingsSectionBox(title: "Environment Configuration", systemImage: "slider.horizontal.3") {
-            TextAreaRow(title: ".env", text: $envContent, minHeight: 220)
+        SettingsSectionBox(title: "Advanced Service Configuration", systemImage: "wrench.and.screwdriver") {
+            DisclosureGroup("Edit API environment and restart services", isExpanded: $advancedServiceExpanded) {
+                VStack(alignment: .leading, spacing: 10) {
+                    TextAreaRow(title: ".env", text: $envContent, minHeight: 220)
 
-            HStack {
-                Button {
-                    Task { await loadEnvFile() }
-                } label: {
-                    Label("Load", systemImage: "tray.and.arrow.down")
-                }
-                .buttonStyle(WeeGhostButtonStyle())
+                    HStack {
+                        Button {
+                            Task { await loadEnvFile() }
+                        } label: {
+                            Label("Reload", systemImage: "arrow.clockwise")
+                        }
+                        .buttonStyle(WeeGhostButtonStyle())
 
-                Button {
-                    Task { await saveEnvFile() }
-                } label: {
-                    Label("Save .env", systemImage: "square.and.arrow.down")
-                }
-                .buttonStyle(WeePrimaryButtonStyle())
+                        Button {
+                            Task { await saveEnvFile() }
+                        } label: {
+                            Label("Save .env", systemImage: "square.and.arrow.down")
+                        }
+                        .buttonStyle(WeePrimaryButtonStyle())
 
-                Button(role: .destructive) {
-                    Task { await restartServices() }
-                } label: {
-                    Label("Restart Services", systemImage: "arrow.triangle.2.circlepath")
+                        Button(role: .destructive) {
+                            Task { await restartServices() }
+                        } label: {
+                            Label("Restart Services", systemImage: "arrow.triangle.2.circlepath")
+                        }
+                        .buttonStyle(WeeGhostButtonStyle())
+                    }
+
+                    Text("Changes to .env require a service restart to take effect.")
+                        .font(.caption)
+                        .foregroundStyle(WeeTheme.gold)
+
+                    if let envStatus {
+                        Text(envStatus)
+                            .font(.caption)
+                            .foregroundStyle(envStatusIsError ? WeeTheme.danger : WeeTheme.accent)
+                    }
                 }
-                .buttonStyle(WeeGhostButtonStyle())
+                .padding(.top, 8)
             }
-
-            Text("Changes to .env require a service restart to take effect.")
-                .font(.caption)
-                .foregroundStyle(WeeTheme.gold)
-
-            if let envStatus {
-                Text(envStatus)
-                    .font(.caption)
-                    .foregroundStyle(envStatusIsError ? WeeTheme.danger : WeeTheme.accent)
+            .onChange(of: advancedServiceExpanded) {
+                if advancedServiceExpanded { Task { await loadEnvFile() } }
             }
         }
     }
@@ -705,7 +691,6 @@ struct SettingsView: View {
     private func loadWebSettingsIfNeeded(force: Bool = false) async {
         guard force || !hasLoadedWebSettings else { return }
         hasLoadedWebSettings = true
-        await loadEnvFile()
         await loadNotificationToggle()
     }
 
