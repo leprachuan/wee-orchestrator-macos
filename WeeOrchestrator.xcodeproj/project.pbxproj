@@ -21,6 +21,8 @@
 		A10012 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10012; };
 		A10013 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B10014; };
 		A10014 /* MarkdownText.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10016; };
+		A10015 /* HistorySessionMerge.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10017; };
+		A10016 /* HistorySessionMergeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10018; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -40,11 +42,21 @@
 		B10013 /* WeeOrchestrator.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = WeeOrchestrator.entitlements; sourceTree = "<group>"; };
 		B10014 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		B10015 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		B10017 /* HistorySessionMerge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistorySessionMerge.swift; sourceTree = "<group>"; };
+		B10018 /* HistorySessionMergeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistorySessionMergeTests.swift; sourceTree = "<group>"; };
 		P10001 /* WeeOrchestrator.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = WeeOrchestrator.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		P10002 /* WeeOrchestratorTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = WeeOrchestratorTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		F10001 = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		F10002 = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -58,6 +70,7 @@
 			isa = PBXGroup;
 			children = (
 				G10002 /* WeeOrchestrator */,
+				G10008 /* WeeOrchestratorTests */,
 				G10007 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -92,6 +105,7 @@
 				B10004 /* WeeAPIClient.swift */,
 				B10005 /* WeeAppModel.swift */,
 				B10006 /* KeychainStore.swift */,
+				B10017 /* HistorySessionMerge.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -121,8 +135,17 @@
 			isa = PBXGroup;
 			children = (
 				P10001 /* WeeOrchestrator.app */,
+				P10002 /* WeeOrchestratorTests.xctest */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		G10008 /* WeeOrchestratorTests */ = {
+			isa = PBXGroup;
+			children = (
+				B10018 /* HistorySessionMergeTests.swift */,
+			);
+			path = WeeOrchestratorTests;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -156,7 +179,42 @@
 			productReference = P10001 /* WeeOrchestrator.app */;
 			productType = "com.apple.product-type.application";
 		};
+		T10002 /* WeeOrchestratorTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = CL10003;
+			buildPhases = (
+				S10002 /* Sources */,
+				F10002 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				D10001 /* PBXTargetDependency */,
+			);
+			name = WeeOrchestratorTests;
+			productName = WeeOrchestratorTests;
+			productReference = P10002 /* WeeOrchestratorTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
+
+/* Begin PBXContainerItemProxy section */
+		CI10001 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = PR10001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = T10001;
+			remoteInfo = WeeOrchestrator;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXTargetDependency section */
+		D10001 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = T10001 /* WeeOrchestrator */;
+			targetProxy = CI10001 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin PBXProject section */
 		PR10001 /* Project object */ = {
@@ -180,6 +238,7 @@
 			projectRoot = "";
 			targets = (
 				T10001 /* WeeOrchestrator */,
+				T10002 /* WeeOrchestratorTests */,
 			);
 		};
 /* End PBXProject section */
@@ -202,6 +261,15 @@
 				A10011,
 				A10012,
 				A10014,
+				A10015,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		S10002 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A10016,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -302,6 +370,42 @@
 			};
 			name = Release;
 		};
+		BC10005 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = R365ZMKGT6;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.lipkey.weeorchestrator.macos.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/WeeOrchestrator.app/Contents/MacOS/WeeOrchestrator";
+			};
+			name = Debug;
+		};
+		BC10006 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = R365ZMKGT6;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.lipkey.weeorchestrator.macos.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/WeeOrchestrator.app/Contents/MacOS/WeeOrchestrator";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -319,6 +423,15 @@
 			buildConfigurations = (
 				BC10003 /* Debug */,
 				BC10004 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		CL10003 /* Build configuration list for PBXNativeTarget "WeeOrchestratorTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				BC10005 /* Debug */,
+				BC10006 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

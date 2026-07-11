@@ -660,7 +660,12 @@ final class WeeAppModel {
                 let newTasks = await taskResponse ?? []
                 notifyCompletedTasks(old: tasks, new: newTasks)
                 tasks = newTasks
-                historySessions = await sessionResponse ?? []
+                historySessions = HistorySessionMerge.merging(
+                    server: await sessionResponse,
+                    existing: historySessions,
+                    activeSessionID: currentSessionID,
+                    activeAgent: selectedAgent
+                )
 
                 if availableRuntimes.isEmpty {
                     let agentRuntimes = Set(agents.compactMap(\.primaryRuntime)).sorted()
@@ -901,11 +906,13 @@ final class WeeAppModel {
             return
         }
 
-        do {
-            historySessions = try await client.historySessions()
-        } catch {
-            historySessions = []
-        }
+        let server = try? await client.historySessions()
+        historySessions = HistorySessionMerge.merging(
+            server: server,
+            existing: historySessions,
+            activeSessionID: currentSessionID,
+            activeAgent: selectedAgent
+        )
     }
 
     /// The API persists a newly created session immediately, but a streaming
