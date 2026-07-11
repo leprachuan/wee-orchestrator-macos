@@ -28,6 +28,7 @@
 		A10019 /* OllamaRegistryClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10021; };
 		A10020 /* SessionResetDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10022; };
 		A10021 /* SessionResetDetectorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10023; };
+		A10022 /* AppDelegateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10024; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -54,6 +55,7 @@
 		B10021 /* OllamaRegistryClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OllamaRegistryClientTests.swift; sourceTree = "<group>"; };
 		B10022 /* SessionResetDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionResetDetector.swift; sourceTree = "<group>"; };
 		B10023 /* SessionResetDetectorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionResetDetectorTests.swift; sourceTree = "<group>"; };
+		B10024 /* AppDelegateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegateTests.swift; sourceTree = "<group>"; };
 		P10001 /* WeeOrchestrator.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = WeeOrchestrator.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		P10002 /* WeeOrchestratorTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = WeeOrchestratorTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -159,6 +161,7 @@
 				B10018 /* HistorySessionMergeTests.swift */,
 				B10021 /* OllamaRegistryClientTests.swift */,
 				B10023 /* SessionResetDetectorTests.swift */,
+				B10024 /* AppDelegateTests.swift */,
 			);
 			path = WeeOrchestratorTests;
 			sourceTree = "<group>";
@@ -290,6 +293,7 @@
 				A10016,
 				A10019,
 				A10021,
+				A10022,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
