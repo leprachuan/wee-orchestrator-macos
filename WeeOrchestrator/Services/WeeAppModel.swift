@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import Security
 import UserNotifications
 
 private final class GitOutputCollector: @unchecked Sendable {
@@ -22,6 +23,8 @@ private final class GitOutputCollector: @unchecked Sendable {
 @MainActor
 @Observable
 final class WeeAppModel {
+    private static let localSharedKeyAccount = "local-api-shared-key"
+
     var activeEnvironment: WeeEnvironment
     var localConfiguration: APIConfiguration
     var remoteConfiguration: APIConfiguration
@@ -377,6 +380,28 @@ final class WeeAppModel {
         return configurationURL
     }
 
+    /// Local API writes are authenticated too. The app owns this process, so it
+    /// creates one private shared key and keeps only the token in Keychain.
+    private func provisionLocalAPIAuthentication() -> String {
+        var sharedKey = KeychainStore.loadSecret(account: Self.localSharedKeyAccount)
+        if sharedKey.isEmpty {
+            var bytes = [UInt8](repeating: 0, count: 32)
+            if SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) == errSecSuccess {
+                sharedKey = bytes.map { String(format: "%02x", $0) }.joined()
+            } else {
+                sharedKey = UUID().uuidString.replacingOccurrences(of: "-", with: "")
+            }
+            KeychainStore.saveSecret(sharedKey, account: Self.localSharedKeyAccount)
+        }
+
+        let token = "shared_\(sharedKey)"
+        if localConfiguration.token != token {
+            localConfiguration.token = token
+            saveConfiguration()
+        }
+        return sharedKey
+    }
+
     func startLocalAPI() async {
         guard localAPIProcess?.isRunning != true else {
             localServiceStatus = "Already running"
@@ -413,6 +438,7 @@ final class WeeAppModel {
             localServiceStatus = "Could not create local agent configuration: \(error.localizedDescription)"
             return
         }
+        let localSharedKey = provisionLocalAPIAuthentication()
 
         let process = Process()
         let pipe = Pipe()
@@ -427,6 +453,7 @@ final class WeeAppModel {
         environment["PYTHONUNBUFFERED"] = "1"
         environment["APP_ENV"] = "LOCAL"
         environment["AGENT_CONFIG_FILE"] = agentsConfigurationURL.path
+        environment["API_SHARED_KEY"] = localSharedKey
         process.environment = environment
 
         pipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
@@ -1358,7 +1385,8 @@ final class WeeAppModel {
         currentSessionID = nil
         authPairingIdentity = nil
         authStatusMessage = message
-        KeychainStore.saveToken("")
+        let account = activeEnvironment == .local ? "api-token-local" : "api-token-remote"
+        KeychainStore.saveSecret("", account: account)
         return message
     }
 
