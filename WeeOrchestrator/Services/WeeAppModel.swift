@@ -403,7 +403,12 @@ final class WeeAppModel {
         for _ in 0..<12 {
             try? await Task.sleep(for: .milliseconds(500))
             await refreshOllamaStatus()
-            if ollamaStatus.hasPrefix("Running") { return }
+            if ollamaStatus.hasPrefix("Running") {
+                // The local API may have started (or last polled) before the
+                // runner was up, so its Ollama discovery cache could be empty.
+                if isLocalServiceRunning { restartLocalAPI() }
+                return
+            }
         }
     }
 
@@ -477,6 +482,9 @@ final class WeeAppModel {
             }
             saveConfiguration()
             await refreshOllamaStatus()
+            // Match the download path: force the local API to drop its cached
+            // Ollama inventory so the removed model stops being offered.
+            if isLocalServiceRunning { restartLocalAPI() }
         } catch {
             ollamaStatus = "Remove failed: \(error.localizedDescription)"
         }
