@@ -32,7 +32,10 @@ struct WeeOrchestratorApp: App {
         .defaultSize(width: 1360, height: 860)
         .windowStyle(.hiddenTitleBar)
         .commands {
-            CommandGroup(replacing: .newItem) {
+            // Keep WindowGroup's standard New Window command. Replacing the
+            // group removed it, which made this otherwise multi-window scene
+            // behave like a single-window app.
+            CommandGroup(after: .newItem) {
                 Button("New Chat") {
                     Task { await model.startNewChat() }
                 }
