@@ -423,6 +423,9 @@ final class WeeAppModel {
             let output = try await runCommand(executable: executable, arguments: ["pull", model.name])
             localSourceOutput = String((localSourceOutput + output).suffix(20_000))
             await refreshOllamaStatus()
+            // The API caches Ollama discovery briefly; restart its local process
+            // so this newly downloaded model is immediately in the `wee` list.
+            if isLocalServiceRunning { restartLocalAPI() }
         } catch {
             ollamaStatus = "Download failed: \(error.localizedDescription)"
         }
