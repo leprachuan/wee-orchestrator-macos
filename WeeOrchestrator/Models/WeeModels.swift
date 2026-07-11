@@ -44,6 +44,46 @@ struct LocalAPIServiceConfiguration: Equatable, Codable {
     )
 }
 
+struct LocalModelConfiguration: Equatable, Codable {
+    var selectedModel: String
+    var autoStartRunner: Bool
+
+    static let defaults = LocalModelConfiguration(
+        selectedModel: "llama3.1:8b",
+        autoStartRunner: false
+    )
+}
+
+struct OllamaModelSummary: Identifiable, Hashable {
+    let name: String
+    let sizeBytes: Int64?
+
+    var id: String { name }
+
+    var sizeLabel: String {
+        guard let sizeBytes else { return "Downloaded" }
+        return ByteCountFormatter.string(fromByteCount: sizeBytes, countStyle: .file)
+    }
+}
+
+struct LocalModelCatalogItem: Identifiable, Hashable {
+    let name: String
+    let displayName: String
+    let parameterSize: String
+    let contextWindow: Int
+    let description: String
+
+    var id: String { name }
+
+    static let recommended: [LocalModelCatalogItem] = [
+        .init(name: "llama3.1:8b", displayName: "Llama 3.1 8B", parameterSize: "8B", contextWindow: 128_000, description: "Fast general-purpose local agent model for Apple Silicon."),
+        .init(name: "qwen2.5-coder:14b", displayName: "Qwen 2.5 Coder 14B", parameterSize: "14B", contextWindow: 128_000, description: "Code-focused model with a long agentic context window."),
+        .init(name: "mistral-small3.1:24b", displayName: "Mistral Small 3.1", parameterSize: "24B", contextWindow: 128_000, description: "Higher-quality local reasoning for larger-memory Macs."),
+        .init(name: "gemma3:12b", displayName: "Gemma 3 12B", parameterSize: "12B", contextWindow: 128_000, description: "Balanced multimodal-capable general model."),
+        .init(name: "gpt-oss:20b", displayName: "GPT-OSS 20B", parameterSize: "20B", contextWindow: 131_072, description: "Strong local reasoning option for capable Macs.")
+    ]
+}
+
 struct BotTokenStatus: Decodable, Equatable {
     let agent: String
     let channel: String

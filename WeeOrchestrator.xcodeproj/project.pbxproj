@@ -23,6 +23,7 @@
 		A10014 /* MarkdownText.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10016; };
 		A10015 /* HistorySessionMerge.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10017; };
 		A10016 /* HistorySessionMergeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10018; };
+		A10017 /* LocalModelsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10019; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -44,6 +45,7 @@
 		B10015 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		B10017 /* HistorySessionMerge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistorySessionMerge.swift; sourceTree = "<group>"; };
 		B10018 /* HistorySessionMergeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistorySessionMergeTests.swift; sourceTree = "<group>"; };
+		B10019 /* LocalModelsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalModelsView.swift; sourceTree = "<group>"; };
 		P10001 /* WeeOrchestrator.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = WeeOrchestrator.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		P10002 /* WeeOrchestratorTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = WeeOrchestratorTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -127,6 +129,7 @@
 				B10011 /* AgentsView.swift */,
 				B10012 /* SettingsView.swift */,
 				B10016 /* MarkdownText.swift */,
+				B10019 /* LocalModelsView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -262,6 +265,7 @@
 				A10012,
 				A10014,
 				A10015,
+				A10017,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

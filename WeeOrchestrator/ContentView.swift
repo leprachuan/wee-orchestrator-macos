@@ -1,7 +1,7 @@
 import SwiftUI
 
 enum AppSection: String, CaseIterable, Identifiable {
-    case chat, kanban, backgroundTasks, scheduledTasks, agents, remoteSettings, localSettings
+    case chat, kanban, backgroundTasks, scheduledTasks, agents, localModels, remoteSettings, localSettings
     var id: String { rawValue }
 
     var title: String {
@@ -11,6 +11,7 @@ enum AppSection: String, CaseIterable, Identifiable {
         case .backgroundTasks: "Background Tasks"
         case .scheduledTasks: "Scheduled Tasks"
         case .agents: "Agents"
+        case .localModels: "Local Models"
         case .remoteSettings: "Remote Settings"
         case .localSettings: "Local Settings"
         }
@@ -23,6 +24,7 @@ enum AppSection: String, CaseIterable, Identifiable {
         case .backgroundTasks: "EXECUTE"
         case .scheduledTasks: "AUTOMATE"
         case .agents: "TEAM"
+        case .localModels: "ON DEVICE"
         case .remoteSettings: "REMOTE"
         case .localSettings: "LOCAL"
         }
@@ -35,6 +37,7 @@ enum AppSection: String, CaseIterable, Identifiable {
         case .backgroundTasks: "bolt.fill"
         case .scheduledTasks: "calendar.badge.clock"
         case .agents: "person.2.fill"
+        case .localModels: "cpu"
         case .remoteSettings: "network"
         case .localSettings: "desktopcomputer"
         }
@@ -202,6 +205,7 @@ struct ContentView: View {
         case .backgroundTasks: TasksView(model: model, mode: .background)
         case .scheduledTasks: TasksView(model: model, mode: .scheduled)
         case .agents: AgentsView(model: model)
+        case .localModels: LocalModelsView(model: model)
         case .remoteSettings: SettingsView(model: model, environment: .remote)
         case .localSettings: SettingsView(model: model, environment: .local)
         }

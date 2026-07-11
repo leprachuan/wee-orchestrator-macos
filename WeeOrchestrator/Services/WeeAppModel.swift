@@ -20,6 +20,15 @@ private final class GitOutputCollector: @unchecked Sendable {
     }
 }
 
+private struct OllamaTagsResponse: Decodable {
+    let models: [Model]
+
+    struct Model: Decodable {
+        let name: String
+        let size: Int64?
+    }
+}
+
 @MainActor
 @Observable
 final class WeeAppModel {
@@ -29,6 +38,10 @@ final class WeeAppModel {
     var localConfiguration: APIConfiguration
     var remoteConfiguration: APIConfiguration
     var localServiceConfiguration: LocalAPIServiceConfiguration
+    var localModelConfiguration: LocalModelConfiguration
+    var ollamaModels: [OllamaModelSummary] = []
+    var ollamaStatus = "Not checked"
+    var isOllamaWorking = false
     var localAgents: [AgentSummary] = []
     var remoteAgents: [AgentSummary] = []
     var isLocalServiceRunning = false
@@ -67,6 +80,7 @@ final class WeeAppModel {
     private var previousTaskStatuses: [String: String] = [:]
     @ObservationIgnored private var localAPIProcess: Process?
     @ObservationIgnored private var localLogPipe: Pipe?
+    @ObservationIgnored private var ollamaProcess: Process?
 
     var configuration: APIConfiguration {
         get { activeEnvironment == .local ? localConfiguration : remoteConfiguration }
@@ -101,6 +115,10 @@ final class WeeAppModel {
             repositoryURL: defaults.string(forKey: "wee.localService.repositoryURL") ?? LocalAPIServiceConfiguration.defaults.repositoryURL,
             checkoutDirectory: defaults.string(forKey: "wee.localService.checkoutDirectory") ?? LocalAPIServiceConfiguration.defaults.checkoutDirectory
         )
+        localModelConfiguration = LocalModelConfiguration(
+            selectedModel: defaults.string(forKey: "wee.localModels.selected") ?? LocalModelConfiguration.defaults.selectedModel,
+            autoStartRunner: defaults.object(forKey: "wee.localModels.autoStart") as? Bool ?? LocalModelConfiguration.defaults.autoStartRunner
+        )
         selectedAgent = defaults.string(forKey: "wee.selectedAgent.\(activeEnvironment.rawValue)")
             ?? defaults.string(forKey: "wee.selectedAgent") ?? "orchestrator"
         selectedRuntime = defaults.string(forKey: "wee.selectedRuntime") ?? ""
@@ -122,12 +140,14 @@ final class WeeAppModel {
 
     func bootstrap() async {
         await requestNotificationPermission()
+        if localModelConfiguration.autoStartRunner { await startOllama() }
         if localServiceConfiguration.autoStart {
             await startLocalAPI()
             await waitForLocalAPIReadiness()
         }
         await refreshAgentSources()
         await refreshAll()
+        await refreshOllamaStatus()
     }
 
     private func waitForLocalAPIReadiness() async {
@@ -160,6 +180,8 @@ final class WeeAppModel {
         defaults.set(localServiceConfiguration.autoStart, forKey: "wee.localService.autoStart")
         defaults.set(localServiceConfiguration.repositoryURL, forKey: "wee.localService.repositoryURL")
         defaults.set(localServiceConfiguration.checkoutDirectory, forKey: "wee.localService.checkoutDirectory")
+        defaults.set(localModelConfiguration.selectedModel, forKey: "wee.localModels.selected")
+        defaults.set(localModelConfiguration.autoStartRunner, forKey: "wee.localModels.autoStart")
         defaults.set(selectedAgent, forKey: "wee.selectedAgent.\(activeEnvironment.rawValue)")
         defaults.set(selectedRuntime, forKey: "wee.selectedRuntime")
         defaults.set(selectedModel, forKey: "wee.selectedModel")
@@ -309,6 +331,118 @@ final class WeeAppModel {
                 continuation.resume(throwing: error)
             }
         }
+    }
+
+    private var ollamaExecutable: String? {
+        ["/opt/homebrew/bin/ollama", "/usr/local/bin/ollama", "/usr/bin/ollama"]
+            .first(where: { FileManager.default.isExecutableFile(atPath: $0) })
+    }
+
+    var isOllamaInstalled: Bool { ollamaExecutable != nil }
+
+    func refreshOllamaStatus() async {
+        guard let url = URL(string: "http://127.0.0.1:11434/api/tags") else { return }
+        do {
+            let (data, response) = try await URLSession.shared.data(from: url)
+            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { throw URLError(.badServerResponse) }
+            let tags = try JSONDecoder().decode(OllamaTagsResponse.self, from: data)
+            ollamaModels = tags.models.map { OllamaModelSummary(name: $0.name, sizeBytes: $0.size) }.sorted { $0.name < $1.name }
+            ollamaStatus = "Running · \(ollamaModels.count) downloaded"
+        } catch {
+            ollamaModels = []
+            ollamaStatus = isOllamaInstalled ? "Installed · not running" : "Not installed"
+        }
+    }
+
+    func installOllama() async {
+        isOllamaWorking = true
+        ollamaStatus = "Installing Ollama…"
+        defer { isOllamaWorking = false }
+        do {
+            let command = "if command -v brew >/dev/null 2>&1; then brew install ollama; else curl -fsSL https://ollama.com/install.sh | sh; fi"
+            let output = try await runCommand(executable: "/bin/zsh", arguments: ["-lc", command])
+            localSourceOutput = String((localSourceOutput + output).suffix(20_000))
+            await refreshOllamaStatus()
+        } catch {
+            ollamaStatus = "Install failed: \(error.localizedDescription)"
+        }
+    }
+
+    func startOllama() async {
+        if ollamaStatus.hasPrefix("Running") { return }
+        guard let executable = ollamaExecutable else {
+            ollamaStatus = "Install Ollama first"
+            return
+        }
+        isOllamaWorking = true
+        defer { isOllamaWorking = false }
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: executable)
+        process.arguments = ["serve"]
+        process.standardOutput = Pipe()
+        process.standardError = Pipe()
+        process.environment = ProcessInfo.processInfo.environment
+        do {
+            try process.run()
+            ollamaProcess = process
+        } catch {
+            // The Ollama macOS app may already own the server process.
+        }
+        for _ in 0..<12 {
+            try? await Task.sleep(for: .milliseconds(500))
+            await refreshOllamaStatus()
+            if ollamaStatus.hasPrefix("Running") { return }
+        }
+    }
+
+    func stopOllama() {
+        ollamaProcess?.terminate()
+        ollamaProcess = nil
+        ollamaStatus = "Installed · stopped"
+    }
+
+    func pullOllamaModel(_ model: LocalModelCatalogItem) async {
+        guard model.contextWindow >= 64_000 else {
+            ollamaStatus = "\(model.displayName) does not meet the 64K context requirement"
+            return
+        }
+        guard let executable = ollamaExecutable else {
+            ollamaStatus = "Install Ollama first"
+            return
+        }
+        isOllamaWorking = true
+        ollamaStatus = "Downloading \(model.displayName)…"
+        defer { isOllamaWorking = false }
+        do {
+            let output = try await runCommand(executable: executable, arguments: ["pull", model.name])
+            localSourceOutput = String((localSourceOutput + output).suffix(20_000))
+            await refreshOllamaStatus()
+        } catch {
+            ollamaStatus = "Download failed: \(error.localizedDescription)"
+        }
+    }
+
+    func removeOllamaModel(_ model: OllamaModelSummary) async {
+        guard let executable = ollamaExecutable else { return }
+        isOllamaWorking = true
+        defer { isOllamaWorking = false }
+        do {
+            _ = try await runCommand(executable: executable, arguments: ["rm", model.name])
+            if localModelConfiguration.selectedModel == model.name {
+                localModelConfiguration.selectedModel = LocalModelConfiguration.defaults.selectedModel
+            }
+            saveConfiguration()
+            await refreshOllamaStatus()
+        } catch {
+            ollamaStatus = "Remove failed: \(error.localizedDescription)"
+        }
+    }
+
+    func selectLocalModel(_ model: LocalModelCatalogItem) {
+        guard model.contextWindow >= 64_000 else { return }
+        localModelConfiguration.selectedModel = model.name
+        saveConfiguration()
+        if isLocalServiceRunning { restartLocalAPI() }
     }
 
     private func bootstrapLocalAPIEnvironment(at checkout: String) async -> Bool {
@@ -466,6 +600,8 @@ final class WeeAppModel {
         environment["APP_ENV"] = "LOCAL"
         environment["AGENT_CONFIG_FILE"] = agentsConfigurationURL.path
         environment["API_SHARED_KEY"] = localSharedKey
+        environment["WEE_OLLAMA_HOST"] = "http://127.0.0.1:11434"
+        environment["WEE_DEFAULT_MODEL"] = "ollama/\(localModelConfiguration.selectedModel)"
         // Tell the local instance's agents that a separate remote Wee
         // Orchestrator API also exists, so they don't assume this local
         // process is the only one running. Only the URL is shared — never
