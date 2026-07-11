@@ -46,6 +46,14 @@ final class WeeAppModel {
     var ollamaModels: [OllamaModelSummary] = []
     var ollamaStatus = "Not checked"
     var isOllamaWorking = false
+    /// Curated recommendations, seeded from `LocalModelCatalogItem.recommended` and refreshed
+    /// with live Ollama registry data (context window, size) for the Qwen 3.6 / Gemma 4
+    /// families when the registry is reachable. Falls back to the static seed otherwise.
+    var curatedModels: [LocalModelCatalogItem] = LocalModelCatalogItem.recommended
+    var registrySearchResults: [OllamaRegistryModel] = []
+    var isSearchingRegistry = false
+    var registrySearchStatus = ""
+    @ObservationIgnored private var knownModelContextWindows: [String: Int] = [:]
     var localAgents: [AgentSummary] = []
     var remoteAgents: [AgentSummary] = []
     var isLocalServiceRunning = false
@@ -354,6 +362,11 @@ final class WeeAppModel {
             guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { throw URLError(.badServerResponse) }
             let tags = try JSONDecoder().decode(OllamaTagsResponse.self, from: data)
             ollamaModels = tags.models.map { OllamaModelSummary(name: $0.name, sizeBytes: $0.size) }.sorted { $0.name < $1.name }
+            for downloaded in ollamaModels {
+                if let catalogMatch = curatedModels.first(where: { $0.name == downloaded.name }) {
+                    knownModelContextWindows[downloaded.name] = catalogMatch.contextWindow
+                }
+            }
             if !localModelConfiguration.selectedModel.isEmpty,
                !ollamaModels.contains(where: { $0.name == localModelConfiguration.selectedModel }) {
                 localModelConfiguration.selectedModel = ""
@@ -433,6 +446,7 @@ final class WeeAppModel {
         do {
             let output = try await runCommand(executable: executable, arguments: ["pull", model.name])
             localSourceOutput = String((localSourceOutput + output).suffix(20_000))
+            knownModelContextWindows[model.name] = model.contextWindow
             await refreshOllamaStatus()
             // The API caches Ollama discovery briefly; restart its local process
             // so this newly downloaded model is immediately in the `wee` list.
@@ -440,6 +454,97 @@ final class WeeAppModel {
         } catch {
             ollamaStatus = "Download failed: \(error.localizedDescription)"
         }
+    }
+
+    /// Refreshes `curatedModels` with live Ollama registry metadata for the Qwen 3.6 and
+    /// Gemma 4 families (per issue #392), sorted so the best fit for this Mac's available
+    /// memory sorts first. Falls back to the static seed list when the registry can't be reached.
+    func refreshCuratedModels() async {
+        var liveModels: [LocalModelCatalogItem] = []
+        for baseName in ["gemma4", "qwen3.6"] {
+            guard let variants = try? await OllamaRegistryClient.fetchTagVariants(baseName: baseName), !variants.isEmpty else { continue }
+            liveModels.append(contentsOf: variants.map(Self.catalogItem(from:)))
+        }
+        guard !liveModels.isEmpty else {
+            curatedModels = Self.sortedByMemoryFit(LocalModelCatalogItem.recommended, memoryGB: localModelMemoryGB)
+            return
+        }
+        let staticExtras = LocalModelCatalogItem.recommended.filter { item in
+            !liveModels.contains { $0.name == item.name } && !item.name.hasPrefix("gemma4") && !item.name.hasPrefix("qwen3.6")
+        }
+        curatedModels = Self.sortedByMemoryFit(liveModels + staticExtras, memoryGB: localModelMemoryGB)
+    }
+
+    private static func catalogItem(from registryModel: OllamaRegistryModel) -> LocalModelCatalogItem {
+        let sizeGB = registryModel.sizeGB ?? 0
+        let family = registryModel.baseName.hasPrefix("qwen") ? "Qwen 3.6" : "Gemma 4"
+        return LocalModelCatalogItem(
+            name: registryModel.fullTag,
+            displayName: "\(family) \(registryModel.tag)".trimmingCharacters(in: .whitespaces),
+            parameterSize: registryModel.modalities ?? "—",
+            contextWindow: registryModel.contextWindow,
+            estimatedDownloadGB: sizeGB,
+            description: "Live from the Ollama registry · \(registryModel.contextWindow / 1_000)K context · ~\(String(format: "%.1f", sizeGB)) GB download."
+        )
+    }
+
+    private static func sortedByMemoryFit(_ items: [LocalModelCatalogItem], memoryGB: Double) -> [LocalModelCatalogItem] {
+        guard memoryGB > 0 else { return items }
+        return items.sorted { $0.estimatedDownloadGB / memoryGB < $1.estimatedDownloadGB / memoryGB }
+    }
+
+    /// Searches the live Ollama registry (ollama.com) for models matching `query`, restricted
+    /// to variants with a 64K+ context window. Empty query clears results.
+    func searchOllamaRegistry(query: String) async {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            registrySearchResults = []
+            registrySearchStatus = ""
+            return
+        }
+        isSearchingRegistry = true
+        registrySearchStatus = "Searching Ollama registry…"
+        defer { isSearchingRegistry = false }
+        do {
+            let results = try await OllamaRegistryClient.search(query: trimmed)
+            registrySearchResults = results
+            registrySearchStatus = results.isEmpty
+                ? "No 64K+ context models found on the registry for “\(trimmed)”."
+                : "\(results.count) 64K+ context model\(results.count == 1 ? "" : "s") found."
+        } catch {
+            registrySearchResults = []
+            registrySearchStatus = "Registry search failed: \(error.localizedDescription)"
+        }
+    }
+
+    func pullRegistryModel(_ registryModel: OllamaRegistryModel) async {
+        guard registryModel.contextWindow >= OllamaRegistryClient.minimumContextWindow else {
+            ollamaStatus = "\(registryModel.displayName) does not meet the 64K context requirement"
+            return
+        }
+        guard let executable = ollamaExecutable else {
+            ollamaStatus = "Install Ollama first"
+            return
+        }
+        isOllamaWorking = true
+        ollamaStatus = "Downloading \(registryModel.displayName)…"
+        defer { isOllamaWorking = false }
+        do {
+            let output = try await runCommand(executable: executable, arguments: ["pull", registryModel.fullTag])
+            localSourceOutput = String((localSourceOutput + output).suffix(20_000))
+            knownModelContextWindows[registryModel.fullTag] = registryModel.contextWindow
+            await refreshOllamaStatus()
+            if isLocalServiceRunning { restartLocalAPI() }
+        } catch {
+            ollamaStatus = "Download failed: \(error.localizedDescription)"
+        }
+    }
+
+    /// Context window for a downloaded model if known from a prior catalog/registry/custom
+    /// pull in this session. Used to gate the "Use Model" action for downloaded-but-uncataloged
+    /// models against the 64K requirement.
+    func knownContextWindow(forDownloadedModel name: String) -> Int? {
+        knownModelContextWindows[name]
     }
 
     func pullCustomOllamaModel(tag: String, declaredContextWindow: Int) async {
@@ -462,6 +567,7 @@ final class WeeAppModel {
         do {
             let output = try await runCommand(executable: executable, arguments: ["pull", name])
             localSourceOutput = String((localSourceOutput + output).suffix(20_000))
+            knownModelContextWindows[name] = declaredContextWindow
             await refreshOllamaStatus()
             localModelConfiguration.selectedModel = name
             saveConfiguration()

@@ -20,7 +20,13 @@ struct TasksView: View {
     var body: some View {
         VStack(spacing: 8) {
             PageHeader(title: pageTitle, subtitle: pageSubtitle, symbol: pageSymbol) {
-                StatusPill(text: model.activeEnvironment.title, color: WeeTheme.accent, symbol: model.activeEnvironment.symbol)
+                Picker("Environment", selection: environmentBinding) {
+                    ForEach(WeeEnvironment.allCases) { environment in
+                        Label(environment.title, systemImage: environment.symbol).tag(environment)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .frame(width: 190)
                 if mode == .background {
                     StatusPill(text: "\(running) running", color: WeeTheme.emerald, symbol: "bolt.fill")
                     StatusPill(text: "\(queued) queued", color: WeeTheme.gold, symbol: "clock.fill")
@@ -76,6 +82,20 @@ struct TasksView: View {
 
     private var pageTitle: String {
         mode == .background ? "Background Tasks" : "Scheduled Tasks"
+    }
+
+    /// Task lists and task mutations are API-scoped. Switching here updates
+    /// the app's active API before a task can be viewed, created, or edited.
+    private var environmentBinding: Binding<WeeEnvironment> {
+        Binding(
+            get: { model.activeEnvironment },
+            set: { environment in
+                Task {
+                    await model.switchEnvironment(to: environment)
+                    if mode == .scheduled { await model.loadScheduledJobs() }
+                }
+            }
+        )
     }
 
     private var pageSubtitle: String {

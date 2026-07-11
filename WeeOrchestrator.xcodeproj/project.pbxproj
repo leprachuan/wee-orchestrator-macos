@@ -24,6 +24,8 @@
 		A10015 /* HistorySessionMerge.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10017; };
 		A10016 /* HistorySessionMergeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10018; };
 		A10017 /* LocalModelsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10019; };
+		A10018 /* OllamaRegistryClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10020; };
+		A10019 /* OllamaRegistryClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10021; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -46,6 +48,8 @@
 		B10017 /* HistorySessionMerge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistorySessionMerge.swift; sourceTree = "<group>"; };
 		B10018 /* HistorySessionMergeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistorySessionMergeTests.swift; sourceTree = "<group>"; };
 		B10019 /* LocalModelsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalModelsView.swift; sourceTree = "<group>"; };
+		B10020 /* OllamaRegistryClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OllamaRegistryClient.swift; sourceTree = "<group>"; };
+		B10021 /* OllamaRegistryClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OllamaRegistryClientTests.swift; sourceTree = "<group>"; };
 		P10001 /* WeeOrchestrator.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = WeeOrchestrator.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		P10002 /* WeeOrchestratorTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = WeeOrchestratorTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -108,6 +112,7 @@
 				B10005 /* WeeAppModel.swift */,
 				B10006 /* KeychainStore.swift */,
 				B10017 /* HistorySessionMerge.swift */,
+				B10020 /* OllamaRegistryClient.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -147,6 +152,7 @@
 			isa = PBXGroup;
 			children = (
 				B10018 /* HistorySessionMergeTests.swift */,
+				B10021 /* OllamaRegistryClientTests.swift */,
 			);
 			path = WeeOrchestratorTests;
 			sourceTree = "<group>";
@@ -266,6 +272,7 @@
 				A10014,
 				A10015,
 				A10017,
+				A10018,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -274,6 +281,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				A10016,
+				A10019,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

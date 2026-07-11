@@ -2,18 +2,20 @@ import SwiftUI
 
 struct LocalModelsView: View {
     @Bindable var model: WeeAppModel
+    @State private var recommendedFilter = ""
     @State private var registrySearch = ""
+    @State private var registrySearchTask: Task<Void, Never>?
     @State private var customRegistryTag = ""
     @State private var customContext = "65536"
 
     private var selectedCatalogModel: LocalModelCatalogItem? {
-        LocalModelCatalogItem.recommended.first { $0.name == model.localModelConfiguration.selectedModel }
+        model.curatedModels.first { $0.name == model.localModelConfiguration.selectedModel }
     }
 
     private var filteredModels: [LocalModelCatalogItem] {
-        let query = registrySearch.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !query.isEmpty else { return LocalModelCatalogItem.recommended }
-        return LocalModelCatalogItem.recommended.filter {
+        let query = recommendedFilter.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !query.isEmpty else { return model.curatedModels }
+        return model.curatedModels.filter {
             $0.name.lowercased().contains(query)
                 || $0.displayName.lowercased().contains(query)
                 || $0.description.lowercased().contains(query)
@@ -41,11 +43,17 @@ struct LocalModelsView: View {
 
                 registrySearchCard
 
-                Text("64K+ CONTEXT MODEL LIBRARY")
-                    .font(.caption.weight(.bold))
-                    .tracking(1.1)
-                    .foregroundStyle(WeeTheme.textMuted)
-                    .padding(.top, 4)
+                HStack {
+                    Text("RECOMMENDED FOR THIS MAC (\(Int(model.localModelMemoryGB)) GB MEMORY)")
+                        .font(.caption.weight(.bold))
+                        .tracking(1.1)
+                        .foregroundStyle(WeeTheme.textMuted)
+                    Spacer()
+                    TextField("Filter recommendations", text: $recommendedFilter)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 220)
+                }
+                .padding(.top, 4)
 
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 280), spacing: 12)], spacing: 12) {
                     ForEach(filteredModels) { item in
@@ -59,7 +67,10 @@ struct LocalModelsView: View {
             }
             .padding(18)
         }
-        .task { await model.refreshOllamaStatus() }
+        .task {
+            await model.refreshOllamaStatus()
+            await model.refreshCuratedModels()
+        }
     }
 
     private var runnerCard: some View {
@@ -132,8 +143,30 @@ struct LocalModelsView: View {
     private var registrySearchCard: some View {
         LocalModelSection(title: "Ollama Registry Search", systemImage: "magnifyingglass") {
             VStack(alignment: .leading, spacing: 10) {
-                TextField("Search verified registry models", text: $registrySearch)
-                    .textFieldStyle(.roundedBorder)
+                HStack(spacing: 8) {
+                    TextField("Search the live Ollama registry (e.g. \"qwen\", \"gemma\", \"llama\")", text: $registrySearch)
+                        .textFieldStyle(.roundedBorder)
+                        .onChange(of: registrySearch) { scheduleRegistrySearch() }
+                    if model.isSearchingRegistry { ProgressView().controlSize(.small) }
+                }
+
+                if !model.registrySearchStatus.isEmpty {
+                    Text(model.registrySearchStatus)
+                        .font(.caption)
+                        .foregroundStyle(WeeTheme.textSecondary)
+                }
+
+                if !model.registrySearchResults.isEmpty {
+                    VStack(spacing: 0) {
+                        ForEach(model.registrySearchResults) { result in
+                            registryResultRow(result)
+                            if result.id != model.registrySearchResults.last?.id { Divider().overlay(WeeTheme.divider) }
+                        }
+                    }
+                }
+
+                Divider().overlay(WeeTheme.divider)
+
                 HStack(spacing: 8) {
                     TextField("Any registry tag, e.g. org/model:tag", text: $customRegistryTag)
                         .textFieldStyle(.roundedBorder)
@@ -152,13 +185,46 @@ struct LocalModelsView: View {
                     .disabled(!model.isOllamaInstalled || model.isOllamaWorking)
                 }
                 HStack {
-                    Text("Custom tags require a declared 64K+ context window before download.")
+                    Text("Search results and custom tags both require a 64K+ context window before download.")
                     Spacer()
                     Link("Browse full registry", destination: URL(string: "https://ollama.com/search")!)
                 }
                 .font(.caption)
                 .foregroundStyle(WeeTheme.textSecondary)
             }
+        }
+    }
+
+    private func registryResultRow(_ result: OllamaRegistryModel) -> some View {
+        let isDownloaded = model.ollamaModels.contains { $0.name == result.fullTag }
+        return HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(result.fullTag).font(.subheadline.weight(.semibold))
+                Text("\(result.contextWindow / 1_000)K context · \(result.sizeLabel)\(result.modalities.map { " · \($0)" } ?? "")")
+                    .font(.caption)
+                    .foregroundStyle(WeeTheme.textMuted)
+            }
+            Spacer()
+            if isDownloaded {
+                Text("Downloaded").font(.caption2.weight(.bold)).foregroundStyle(WeeTheme.accent)
+            } else {
+                Button { Task { await model.pullRegistryModel(result) } } label: {
+                    Label("Download", systemImage: "arrow.down.circle")
+                }
+                .buttonStyle(WeeGhostButtonStyle())
+                .disabled(!model.isOllamaInstalled || model.isOllamaWorking)
+            }
+        }
+        .padding(.vertical, 6)
+    }
+
+    private func scheduleRegistrySearch() {
+        registrySearchTask?.cancel()
+        let query = registrySearch
+        registrySearchTask = Task {
+            try? await Task.sleep(for: .milliseconds(450))
+            guard !Task.isCancelled else { return }
+            await model.searchOllamaRegistry(query: query)
         }
     }
 
@@ -233,6 +299,13 @@ struct LocalModelsView: View {
                             Text(downloaded.sizeLabel).font(.caption).foregroundStyle(WeeTheme.textMuted)
                         }
                         Spacer()
+                        if model.localModelConfiguration.selectedModel == downloaded.name {
+                            Text("Selected").font(.caption2.weight(.bold)).foregroundStyle(WeeTheme.accent)
+                        } else if let contextWindow = model.knownContextWindow(forDownloadedModel: downloaded.name),
+                                  contextWindow >= OllamaRegistryClient.minimumContextWindow {
+                            Button("Use Model") { model.selectLocalModel(name: downloaded.name, contextWindow: contextWindow) }
+                                .buttonStyle(WeeGhostButtonStyle())
+                        }
                         Button(role: .destructive) { Task { await model.removeOllamaModel(downloaded) } } label: {
                             Image(systemName: "trash")
                         }
