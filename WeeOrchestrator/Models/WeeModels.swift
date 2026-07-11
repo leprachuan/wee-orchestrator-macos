@@ -1226,6 +1226,8 @@ struct StreamEvent: Decodable {
     let name: String?
     let input: String?
     let output: String?
+    let status: String?
+    let result: String?
     let isError: Bool?
 
     enum CodingKeys: String, CodingKey {
@@ -1240,6 +1242,8 @@ struct StreamEvent: Decodable {
         case name
         case input
         case output
+        case status
+        case result
         case isError = "is_error"
     }
 }

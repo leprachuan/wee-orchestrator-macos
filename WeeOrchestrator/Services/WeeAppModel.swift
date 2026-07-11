@@ -1768,16 +1768,21 @@ final class WeeAppModel {
         let trimmedName = event.name?.trimmingCharacters(in: .whitespacesAndNewlines)
         let label = trimmedName?.isEmpty == false ? trimmedName! : "tool"
 
-        switch event.event {
-        case "detected":
+        switch event.status ?? event.event {
+        case "running", "detected":
             return "Running \(label)..."
-        case "completed":
+        case "complete", "completed":
             if event.isError == true,
-               let output = event.output?.trimmingCharacters(in: .whitespacesAndNewlines),
+               let output = (event.result ?? event.output)?.trimmingCharacters(in: .whitespacesAndNewlines),
                !output.isEmpty {
                 return "\(label) failed: \(output)"
             }
-            return "Ran \(label)."
+            if label == "search",
+               let result = event.result?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !result.isEmpty {
+                return "Search completed. Preparing answer…\n\n\(result)"
+            }
+            return "Ran \(label). Preparing answer…"
         default:
             return "Running \(label)..."
         }
