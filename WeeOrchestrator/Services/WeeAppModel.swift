@@ -121,7 +121,7 @@ final class WeeAppModel {
         await requestNotificationPermission()
         if localServiceConfiguration.autoStart { await startLocalAPI() }
         await refreshAgentSources()
-        await refreshAll(useMockOnFailure: true)
+        await refreshAll()
     }
 
     private func requestNotificationPermission() async {
@@ -220,8 +220,9 @@ final class WeeAppModel {
             localServiceConfiguration.checkoutDirectory = destination
             localServiceConfiguration.workingDirectory = destination
             saveConfiguration()
+            _ = try ensureLocalAgentsConfiguration()
             guard await bootstrapLocalAPIEnvironment(at: destination) else { return }
-            localSourceStatus = "Clone and dependency setup complete"
+            localSourceStatus = "Clone, local agent configuration, and dependency setup complete"
         } catch {
             localSourceStatus = "Clone failed: \(error.localizedDescription)"
         }
@@ -353,6 +354,29 @@ final class WeeAppModel {
         (value as NSString).expandingTildeInPath.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    /// The cloned repository includes its deployment agents.json. Keep the Mac's
+    /// local agents outside that checkout so pulls cannot overwrite them or cause
+    /// a Local service to inherit Remote agents.
+    private func ensureLocalAgentsConfiguration() throws -> URL {
+        let fileManager = FileManager.default
+        let directory = try fileManager.url(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask,
+            appropriateFor: nil,
+            create: true
+        ).appendingPathComponent("WeeOrchestrator", isDirectory: true)
+        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+
+        let configurationURL = directory.appendingPathComponent("local-agents.json")
+        guard !fileManager.fileExists(atPath: configurationURL.path) else {
+            return configurationURL
+        }
+
+        let initialConfiguration = "{\n  \"agents\": []\n}\n"
+        try initialConfiguration.data(using: .utf8)?.write(to: configurationURL, options: .atomic)
+        return configurationURL
+    }
+
     func startLocalAPI() async {
         guard localAPIProcess?.isRunning != true else {
             localServiceStatus = "Already running"
@@ -360,7 +384,7 @@ final class WeeAppModel {
         }
 
         let executable = localServiceConfiguration.executablePath.trimmingCharacters(in: .whitespacesAndNewlines)
-        let workingDirectory = localServiceConfiguration.workingDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+        let workingDirectory = Self.expandedPath(localServiceConfiguration.workingDirectory)
         if FileManager.default.fileExists(atPath: "\(workingDirectory)/requirements.txt"),
            !FileManager.default.isExecutableFile(atPath: "\(workingDirectory)/.venv/bin/python") {
             localServiceStatus = "Preparing Python dependencies…"
@@ -382,6 +406,14 @@ final class WeeAppModel {
             return
         }
 
+        let agentsConfigurationURL: URL
+        do {
+            agentsConfigurationURL = try ensureLocalAgentsConfiguration()
+        } catch {
+            localServiceStatus = "Could not create local agent configuration: \(error.localizedDescription)"
+            return
+        }
+
         let process = Process()
         let pipe = Pipe()
         process.executableURL = URL(fileURLWithPath: resolvedExecutable)
@@ -389,9 +421,13 @@ final class WeeAppModel {
         process.currentDirectoryURL = URL(fileURLWithPath: workingDirectory, isDirectory: true)
         process.standardOutput = pipe
         process.standardError = pipe
-        process.environment = ProcessInfo.processInfo.environment.merging([
-            "PYTHONUNBUFFERED": "1"
-        ]) { _, configured in configured }
+        var environment = ProcessInfo.processInfo.environment
+        // Explicit values override anything inherited from the desktop process.
+        // In particular, never let AGENT_CONFIG_FILE point Local at a shared config.
+        environment["PYTHONUNBUFFERED"] = "1"
+        environment["APP_ENV"] = "LOCAL"
+        environment["AGENT_CONFIG_FILE"] = agentsConfigurationURL.path
+        process.environment = environment
 
         pipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
             let data = handle.availableData
@@ -547,7 +583,7 @@ final class WeeAppModel {
         authStatusMessage = "Signed out."
     }
 
-    func refreshAll(useMockOnFailure: Bool = false) async {
+    func refreshAll() async {
         isLoading = true
         errorMessage = nil
         defer { isLoading = false }
@@ -595,8 +631,11 @@ final class WeeAppModel {
             saveConfiguration()
         } catch {
             errorMessage = error.localizedDescription
-            if useMockOnFailure {
-                installMockData()
+            // Real connection failures must remain visible. Preview agents can
+            // otherwise make an unavailable Local service appear configured.
+            if activeEnvironment == .local {
+                localAgents = []
+                agents = []
             }
         }
     }
