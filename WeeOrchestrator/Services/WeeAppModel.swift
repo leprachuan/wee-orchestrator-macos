@@ -33,12 +33,16 @@ private struct OllamaTagsResponse: Decodable {
 @Observable
 final class WeeAppModel {
     private static let localSharedKeyAccount = "local-api-shared-key"
+    private static let localOpenRouterKeyAccount = "local-openrouter-api-key"
 
     var activeEnvironment: WeeEnvironment
     var localConfiguration: APIConfiguration
     var remoteConfiguration: APIConfiguration
     var localServiceConfiguration: LocalAPIServiceConfiguration
     var localModelConfiguration: LocalModelConfiguration
+    /// Kept in Keychain only. This value is supplied to the child local API
+    /// process as OPENROUTER_API_KEY and is never saved in UserDefaults.
+    var localOpenRouterAPIKey: String
     var ollamaModels: [OllamaModelSummary] = []
     var ollamaStatus = "Not checked"
     var isOllamaWorking = false
@@ -119,6 +123,7 @@ final class WeeAppModel {
             selectedModel: defaults.string(forKey: "wee.localModels.selected") ?? LocalModelConfiguration.defaults.selectedModel,
             autoStartRunner: defaults.object(forKey: "wee.localModels.autoStart") as? Bool ?? LocalModelConfiguration.defaults.autoStartRunner
         )
+        localOpenRouterAPIKey = KeychainStore.loadSecret(account: Self.localOpenRouterKeyAccount)
         selectedAgent = defaults.string(forKey: "wee.selectedAgent.\(activeEnvironment.rawValue)")
             ?? defaults.string(forKey: "wee.selectedAgent") ?? "orchestrator"
         selectedRuntime = defaults.string(forKey: "wee.selectedRuntime") ?? ""
@@ -188,6 +193,7 @@ final class WeeAppModel {
         defaults.set(selectedPermissionMode, forKey: "wee.selectedPermissionMode")
         KeychainStore.saveSecret(remoteConfiguration.token, account: "api-token-remote")
         KeychainStore.saveSecret(localConfiguration.token, account: "api-token-local")
+        KeychainStore.saveSecret(localOpenRouterAPIKey.trimmingCharacters(in: .whitespacesAndNewlines), account: Self.localOpenRouterKeyAccount)
     }
 
     func switchEnvironment(to environment: WeeEnvironment) async {
@@ -647,6 +653,12 @@ final class WeeAppModel {
         environment["AGENT_CONFIG_FILE"] = agentsConfigurationURL.path
         environment["API_SHARED_KEY"] = localSharedKey
         environment["WEE_OLLAMA_HOST"] = "http://127.0.0.1:11434"
+        let openRouterKey = localOpenRouterAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !openRouterKey.isEmpty {
+            environment["OPENROUTER_API_KEY"] = openRouterKey
+        } else {
+            environment.removeValue(forKey: "OPENROUTER_API_KEY")
+        }
         if !localModelConfiguration.selectedModel.isEmpty {
             environment["WEE_DEFAULT_MODEL"] = "ollama/\(localModelConfiguration.selectedModel)"
         } else {

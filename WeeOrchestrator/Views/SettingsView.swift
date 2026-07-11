@@ -47,6 +47,7 @@ struct SettingsView: View {
                     connectionSection
                     if environment == .local {
                         localSourceSection
+                        localWeeRuntimeSection
                         localServiceSection
                     }
                     connectorSection
@@ -230,6 +231,52 @@ struct SettingsView: View {
             Text("The local service runs only the executable and arguments configured above. It is never enabled automatically unless you opt in.")
                 .font(.caption)
                 .foregroundStyle(WeeTheme.gold)
+        }
+    }
+
+    private var localWeeRuntimeSection: some View {
+        SettingsSectionBox(title: "Wee Runtime", systemImage: "sparkles") {
+            HStack {
+                StatusPill(
+                    text: model.localOpenRouterAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "OpenRouter key not set" : "OpenRouter key configured",
+                    color: model.localOpenRouterAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? WeeTheme.gold : WeeTheme.emerald,
+                    symbol: model.localOpenRouterAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "key" : "checkmark.shield.fill"
+                )
+                Spacer()
+            }
+
+            FieldRow(title: "OpenRouter API Key") {
+                SecureField("sk-or-v1-…", text: $model.localOpenRouterAPIKey)
+            }
+
+            HStack {
+                Button {
+                    model.saveConfiguration()
+                    if model.isLocalServiceRunning { model.restartLocalAPI() }
+                    testResult = model.isLocalServiceRunning
+                        ? "OpenRouter key saved; local API restarting"
+                        : "OpenRouter key saved"
+                } label: {
+                    Label("Save Runtime Key", systemImage: "key.fill")
+                }
+                .buttonStyle(WeePrimaryButtonStyle())
+
+                if !model.localOpenRouterAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    Button(role: .destructive) {
+                        model.localOpenRouterAPIKey = ""
+                        model.saveConfiguration()
+                        if model.isLocalServiceRunning { model.restartLocalAPI() }
+                        testResult = "OpenRouter key removed"
+                    } label: {
+                        Label("Remove", systemImage: "trash")
+                    }
+                    .buttonStyle(WeeGhostButtonStyle())
+                }
+            }
+
+            Text("This key is stored only in this Mac’s Keychain and is passed directly to the locally managed API. Save while the service is running to restart it with the new key.")
+                .font(.caption)
+                .foregroundStyle(WeeTheme.textMuted)
         }
     }
 
