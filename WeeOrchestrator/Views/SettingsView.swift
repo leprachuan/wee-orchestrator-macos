@@ -185,8 +185,10 @@ struct SettingsView: View {
 
             HStack {
                 Button {
-                    model.saveConfiguration()
-                    model.startLocalAPI()
+                    Task {
+                        model.saveConfiguration()
+                        await model.startLocalAPI()
+                    }
                 } label: {
                     Label("Start", systemImage: "play.fill")
                 }

@@ -119,7 +119,7 @@ final class WeeAppModel {
 
     func bootstrap() async {
         await requestNotificationPermission()
-        if localServiceConfiguration.autoStart { startLocalAPI() }
+        if localServiceConfiguration.autoStart { await startLocalAPI() }
         await refreshAgentSources()
         await refreshAll(useMockOnFailure: true)
     }
@@ -220,7 +220,8 @@ final class WeeAppModel {
             localServiceConfiguration.checkoutDirectory = destination
             localServiceConfiguration.workingDirectory = destination
             saveConfiguration()
-            localSourceStatus = "Clone complete"
+            guard await bootstrapLocalAPIEnvironment(at: destination) else { return }
+            localSourceStatus = "Clone and dependency setup complete"
         } catch {
             localSourceStatus = "Clone failed: \(error.localizedDescription)"
         }
@@ -243,19 +244,27 @@ final class WeeAppModel {
             localSourceOutput = output
             localServiceConfiguration.workingDirectory = checkout
             saveConfiguration()
-            localSourceStatus = output.localizedCaseInsensitiveContains("already up to date") ? "Already up to date" : "Updated to latest"
+            guard await bootstrapLocalAPIEnvironment(at: checkout) else { return }
+            localSourceStatus = output.localizedCaseInsensitiveContains("already up to date") ? "Already up to date; dependencies refreshed" : "Updated to latest; dependencies refreshed"
         } catch {
             localSourceStatus = "Update failed: \(error.localizedDescription)"
         }
     }
 
     private func runGit(_ arguments: [String]) async throws -> String {
+        try await runCommand(executable: "/usr/bin/git", arguments: arguments)
+    }
+
+    private func runCommand(executable: String, arguments: [String], workingDirectory: String? = nil) async throws -> String {
         try await withCheckedThrowingContinuation { continuation in
             let process = Process()
             let pipe = Pipe()
             let output = GitOutputCollector()
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+            process.executableURL = URL(fileURLWithPath: executable)
             process.arguments = arguments
+            if let workingDirectory {
+                process.currentDirectoryURL = URL(fileURLWithPath: workingDirectory, isDirectory: true)
+            }
             process.standardOutput = pipe
             process.standardError = pipe
             process.environment = ProcessInfo.processInfo.environment.merging([
@@ -286,11 +295,65 @@ final class WeeAppModel {
         }
     }
 
+    private func bootstrapLocalAPIEnvironment(at checkout: String) async -> Bool {
+        let requirements = "\(checkout)/requirements.txt"
+        let projectFile = "\(checkout)/pyproject.toml"
+        guard FileManager.default.fileExists(atPath: requirements) || FileManager.default.fileExists(atPath: projectFile) else {
+            localSourceStatus = "Dependency manifest not found in checkout"
+            return false
+        }
+
+        let configuredPython = localServiceConfiguration.executablePath.trimmingCharacters(in: .whitespacesAndNewlines)
+        let bootstrapPython = FileManager.default.isExecutableFile(atPath: configuredPython)
+            ? configuredPython
+            : "/usr/bin/python3"
+        guard FileManager.default.isExecutableFile(atPath: bootstrapPython) else {
+            localSourceStatus = "Python executable not found. Set it in Local API Service."
+            return false
+        }
+
+        let venvPython = "\(checkout)/.venv/bin/python"
+        isLocalSourceWorking = true
+        defer { isLocalSourceWorking = false }
+
+        do {
+            var output = ""
+            if !FileManager.default.isExecutableFile(atPath: venvPython) {
+                localSourceStatus = "Creating local Python environment…"
+                output += try await runCommand(
+                    executable: bootstrapPython,
+                    arguments: ["-m", "venv", ".venv"],
+                    workingDirectory: checkout
+                )
+            }
+
+            localSourceStatus = "Installing API dependencies…"
+            let installArguments = FileManager.default.fileExists(atPath: requirements)
+                ? ["-m", "pip", "install", "-r", "requirements.txt"]
+                : ["-m", "pip", "install", "."]
+            output += try await runCommand(
+                executable: venvPython,
+                arguments: installArguments,
+                workingDirectory: checkout
+            )
+            localSourceOutput = String((localSourceOutput + output).suffix(20_000))
+            localServiceConfiguration.workingDirectory = checkout
+            if configuredPython == LocalAPIServiceConfiguration.defaults.executablePath || !FileManager.default.isExecutableFile(atPath: configuredPython) {
+                localServiceConfiguration.executablePath = venvPython
+            }
+            saveConfiguration()
+            return true
+        } catch {
+            localSourceStatus = "Dependency setup failed: \(error.localizedDescription)"
+            return false
+        }
+    }
+
     private static func expandedPath(_ value: String) -> String {
         (value as NSString).expandingTildeInPath.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    func startLocalAPI() {
+    func startLocalAPI() async {
         guard localAPIProcess?.isRunning != true else {
             localServiceStatus = "Already running"
             return
@@ -298,7 +361,19 @@ final class WeeAppModel {
 
         let executable = localServiceConfiguration.executablePath.trimmingCharacters(in: .whitespacesAndNewlines)
         let workingDirectory = localServiceConfiguration.workingDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard FileManager.default.isExecutableFile(atPath: executable) else {
+        if FileManager.default.fileExists(atPath: "\(workingDirectory)/requirements.txt"),
+           !FileManager.default.isExecutableFile(atPath: "\(workingDirectory)/.venv/bin/python") {
+            localServiceStatus = "Preparing Python dependencies…"
+            guard await bootstrapLocalAPIEnvironment(at: workingDirectory) else {
+                localServiceStatus = localSourceStatus
+                return
+            }
+        }
+        let resolvedExecutable = FileManager.default.isExecutableFile(atPath: "\(workingDirectory)/.venv/bin/python")
+            && (executable == LocalAPIServiceConfiguration.defaults.executablePath || !FileManager.default.isExecutableFile(atPath: executable))
+            ? "\(workingDirectory)/.venv/bin/python"
+            : executable
+        guard FileManager.default.isExecutableFile(atPath: resolvedExecutable) else {
             localServiceStatus = "Executable not found or not executable"
             return
         }
@@ -309,7 +384,7 @@ final class WeeAppModel {
 
         let process = Process()
         let pipe = Pipe()
-        process.executableURL = URL(fileURLWithPath: executable)
+        process.executableURL = URL(fileURLWithPath: resolvedExecutable)
         process.arguments = Self.parseCommandLine(localServiceConfiguration.arguments)
         process.currentDirectoryURL = URL(fileURLWithPath: workingDirectory, isDirectory: true)
         process.standardOutput = pipe
@@ -362,7 +437,7 @@ final class WeeAppModel {
         stopLocalAPI()
         Task { @MainActor [weak self] in
             try? await Task.sleep(for: .milliseconds(500))
-            self?.startLocalAPI()
+            await self?.startLocalAPI()
         }
     }
 
