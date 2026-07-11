@@ -466,6 +466,15 @@ final class WeeAppModel {
         environment["APP_ENV"] = "LOCAL"
         environment["AGENT_CONFIG_FILE"] = agentsConfigurationURL.path
         environment["API_SHARED_KEY"] = localSharedKey
+        // Tell the local instance's agents that a separate remote Wee
+        // Orchestrator API also exists, so they don't assume this local
+        // process is the only one running. Only the URL is shared — never
+        // the remote token, so it can't leak into local agent context/logs.
+        let remoteURL = remoteConfiguration.baseURLString.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !remoteURL.isEmpty {
+            environment["WEE_REMOTE_API_URL"] = remoteURL
+            environment["WEE_REMOTE_API_LABEL"] = "remote (production)"
+        }
         process.environment = environment
 
         pipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
