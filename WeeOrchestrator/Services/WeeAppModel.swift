@@ -339,6 +339,7 @@ final class WeeAppModel {
     }
 
     var isOllamaInstalled: Bool { ollamaExecutable != nil }
+    var localModelMemoryGB: Double { Double(ProcessInfo.processInfo.physicalMemory) / 1_073_741_824 }
 
     func refreshOllamaStatus() async {
         guard let url = URL(string: "http://127.0.0.1:11434/api/tags") else { return }
@@ -427,6 +428,35 @@ final class WeeAppModel {
         }
     }
 
+    func pullCustomOllamaModel(tag: String, declaredContextWindow: Int) async {
+        let name = tag.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else {
+            ollamaStatus = "Enter an Ollama registry model tag"
+            return
+        }
+        guard declaredContextWindow >= 64_000 else {
+            ollamaStatus = "Only models with a declared 64K+ context window can be downloaded"
+            return
+        }
+        guard let executable = ollamaExecutable else {
+            ollamaStatus = "Install Ollama first"
+            return
+        }
+        isOllamaWorking = true
+        ollamaStatus = "Downloading \(name)…"
+        defer { isOllamaWorking = false }
+        do {
+            let output = try await runCommand(executable: executable, arguments: ["pull", name])
+            localSourceOutput = String((localSourceOutput + output).suffix(20_000))
+            await refreshOllamaStatus()
+            localModelConfiguration.selectedModel = name
+            saveConfiguration()
+            if isLocalServiceRunning { restartLocalAPI() }
+        } catch {
+            ollamaStatus = "Download failed: \(error.localizedDescription)"
+        }
+    }
+
     func removeOllamaModel(_ model: OllamaModelSummary) async {
         guard let executable = ollamaExecutable else { return }
         isOllamaWorking = true
@@ -444,12 +474,16 @@ final class WeeAppModel {
     }
 
     func selectLocalModel(_ model: LocalModelCatalogItem) {
-        guard model.contextWindow >= 64_000 else { return }
-        guard ollamaModels.contains(where: { $0.name == model.name }) else {
-            ollamaStatus = "Download \(model.displayName) before selecting it"
+        selectLocalModel(name: model.name, contextWindow: model.contextWindow)
+    }
+
+    func selectLocalModel(name: String, contextWindow: Int) {
+        guard contextWindow >= 64_000 else { return }
+        guard ollamaModels.contains(where: { $0.name == name }) else {
+            ollamaStatus = "Download \(name) before selecting it"
             return
         }
-        localModelConfiguration.selectedModel = model.name
+        localModelConfiguration.selectedModel = name
         saveConfiguration()
         if isLocalServiceRunning { restartLocalAPI() }
     }

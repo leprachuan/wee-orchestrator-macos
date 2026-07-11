@@ -2,9 +2,22 @@ import SwiftUI
 
 struct LocalModelsView: View {
     @Bindable var model: WeeAppModel
+    @State private var registrySearch = ""
+    @State private var customRegistryTag = ""
+    @State private var customContext = "65536"
 
     private var selectedCatalogModel: LocalModelCatalogItem? {
         LocalModelCatalogItem.recommended.first { $0.name == model.localModelConfiguration.selectedModel }
+    }
+
+    private var filteredModels: [LocalModelCatalogItem] {
+        let query = registrySearch.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !query.isEmpty else { return LocalModelCatalogItem.recommended }
+        return LocalModelCatalogItem.recommended.filter {
+            $0.name.lowercased().contains(query)
+                || $0.displayName.lowercased().contains(query)
+                || $0.description.lowercased().contains(query)
+        }
     }
 
     var body: some View {
@@ -26,6 +39,8 @@ struct LocalModelsView: View {
                     bridgeCard
                 }
 
+                registrySearchCard
+
                 Text("64K+ CONTEXT MODEL LIBRARY")
                     .font(.caption.weight(.bold))
                     .tracking(1.1)
@@ -33,7 +48,7 @@ struct LocalModelsView: View {
                     .padding(.top, 4)
 
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 280), spacing: 12)], spacing: 12) {
-                    ForEach(LocalModelCatalogItem.recommended) { item in
+                    ForEach(filteredModels) { item in
                         modelCard(item)
                     }
                 }
@@ -114,6 +129,39 @@ struct LocalModelsView: View {
         }
     }
 
+    private var registrySearchCard: some View {
+        LocalModelSection(title: "Ollama Registry Search", systemImage: "magnifyingglass") {
+            VStack(alignment: .leading, spacing: 10) {
+                TextField("Search verified registry models", text: $registrySearch)
+                    .textFieldStyle(.roundedBorder)
+                HStack(spacing: 8) {
+                    TextField("Any registry tag, e.g. org/model:tag", text: $customRegistryTag)
+                        .textFieldStyle(.roundedBorder)
+                    TextField("Context", text: $customContext)
+                        .frame(width: 90)
+                        .textFieldStyle(.roundedBorder)
+                    Button("Download") {
+                        Task {
+                            await model.pullCustomOllamaModel(
+                                tag: customRegistryTag,
+                                declaredContextWindow: Int(customContext) ?? 0
+                            )
+                        }
+                    }
+                    .buttonStyle(WeePrimaryButtonStyle())
+                    .disabled(!model.isOllamaInstalled || model.isOllamaWorking)
+                }
+                HStack {
+                    Text("Custom tags require a declared 64K+ context window before download.")
+                    Spacer()
+                    Link("Browse full registry", destination: URL(string: "https://ollama.com/search")!)
+                }
+                .font(.caption)
+                .foregroundStyle(WeeTheme.textSecondary)
+            }
+        }
+    }
+
     private func modelCard(_ item: LocalModelCatalogItem) -> some View {
         let isDownloaded = model.ollamaModels.contains { $0.name == item.name }
         let isSelected = model.localModelConfiguration.selectedModel == item.name
@@ -123,7 +171,7 @@ struct LocalModelsView: View {
                     Text(item.displayName)
                         .font(.headline)
                         .foregroundStyle(WeeTheme.textPrimary)
-                    Text("\(item.parameterSize) · \(item.contextWindow / 1_000)K context")
+                    Text("\(item.parameterSize) · \(item.contextWindow / 1_000)K context · ~\(item.estimatedDownloadGB, specifier: "%.0f") GB")
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(WeeTheme.accent)
                 }
@@ -152,14 +200,27 @@ struct LocalModelsView: View {
                     .disabled(!model.isOllamaInstalled || model.isOllamaWorking)
                 }
                 Spacer()
-                Text("64K+ required")
+                Text(memoryFitLabel(for: item))
                     .font(.caption2.weight(.bold))
-                    .foregroundStyle(WeeTheme.gold)
+                    .foregroundStyle(memoryFitColor(for: item))
             }
         }
         .padding(14)
         .background(isSelected ? WeeTheme.accent.opacity(0.08) : WeeTheme.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(isSelected ? WeeTheme.accent.opacity(0.5) : WeeTheme.glassStroke))
+    }
+
+    private func memoryFitLabel(for item: LocalModelCatalogItem) -> String {
+        let ratio = item.estimatedDownloadGB / model.localModelMemoryGB
+        if ratio <= 0.5 { return "Recommended fit" }
+        if ratio <= 0.75 { return "Memory pressure" }
+        return "Too large for this Mac"
+    }
+
+    private func memoryFitColor(for item: LocalModelCatalogItem) -> Color {
+        let ratio = item.estimatedDownloadGB / model.localModelMemoryGB
+        if ratio <= 0.5 { return WeeTheme.accent }
+        return ratio <= 0.75 ? WeeTheme.gold : WeeTheme.danger
     }
 
     private var downloadedCard: some View {

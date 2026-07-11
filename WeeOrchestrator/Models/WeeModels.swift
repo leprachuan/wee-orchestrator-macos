@@ -71,16 +71,18 @@ struct LocalModelCatalogItem: Identifiable, Hashable {
     let displayName: String
     let parameterSize: String
     let contextWindow: Int
+    let estimatedDownloadGB: Double
     let description: String
 
     var id: String { name }
 
     static let recommended: [LocalModelCatalogItem] = [
-        .init(name: "llama3.1:8b", displayName: "Llama 3.1 8B", parameterSize: "8B", contextWindow: 128_000, description: "Fast general-purpose local agent model for Apple Silicon."),
-        .init(name: "qwen2.5-coder:14b", displayName: "Qwen 2.5 Coder 14B", parameterSize: "14B", contextWindow: 128_000, description: "Code-focused model with a long agentic context window."),
-        .init(name: "mistral-small3.1:24b", displayName: "Mistral Small 3.1", parameterSize: "24B", contextWindow: 128_000, description: "Higher-quality local reasoning for larger-memory Macs."),
-        .init(name: "gemma3:12b", displayName: "Gemma 3 12B", parameterSize: "12B", contextWindow: 128_000, description: "Balanced multimodal-capable general model."),
-        .init(name: "gpt-oss:20b", displayName: "GPT-OSS 20B", parameterSize: "20B", contextWindow: 131_072, description: "Strong local reasoning option for capable Macs.")
+        .init(name: "gemma4:e4b", displayName: "Gemma 4 E4B", parameterSize: "4B effective", contextWindow: 128_000, estimatedDownloadGB: 3.4, description: "Best fit for this Mac: efficient local reasoning with a 128K context window."),
+        .init(name: "gemma4:12b", displayName: "Gemma 4 12B", parameterSize: "12B", contextWindow: 256_000, estimatedDownloadGB: 8.0, description: "Recommended quality step-up for local agents and multimodal work."),
+        .init(name: "qwen3.6:27b", displayName: "Qwen 3.6 27B", parameterSize: "27B", contextWindow: 256_000, estimatedDownloadGB: 17.0, description: "Current agentic coding and reasoning model. Runs near this Mac’s memory limit."),
+        .init(name: "gemma4:26b", displayName: "Gemma 4 26B", parameterSize: "26B MoE", contextWindow: 256_000, estimatedDownloadGB: 16.0, description: "High-quality workstation option; expect memory pressure with long prompts."),
+        .init(name: "qwen3.6:35b", displayName: "Qwen 3.6 35B", parameterSize: "35B A3B", contextWindow: 256_000, estimatedDownloadGB: 24.0, description: "Not recommended on 24 GB unified memory; reserve for larger Macs."),
+        .init(name: "gpt-oss:20b", displayName: "GPT-OSS 20B", parameterSize: "20B", contextWindow: 131_072, estimatedDownloadGB: 13.0, description: "Long-context local reasoning option for capable Apple Silicon Macs.")
     ]
 }
 
