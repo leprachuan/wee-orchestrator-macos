@@ -122,9 +122,21 @@ final class WeeAppModel {
 
     func bootstrap() async {
         await requestNotificationPermission()
-        if localServiceConfiguration.autoStart { await startLocalAPI() }
+        if localServiceConfiguration.autoStart {
+            await startLocalAPI()
+            await waitForLocalAPIReadiness()
+        }
         await refreshAgentSources()
         await refreshAll()
+    }
+
+    private func waitForLocalAPIReadiness() async {
+        for _ in 0..<12 {
+            if let health = try? await client(for: .local).health(), health.status == "ok" {
+                return
+            }
+            try? await Task.sleep(for: .milliseconds(500))
+        }
     }
 
     private func requestNotificationPermission() async {
