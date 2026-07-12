@@ -285,16 +285,17 @@ struct SettingsView: View {
     }
 
     private var localModelCatalogSection: some View {
-        SettingsSectionBox(title: "Claude & Codex Models", systemImage: "list.bullet.rectangle") {
+        SettingsSectionBox(title: "Local API Model Catalog", systemImage: "list.bullet.rectangle") {
             Text("Maintain the model options offered by this Mac’s local API. Enter one model ID per line; duplicate and blank entries are removed when you save.")
                 .font(.caption)
                 .foregroundStyle(WeeTheme.textSecondary)
 
             Picker("Runtime", selection: $localCatalogRuntime) {
-                Text("Claude").tag("claude")
-                Text("Codex").tag("codex")
+                ForEach(model.localModelManifestRuntimes, id: \.self) { runtime in
+                    Text(runtime.capitalized).tag(runtime)
+                }
             }
-            .pickerStyle(.segmented)
+            .pickerStyle(.menu)
             .onChange(of: localCatalogRuntime) { _, _ in loadLocalCatalogModels() }
 
             TextEditor(text: $localCatalogModelText)
@@ -331,7 +332,7 @@ struct SettingsView: View {
                     .foregroundStyle(model.localModelManifestStatus.localizedCaseInsensitiveContains("could not") || model.localModelManifestStatus.localizedCaseInsensitiveContains("add at least") ? WeeTheme.danger : WeeTheme.textMuted)
             }
 
-            Text("This edits only `model-manifest.json` in the configured local API working directory. It does not change the Remote API, your account access, or the installed Claude/Codex CLIs.")
+            Text("This edits every configured local runtime except Wee, whose catalog is discovered dynamically from Ollama and OpenRouter. It never changes the Remote API or account access.")
                 .font(.caption)
                 .foregroundStyle(WeeTheme.textMuted)
         }
@@ -339,6 +340,11 @@ struct SettingsView: View {
 
     private func loadLocalCatalogModels() {
         localCatalogModelText = model.loadLocalModelManifest(runtime: localCatalogRuntime).joined(separator: "\n")
+        if !model.localModelManifestRuntimes.contains(localCatalogRuntime),
+           let firstRuntime = model.localModelManifestRuntimes.first {
+            localCatalogRuntime = firstRuntime
+            localCatalogModelText = model.loadLocalModelManifest(runtime: firstRuntime).joined(separator: "\n")
+        }
     }
 
     private var localSourceSection: some View {

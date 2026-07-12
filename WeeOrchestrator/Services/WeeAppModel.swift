@@ -63,6 +63,7 @@ final class WeeAppModel {
     var localSourceStatus = "Not installed"
     var localSourceOutput = ""
     var localModelManifestStatus = ""
+    var localModelManifestRuntimes: [String] = []
     var health: HealthResponse?
     var appConfig: AppConfigResponse?
     var agents: [AgentSummary] = []
@@ -614,11 +615,13 @@ final class WeeAppModel {
 
     /// Reads a runtime's ordered model list from the local API checkout. The
     /// manifest is deliberately edited here rather than through the connected
-    /// API so this can never change a Remote environment's catalog.
+    /// API so this can never change a Remote environment's catalog. Wee is
+    /// excluded because its list is assembled dynamically from local Ollama and
+    /// OpenRouter discovery.
     func loadLocalModelManifest(runtime: String) -> [String] {
         let trimmedRuntime = runtime.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard ["claude", "codex"].contains(trimmedRuntime) else {
-            localModelManifestStatus = "Only Claude and Codex catalogs can be edited here."
+        guard trimmedRuntime != "wee" else {
+            localModelManifestStatus = "The Wee catalog is discovered from Ollama and OpenRouter, so it is not edited here."
             return []
         }
 
@@ -626,8 +629,15 @@ final class WeeAppModel {
         do {
             let data = try Data(contentsOf: manifestURL)
             guard let document = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let runtimes = document["runtimes"] as? [String: Any],
-                  let models = runtimes[trimmedRuntime] as? [String] else {
+                  let runtimes = document["runtimes"] as? [String: Any] else {
+                localModelManifestStatus = "No runtime catalog was found in model-manifest.json."
+                return []
+            }
+            localModelManifestRuntimes = runtimes.keys
+                .map { $0.lowercased() }
+                .filter { $0 != "wee" }
+                .sorted()
+            guard let models = runtimes[trimmedRuntime] as? [String] else {
                 localModelManifestStatus = "No \(trimmedRuntime) list was found in model-manifest.json."
                 return []
             }
@@ -643,8 +653,8 @@ final class WeeAppModel {
     /// the API's manifest (including other runtime catalogs and notes).
     func saveLocalModelManifest(runtime: String, models: [String]) async -> Bool {
         let trimmedRuntime = runtime.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard ["claude", "codex"].contains(trimmedRuntime) else {
-            localModelManifestStatus = "Only Claude and Codex catalogs can be edited here."
+        guard trimmedRuntime != "wee" else {
+            localModelManifestStatus = "The Wee catalog is discovered from Ollama and OpenRouter, so it is not edited here."
             return false
         }
 
@@ -666,11 +676,19 @@ final class WeeAppModel {
                 return false
             }
             var runtimes = document["runtimes"] as? [String: Any] ?? [:]
+            guard runtimes[trimmedRuntime] != nil else {
+                localModelManifestStatus = "\(trimmedRuntime) is not a configured local runtime."
+                return false
+            }
             runtimes[trimmedRuntime] = normalized
             document["runtimes"] = runtimes
             document["last_updated"] = ISO8601DateFormatter().string(from: Date())
             let formatted = try JSONSerialization.data(withJSONObject: document, options: [.prettyPrinted, .sortedKeys])
             try formatted.write(to: manifestURL, options: .atomic)
+            localModelManifestRuntimes = runtimes.keys
+                .map { $0.lowercased() }
+                .filter { $0 != "wee" }
+                .sorted()
             localModelManifestStatus = "Saved \(normalized.count) \(trimmedRuntime) model\(normalized.count == 1 ? "" : "s"). No API restart is needed."
 
             if activeEnvironment == .local && selectedRuntime == trimmedRuntime {
