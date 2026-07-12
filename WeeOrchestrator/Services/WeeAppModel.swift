@@ -62,6 +62,7 @@ final class WeeAppModel {
     var isLocalSourceWorking = false
     var localSourceStatus = "Not installed"
     var localSourceOutput = ""
+    var localModelManifestStatus = ""
     var health: HealthResponse?
     var appConfig: AppConfigResponse?
     var agents: [AgentSummary] = []
@@ -609,6 +610,82 @@ final class WeeAppModel {
         localModelConfiguration.selectedModel = name
         saveConfiguration()
         if isLocalServiceRunning { restartLocalAPI() }
+    }
+
+    /// Reads a runtime's ordered model list from the local API checkout. The
+    /// manifest is deliberately edited here rather than through the connected
+    /// API so this can never change a Remote environment's catalog.
+    func loadLocalModelManifest(runtime: String) -> [String] {
+        let trimmedRuntime = runtime.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard ["claude", "codex"].contains(trimmedRuntime) else {
+            localModelManifestStatus = "Only Claude and Codex catalogs can be edited here."
+            return []
+        }
+
+        let manifestURL = localModelManifestURL()
+        do {
+            let data = try Data(contentsOf: manifestURL)
+            guard let document = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let runtimes = document["runtimes"] as? [String: Any],
+                  let models = runtimes[trimmedRuntime] as? [String] else {
+                localModelManifestStatus = "No \(trimmedRuntime) list was found in model-manifest.json."
+                return []
+            }
+            localModelManifestStatus = "Loaded \(models.count) \(trimmedRuntime) model\(models.count == 1 ? "" : "s")"
+            return models
+        } catch {
+            localModelManifestStatus = "Could not read \(manifestURL.lastPathComponent): \(error.localizedDescription)"
+            return []
+        }
+    }
+
+    /// Atomically persists a normalized model list while preserving the rest of
+    /// the API's manifest (including other runtime catalogs and notes).
+    func saveLocalModelManifest(runtime: String, models: [String]) async -> Bool {
+        let trimmedRuntime = runtime.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard ["claude", "codex"].contains(trimmedRuntime) else {
+            localModelManifestStatus = "Only Claude and Codex catalogs can be edited here."
+            return false
+        }
+
+        let normalized = models.reduce(into: [String]()) { result, candidate in
+            let modelID = candidate.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !modelID.isEmpty, !result.contains(modelID) else { return }
+            result.append(modelID)
+        }
+        guard !normalized.isEmpty else {
+            localModelManifestStatus = "Add at least one model before saving."
+            return false
+        }
+
+        let manifestURL = localModelManifestURL()
+        do {
+            let data = try Data(contentsOf: manifestURL)
+            guard var document = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                localModelManifestStatus = "model-manifest.json is not a JSON object."
+                return false
+            }
+            var runtimes = document["runtimes"] as? [String: Any] ?? [:]
+            runtimes[trimmedRuntime] = normalized
+            document["runtimes"] = runtimes
+            document["last_updated"] = ISO8601DateFormatter().string(from: Date())
+            let formatted = try JSONSerialization.data(withJSONObject: document, options: [.prettyPrinted, .sortedKeys])
+            try formatted.write(to: manifestURL, options: .atomic)
+            localModelManifestStatus = "Saved \(normalized.count) \(trimmedRuntime) model\(normalized.count == 1 ? "" : "s"). No API restart is needed."
+
+            if activeEnvironment == .local && selectedRuntime == trimmedRuntime {
+                await loadAvailableModels(for: trimmedRuntime)
+            }
+            return true
+        } catch {
+            localModelManifestStatus = "Could not save model-manifest.json: \(error.localizedDescription)"
+            return false
+        }
+    }
+
+    private func localModelManifestURL() -> URL {
+        URL(fileURLWithPath: Self.expandedPath(localServiceConfiguration.workingDirectory), isDirectory: true)
+            .appendingPathComponent("model-manifest.json")
     }
 
     private func bootstrapLocalAPIEnvironment(at checkout: String) async -> Bool {

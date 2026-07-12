@@ -29,6 +29,8 @@ struct SettingsView: View {
     @State private var showRemoveConnectorConfirmation = false
     @State private var showCloneConfirmation = false
     @State private var showPullConfirmation = false
+    @State private var localCatalogRuntime = "claude"
+    @State private var localCatalogModelText = ""
 
     private let runtimeFallbacks = ["copilot", "copilot-sdk", "claude", "claude-sdk", "gemini", "opencode", "codex", "devin"]
 
@@ -47,6 +49,7 @@ struct SettingsView: View {
                     connectionSection
                     if environment == .local {
                         localSourceSection
+                        localModelCatalogSection
                         localWeeRuntimeSection
                         localServiceSection
                     }
@@ -70,6 +73,7 @@ struct SettingsView: View {
             connectorAgent = model.agents.first?.name ?? model.selectedAgent
             await loadWebSettingsIfNeeded()
             await loadConnectorStatus()
+            loadLocalCatalogModels()
         }
         .confirmationDialog("Delete Agent?", isPresented: $showDeleteConfirmation, titleVisibility: .visible) {
             Button("Delete \(selectedAgentName)", role: .destructive) {
@@ -278,6 +282,63 @@ struct SettingsView: View {
                 .font(.caption)
                 .foregroundStyle(WeeTheme.textMuted)
         }
+    }
+
+    private var localModelCatalogSection: some View {
+        SettingsSectionBox(title: "Claude & Codex Models", systemImage: "list.bullet.rectangle") {
+            Text("Maintain the model options offered by this Mac’s local API. Enter one model ID per line; duplicate and blank entries are removed when you save.")
+                .font(.caption)
+                .foregroundStyle(WeeTheme.textSecondary)
+
+            Picker("Runtime", selection: $localCatalogRuntime) {
+                Text("Claude").tag("claude")
+                Text("Codex").tag("codex")
+            }
+            .pickerStyle(.segmented)
+            .onChange(of: localCatalogRuntime) { _, _ in loadLocalCatalogModels() }
+
+            TextEditor(text: $localCatalogModelText)
+                .font(.system(.body, design: .monospaced))
+                .scrollContentBackground(.hidden)
+                .padding(8)
+                .frame(minHeight: 150)
+                .background(WeeTheme.sunken, in: RoundedRectangle(cornerRadius: 7))
+
+            HStack {
+                Button {
+                    Task {
+                        let entries = localCatalogModelText.components(separatedBy: .newlines)
+                        if await model.saveLocalModelManifest(runtime: localCatalogRuntime, models: entries) {
+                            localCatalogModelText = model.loadLocalModelManifest(runtime: localCatalogRuntime).joined(separator: "\n")
+                        }
+                    }
+                } label: {
+                    Label("Save Model List", systemImage: "square.and.arrow.down")
+                }
+                .buttonStyle(WeePrimaryButtonStyle())
+
+                Button {
+                    loadLocalCatalogModels()
+                } label: {
+                    Label("Reload", systemImage: "arrow.clockwise")
+                }
+                .buttonStyle(WeeGhostButtonStyle())
+            }
+
+            if !model.localModelManifestStatus.isEmpty {
+                Text(model.localModelManifestStatus)
+                    .font(.caption)
+                    .foregroundStyle(model.localModelManifestStatus.localizedCaseInsensitiveContains("could not") || model.localModelManifestStatus.localizedCaseInsensitiveContains("add at least") ? WeeTheme.danger : WeeTheme.textMuted)
+            }
+
+            Text("This edits only `model-manifest.json` in the configured local API working directory. It does not change the Remote API, your account access, or the installed Claude/Codex CLIs.")
+                .font(.caption)
+                .foregroundStyle(WeeTheme.textMuted)
+        }
+    }
+
+    private func loadLocalCatalogModels() {
+        localCatalogModelText = model.loadLocalModelManifest(runtime: localCatalogRuntime).joined(separator: "\n")
     }
 
     private var localSourceSection: some View {
