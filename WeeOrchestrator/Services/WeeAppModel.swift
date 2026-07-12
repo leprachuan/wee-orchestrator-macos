@@ -714,6 +714,56 @@ final class WeeAppModel {
         return sharedKey
     }
 
+    /// Recover an API process left behind by an earlier app launch. We only
+    /// terminate a process whose command line identifies it as Wee's API;
+    /// another application's listener is reported and left untouched.
+    private func reclaimStaleLocalAPIPortIfNeeded() async -> String? {
+        guard let url = URL(string: localConfiguration.baseURLString),
+              let port = url.port else {
+            return nil
+        }
+
+        let output = (try? await runCommand(
+            executable: "/usr/sbin/lsof",
+            arguments: ["-nP", "-t", "-iTCP:\(port)", "-sTCP:LISTEN"]
+        )) ?? ""
+        let processIDs = output
+            .split(whereSeparator: \.isNewline)
+            .compactMap { Int32($0.trimmingCharacters(in: .whitespaces)) }
+
+        for processID in processIDs {
+            let command = (try? await runCommand(
+                executable: "/bin/ps",
+                arguments: ["-p", "\(processID)", "-o", "command="]
+            ))?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+
+            guard command.contains("agent_manager.py --api") else {
+                return "Port \(port) is already used by another process. Change the Local API URL or stop that process."
+            }
+
+            do {
+                _ = try await runCommand(executable: "/bin/kill", arguments: ["-TERM", "\(processID)"])
+                localServiceLog = String((localServiceLog + "\nRecovered stale local API process \(processID).\n").suffix(20_000))
+            } catch {
+                return "Could not stop stale local API process \(processID): \(error.localizedDescription)"
+            }
+        }
+
+        if !processIDs.isEmpty {
+            for _ in 0..<10 {
+                try? await Task.sleep(for: .milliseconds(200))
+                let remaining = (try? await runCommand(
+                    executable: "/usr/sbin/lsof",
+                    arguments: ["-nP", "-t", "-iTCP:\(port)", "-sTCP:LISTEN"]
+                )) ?? ""
+                if remaining.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    break
+                }
+            }
+        }
+        return nil
+    }
+
     func startLocalAPI() async {
         guard localAPIProcess?.isRunning != true else {
             localServiceStatus = "Already running"
@@ -740,6 +790,11 @@ final class WeeAppModel {
         }
         guard FileManager.default.fileExists(atPath: workingDirectory) else {
             localServiceStatus = "Working directory not found"
+            return
+        }
+
+        if let portError = await reclaimStaleLocalAPIPortIfNeeded() {
+            localServiceStatus = portError
             return
         }
 
