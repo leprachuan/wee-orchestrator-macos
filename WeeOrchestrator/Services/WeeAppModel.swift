@@ -1190,6 +1190,7 @@ final class WeeAppModel {
     func sendChat(_ prompt: String, attachments: [ChatAttachment] = []) async {
         let trimmed = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty || !attachments.isEmpty else { return }
+        let streamEnvironment = activeEnvironment
 
         guard hasAuthToken else {
             let message = "Authentication required. Add a bearer token in Settings, then click Save."
@@ -1244,8 +1245,12 @@ final class WeeAppModel {
 
             let query = attachments.isEmpty ? trimmed : (trimmed.isEmpty ? "[Attached \(attachments.count) file(s)]" : trimmed)
 
-            chatMessages.append(ChatMessage(role: .assistant, text: ""))
-            let streamIndex = chatMessages.count - 1
+            // A stream can outlive the visible chat if the user switches from
+            // Local to Remote while it is running. Keep an identity, not an
+            // array index: switching environments replaces `chatMessages`.
+            let streamMessage = ChatMessage(role: .assistant, text: "")
+            let streamMessageID = streamMessage.id
+            chatMessages.append(streamMessage)
 
             let bytes = try await client.stream(
                 sessionID: sessionID,
@@ -1267,53 +1272,69 @@ final class WeeAppModel {
                     if let text = event.text {
                         rawStreamText += text
                         let cleaned = preferredFinalStreamText(accumulated: rawStreamText, doneResponse: nil)
-                        if !cleaned.isEmpty {
-                            chatMessages[streamIndex].text = cleaned
+                        if !cleaned.isEmpty,
+                           let index = chatMessages.firstIndex(where: { $0.id == streamMessageID }) {
+                            chatMessages[index].text = cleaned
                         }
                     }
                 case "tool_call":
                     lastActivityText = streamActivityText(from: event)
-                    if chatMessages[streamIndex].text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                    if let index = chatMessages.firstIndex(where: { $0.id == streamMessageID }),
+                       chatMessages[index].text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                        !lastActivityText.isEmpty {
-                        chatMessages[streamIndex].text = lastActivityText
+                        chatMessages[index].text = lastActivityText
                     }
                 case "done":
                     let finalText = preferredFinalStreamText(accumulated: rawStreamText, doneResponse: event.response)
-                    if !finalText.isEmpty {
-                        chatMessages[streamIndex].text = finalText
-                    } else if chatMessages[streamIndex].text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-                              !lastActivityText.isEmpty {
-                        chatMessages[streamIndex].text = lastActivityText
+                    if let index = chatMessages.firstIndex(where: { $0.id == streamMessageID }) {
+                        if !finalText.isEmpty {
+                            chatMessages[index].text = finalText
+                        } else if chatMessages[index].text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                                  !lastActivityText.isEmpty {
+                            chatMessages[index].text = lastActivityText
+                        }
                     }
-                    if let runtime = event.runtime, !runtime.isEmpty {
+                    // Do not let a Local stream overwrite the current Remote
+                    // environment's model/runtime after navigation.
+                    if activeEnvironment == streamEnvironment,
+                       let runtime = event.runtime, !runtime.isEmpty {
                         selectedRuntime = runtime
                     }
-                    if let model = event.model, !model.isEmpty {
+                    if activeEnvironment == streamEnvironment,
+                       let model = event.model, !model.isEmpty {
                         selectedModel = model
                     }
                 case "error":
                     let message = event.message ?? event.text ?? "Stream error"
-                    chatMessages[streamIndex].text = message
+                    if let index = chatMessages.firstIndex(where: { $0.id == streamMessageID }) {
+                        chatMessages[index].text = message
+                    }
                 default:
                     break
                 }
             }
 
-            if chatMessages[streamIndex].text.isEmpty {
+            if let index = chatMessages.firstIndex(where: { $0.id == streamMessageID }),
+               chatMessages[index].text.isEmpty {
                 let finalText = preferredFinalStreamText(accumulated: rawStreamText, doneResponse: nil)
-                chatMessages[streamIndex].text = finalText.isEmpty ? lastActivityText : finalText
+                chatMessages[index].text = finalText.isEmpty ? lastActivityText : finalText
             }
 
-            if chatMessages[streamIndex].text.isEmpty {
-                chatMessages.remove(at: streamIndex)
+            if let index = chatMessages.firstIndex(where: { $0.id == streamMessageID }),
+               chatMessages[index].text.isEmpty {
+                chatMessages.remove(at: index)
             }
 
-            saveConfiguration()
-            await loadHistorySessions()
+            if activeEnvironment == streamEnvironment {
+                saveConfiguration()
+                await loadHistorySessions()
+            }
         } catch {
             let message = handleAuthErrorIfNeeded(error) ?? error.localizedDescription
-            errorMessage = message
-            chatMessages.append(ChatMessage(role: .system, text: message))
+            if activeEnvironment == streamEnvironment {
+                errorMessage = message
+                chatMessages.append(ChatMessage(role: .system, text: message))
+            }
         }
     }
 
