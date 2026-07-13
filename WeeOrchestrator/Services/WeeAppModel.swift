@@ -55,6 +55,15 @@ struct QueuedChatMessage: Identifiable, Hashable {
     let enqueuedAt = Date()
 }
 
+enum ChatComposerAction: Equatable {
+    case send
+    case cancel
+
+    static func action(for prompt: String, attachments: [ChatAttachment]) -> ChatComposerAction {
+        prompt.trimmingCharacters(in: .whitespacesAndNewlines) == "/cancel" && attachments.isEmpty ? .cancel : .send
+    }
+}
+
 struct ChatMessageQueueStore {
     private var queues: [ChatTranscriptKey: [QueuedChatMessage]] = [:]
 
@@ -283,6 +292,7 @@ final class WeeAppModel {
     @ObservationIgnored private var streamTranscripts = ChatStreamTranscriptStore()
     @ObservationIgnored private var queuedChatMessages = ChatMessageQueueStore()
     @ObservationIgnored private var queueDispatchingKeys: Set<ChatTranscriptKey> = []
+    @ObservationIgnored private var cancellationRequestedKeys: Set<ChatTranscriptKey> = []
     var isChatQueuePaused = false
 
     var configuration: APIConfiguration {
@@ -1737,6 +1747,10 @@ final class WeeAppModel {
                     updateStreamTranscript(streamKey, messageID: streamMessageID) { message in
                         message.text = lastActivityText
                     }
+                } else if cancellationRequestedKeys.contains(streamKey) {
+                    updateStreamTranscript(streamKey, messageID: streamMessageID) { streamMessage in
+                        streamMessage.text = "Request cancelled."
+                    }
                 } else {
                     // A well-formed stream always provides text, activity, a
                     // done event, or an error. Keep this message visible when
@@ -1753,16 +1767,18 @@ final class WeeAppModel {
             }
 
             streamTranscripts.finishStream(for: streamKey)
+            let wasCancelled = cancellationRequestedKeys.remove(streamKey) != nil
             if isViewingChat(streamKey) {
                 saveConfiguration()
                 await loadHistorySessions()
             }
-            if !streamReportedError, !isQueuedDispatch {
+            if !streamReportedError, !wasCancelled, !isQueuedDispatch {
                 scheduleNextQueuedMessage(for: streamKey)
             }
-            return !streamReportedError
+            return !streamReportedError && !wasCancelled
         } catch {
-            let message = handleAuthErrorIfNeeded(error) ?? error.localizedDescription
+            let wasCancelled = activeStreamKey.map { cancellationRequestedKeys.remove($0) != nil } ?? false
+            let message = wasCancelled ? "Request cancelled." : (handleAuthErrorIfNeeded(error) ?? error.localizedDescription)
             if let activeStreamKey, let activeStreamMessageID {
                 updateStreamTranscript(activeStreamKey, messageID: activeStreamMessageID) { streamMessage in
                     streamMessage.text = message
@@ -1786,6 +1802,45 @@ final class WeeAppModel {
         }
     }
 
+    func cancelCurrentChatRequest() async {
+        guard let currentSessionID else {
+            errorMessage = "No running request to cancel."
+            return
+        }
+
+        let key = ChatTranscriptKey(environment: activeEnvironment, sessionID: currentSessionID)
+        guard streamTranscripts.isStreaming(key) else {
+            let message = "No running request to cancel."
+            errorMessage = message
+            chatMessages.append(ChatMessage(role: .system, text: message))
+            return
+        }
+
+        appendToStreamTranscript(ChatMessage(role: .user, text: "/cancel"), for: key)
+        cancellationRequestedKeys.insert(key)
+        do {
+            let response = try await client(for: activeEnvironment).cancelSession(sessionID: currentSessionID)
+            let status = response.cancelled ? "✓ \(response.message)" : "ℹ️ \(response.message)"
+            appendToStreamTranscript(ChatMessage(role: .system, text: status), for: key)
+            guard response.cancelled else {
+                cancellationRequestedKeys.remove(key)
+                errorMessage = status
+                return
+            }
+
+            if isViewingChat(key) {
+                errorMessage = nil
+            }
+        } catch {
+            cancellationRequestedKeys.remove(key)
+            let message = handleAuthErrorIfNeeded(error) ?? error.localizedDescription
+            if isViewingChat(key) {
+                errorMessage = message
+            }
+            appendToStreamTranscript(ChatMessage(role: .system, text: "❌ Failed to cancel: \(message)"), for: key)
+        }
+    }
+
     private func isViewingChat(_ key: ChatTranscriptKey) -> Bool {
         key.environment == activeEnvironment.rawValue && key.sessionID == currentSessionID
     }
@@ -1798,6 +1853,15 @@ final class WeeAppModel {
         streamTranscripts.updateMessage(id: messageID, for: key, update: update)
         if isViewingChat(key) {
             chatMessages = streamTranscripts.messages(for: key, serverMessages: [])
+        }
+    }
+
+    private func appendToStreamTranscript(_ message: ChatMessage, for key: ChatTranscriptKey) {
+        var messages = streamTranscripts.messages(for: key, serverMessages: [])
+        messages.append(message)
+        streamTranscripts.retainTranscript(for: key, messages: messages)
+        if isViewingChat(key) {
+            chatMessages = messages
         }
     }
 

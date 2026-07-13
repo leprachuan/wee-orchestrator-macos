@@ -267,6 +267,10 @@ struct WeeAPIClient {
         try await request("GET", path: "/api/v1/sessions/\(sessionID)/status")
     }
 
+    func cancelSession(sessionID: String) async throws -> CancelSessionResponse {
+        try await request("POST", path: "/api/v1/sessions/\(sessionID)/cancel", body: Optional<String>.none)
+    }
+
     func execute(
         sessionID: String,
         query: String,

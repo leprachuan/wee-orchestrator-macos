@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 import UniformTypeIdentifiers
 import AVFoundation
 import Observation
@@ -171,16 +172,19 @@ struct ChatView: View {
                 .disabled(voice.isTranscribing)
                 .help(voice.isRecording ? "Stop and transcribe recording" : "Record voice message")
 
-                TextField("Message Wee", text: $draft, axis: .vertical)
-                    .lineLimit(1...5)
-                    .textFieldStyle(.plain)
-                    .foregroundStyle(WeeTheme.textPrimary)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 10)
-                    .background(WeeTheme.sunken, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-                    .onSubmit {
-                        sendDraft()
+                ZStack(alignment: .topLeading) {
+                    ChatComposerTextView(text: $draft, onSubmit: sendDraft)
+                        .frame(minHeight: 40, maxHeight: 96)
+                    if draft.isEmpty {
+                        Text("Message Wee")
+                            .foregroundStyle(WeeTheme.textMuted)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 12)
+                            .allowsHitTesting(false)
                     }
+                }
+                .frame(minHeight: 44, maxHeight: 100)
+                .background(WeeTheme.sunken, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
 
                 Button {
                     sendDraft()
@@ -190,7 +194,7 @@ struct ChatView: View {
                 }
                 .buttonStyle(WeePrimaryButtonStyle())
                 .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && pendingAttachments.isEmpty)
-                .keyboardShortcut(.return, modifiers: .command)
+                .help("Send message (Return; Shift-Return for a new line)")
             }
         }
         .padding(8)
@@ -248,7 +252,11 @@ struct ChatView: View {
         draft = ""
         pendingAttachments = []
         Task {
-            await model.sendChat(prompt, attachments: attachments)
+            if ChatComposerAction.action(for: prompt, attachments: attachments) == .cancel {
+                await model.cancelCurrentChatRequest()
+            } else {
+                _ = await model.sendChat(prompt, attachments: attachments)
+            }
         }
     }
 
@@ -290,6 +298,81 @@ struct ChatView: View {
             return utType.preferredMIMEType ?? "application/octet-stream"
         }
         return "application/octet-stream"
+    }
+}
+
+private struct ChatComposerTextView: NSViewRepresentable {
+    @Binding var text: String
+    let onSubmit: () -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(text: $text)
+    }
+
+    func makeNSView(context: Context) -> ComposerNSTextView {
+        let textView = ComposerNSTextView()
+        textView.delegate = context.coordinator
+        textView.onSubmit = onSubmit
+        textView.string = text
+        textView.isRichText = false
+        textView.importsGraphics = false
+        textView.allowsUndo = true
+        textView.drawsBackground = false
+        textView.font = .systemFont(ofSize: NSFont.systemFontSize)
+        textView.textColor = .labelColor
+        textView.insertionPointColor = .labelColor
+        textView.focusRingType = .none
+        textView.textContainerInset = NSSize(width: 10, height: 8)
+        textView.textContainer?.widthTracksTextView = true
+        textView.isHorizontallyResizable = false
+        textView.isVerticallyResizable = true
+        textView.autoresizingMask = [.width, .height]
+        return textView
+    }
+
+    func updateNSView(_ textView: ComposerNSTextView, context: Context) {
+        textView.onSubmit = onSubmit
+        if textView.string != text {
+            textView.string = text
+        }
+    }
+
+    final class Coordinator: NSObject, NSTextViewDelegate {
+        @Binding private var text: String
+
+        init(text: Binding<String>) {
+            _text = text
+        }
+
+        func textDidChange(_ notification: Notification) {
+            guard let textView = notification.object as? NSTextView else { return }
+            text = textView.string
+        }
+    }
+}
+
+private final class ComposerNSTextView: NSTextView {
+    var onSubmit: () -> Void = {}
+
+    override func keyDown(with event: NSEvent) {
+        guard event.keyCode == 36 || event.keyCode == 76 else {
+            super.keyDown(with: event)
+            return
+        }
+
+        let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        if modifiers.contains(.shift) || modifiers.contains(.option) {
+            super.keyDown(with: event)
+            return
+        }
+
+        let relevantModifiers = modifiers.intersection([.command, .control, .option, .shift])
+        if relevantModifiers.isEmpty || relevantModifiers == .command {
+            onSubmit()
+            return
+        }
+
+        super.keyDown(with: event)
     }
 }
 

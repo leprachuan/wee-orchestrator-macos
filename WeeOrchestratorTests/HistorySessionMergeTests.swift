@@ -186,4 +186,10 @@ final class HistorySessionMergeTests: XCTestCase {
 
         XCTAssertEqual(BackgroundTaskOrdering.newestFirst([first, second]).map(\.taskID), ["first", "second"])
     }
+
+    func test_issue_413_cancelCommandBypassesNormalMessageSending() {
+        XCTAssertEqual(ChatComposerAction.action(for: " /cancel ", attachments: []), .cancel)
+        XCTAssertEqual(ChatComposerAction.action(for: "/cancel", attachments: [ChatAttachment(filename: "notes.txt", data: Data("notes".utf8), mimeType: "text/plain")]), .send)
+        XCTAssertEqual(ChatComposerAction.action(for: "/cancel now", attachments: []), .send)
+    }
 }

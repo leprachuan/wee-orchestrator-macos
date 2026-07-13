@@ -317,6 +317,11 @@ struct MCPPermissions: Codable, Equatable {
 
 struct EmptyAPIResponse: Decodable {}
 
+struct CancelSessionResponse: Decodable {
+    let cancelled: Bool
+    let message: String
+}
+
 struct EnvSettingsResponse: Decodable, Equatable {
     let content: String?
     let exists: Bool?
