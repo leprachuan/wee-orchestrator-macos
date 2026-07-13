@@ -12,6 +12,13 @@ The authoritative macOS release is published in the
 [Wee-Orchestrator API repository](https://github.com/leprachuan/Wee-Orchestrator/releases),
 so the downloadable app and the compatible API contract appear together.
 
+## Development and release policy
+
+Development may happen on any branch, including `main`. Direct commits to
+`main` are permitted; feature branches and pull requests are optional tools for
+collaboration, not release gates. Branches are not user-facing distribution
+channels: only a tested, versioned GitHub Release is an app build we give out.
+
 ## Release naming
 
 - GitHub release tag: `macos-vMAJOR.MINOR.PATCH`
@@ -23,8 +30,9 @@ For example, the first SemVer release is `macos-v0.2.0` with the asset
 
 ## Checklist
 
-1. Update `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION` in the Xcode
-   project, and record user-visible changes in the release notes.
+1. Select the exact tested, committed revision to release. Update
+   `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION` in the Xcode project, and
+   record user-visible changes in the release notes.
 2. Build and test the app:
 
    ```sh
