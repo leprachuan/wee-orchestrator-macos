@@ -1469,7 +1469,7 @@ final class WeeAppModel {
                 async let sessionResponse: [HistorySessionSummary]? = try? client.historySessions()
 
                 availableRuntimes = (await runtimeResponse ?? []).sorted { $0.id < $1.id }
-                let newTasks = await taskResponse ?? []
+                let newTasks = BackgroundTaskOrdering.newestFirst(await taskResponse ?? [])
                 notifyCompletedTasks(old: tasks, new: newTasks)
                 tasks = newTasks
                 historySessions = HistorySessionMerge.merging(
@@ -2028,7 +2028,7 @@ final class WeeAppModel {
                 model: selectedModelOrNil,
                 permissionMode: selectedPermissionMode
             )
-            tasks = try await client.backgroundTasks()
+            tasks = BackgroundTaskOrdering.newestFirst(try await client.backgroundTasks())
             await loadScheduledJobs()
             lastRefresh = Date()
         } catch {

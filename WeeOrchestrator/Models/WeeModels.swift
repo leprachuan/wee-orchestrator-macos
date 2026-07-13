@@ -947,6 +947,40 @@ struct BackgroundTaskSummary: Decodable, Identifiable, Hashable {
     }
 }
 
+enum BackgroundTaskOrdering {
+    /// Keep task history useful at a glance. The API does not guarantee an
+    /// ordering, so order presentation by creation time and leave entries with
+    /// unparseable timestamps in their original relative order.
+    static func newestFirst(_ tasks: [BackgroundTaskSummary]) -> [BackgroundTaskSummary] {
+        tasks.enumerated()
+            .sorted { lhs, rhs in
+                let lhsDate = date(from: lhs.element.createdAt)
+                let rhsDate = date(from: rhs.element.createdAt)
+                switch (lhsDate, rhsDate) {
+                case let (left?, right?):
+                    return left == right ? lhs.offset < rhs.offset : left > right
+                case (.some, nil):
+                    return true
+                case (nil, .some):
+                    return false
+                case (nil, nil):
+                    return lhs.offset < rhs.offset
+                }
+            }
+            .map(\.element)
+    }
+
+    private static func date(from value: String?) -> Date? {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else { return nil }
+
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = formatter.date(from: value) { return date }
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter.date(from: value)
+    }
+}
+
 struct BackgroundTaskDetail: Decodable, Identifiable {
     var id: String { taskID }
     let taskID: String

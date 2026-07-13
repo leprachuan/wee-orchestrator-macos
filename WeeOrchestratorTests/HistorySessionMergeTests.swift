@@ -171,4 +171,19 @@ final class HistorySessionMergeTests: XCTestCase {
         XCTAssertEqual(queue.remove(id: first.id, for: key)?.id, first.id)
         XCTAssertEqual(queue.takeNext(for: key)?.id, second.id)
     }
+
+    func test_issue_412_backgroundTasksAreSortedNewestFirst() {
+        let oldest = BackgroundTaskSummary(taskID: "oldest", agent: "agent", runtime: nil, model: nil, prompt: "old", status: "complete", createdAt: "2026-07-12T09:30:00Z", completedAt: nil, error: nil, usedFallback: nil, actualRuntime: nil, actualModel: nil)
+        let newest = BackgroundTaskSummary(taskID: "newest", agent: "agent", runtime: nil, model: nil, prompt: "new", status: "running", createdAt: "2026-07-13T09:30:00.250Z", completedAt: nil, error: nil, usedFallback: nil, actualRuntime: nil, actualModel: nil)
+        let middle = BackgroundTaskSummary(taskID: "middle", agent: "agent", runtime: nil, model: nil, prompt: "middle", status: "queued", createdAt: "2026-07-12T18:30:00Z", completedAt: nil, error: nil, usedFallback: nil, actualRuntime: nil, actualModel: nil)
+
+        XCTAssertEqual(BackgroundTaskOrdering.newestFirst([oldest, newest, middle]).map(\.taskID), ["newest", "middle", "oldest"])
+    }
+
+    func test_issue_412_backgroundTaskOrderingKeepsMalformedTimestampOrderStable() {
+        let first = BackgroundTaskSummary(taskID: "first", agent: "agent", runtime: nil, model: nil, prompt: "first", status: "queued", createdAt: "local preview", completedAt: nil, error: nil, usedFallback: nil, actualRuntime: nil, actualModel: nil)
+        let second = BackgroundTaskSummary(taskID: "second", agent: "agent", runtime: nil, model: nil, prompt: "second", status: "queued", createdAt: nil, completedAt: nil, error: nil, usedFallback: nil, actualRuntime: nil, actualModel: nil)
+
+        XCTAssertEqual(BackgroundTaskOrdering.newestFirst([first, second]).map(\.taskID), ["first", "second"])
+    }
 }
