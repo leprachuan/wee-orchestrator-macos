@@ -42,6 +42,43 @@ struct ChatTranscriptKey: Hashable {
         self.environment = environment.rawValue
         self.sessionID = sessionID
     }
+
+    var environmentValue: WeeEnvironment {
+        WeeEnvironment(rawValue: environment) ?? .remote
+    }
+}
+
+struct QueuedChatMessage: Identifiable, Hashable {
+    let id = UUID()
+    let text: String
+    let attachments: [ChatAttachment]
+    let enqueuedAt = Date()
+}
+
+struct ChatMessageQueueStore {
+    private var queues: [ChatTranscriptKey: [QueuedChatMessage]] = [:]
+
+    mutating func enqueue(_ message: QueuedChatMessage, for key: ChatTranscriptKey) {
+        queues[key, default: []].append(message)
+    }
+
+    mutating func takeNext(for key: ChatTranscriptKey) -> QueuedChatMessage? {
+        guard var queue = queues[key], !queue.isEmpty else { return nil }
+        let next = queue.removeFirst()
+        queues[key] = queue.isEmpty ? nil : queue
+        return next
+    }
+
+    mutating func remove(id: UUID, for key: ChatTranscriptKey) -> QueuedChatMessage? {
+        guard var queue = queues[key], let index = queue.firstIndex(where: { $0.id == id }) else { return nil }
+        let removed = queue.remove(at: index)
+        queues[key] = queue.isEmpty ? nil : queue
+        return removed
+    }
+
+    func messages(for key: ChatTranscriptKey) -> [QueuedChatMessage] {
+        queues[key] ?? []
+    }
 }
 
 struct ChatStreamTranscriptStore {
@@ -244,6 +281,9 @@ final class WeeAppModel {
     @ObservationIgnored private var localLogPipe: Pipe?
     @ObservationIgnored private var ollamaProcess: Process?
     @ObservationIgnored private var streamTranscripts = ChatStreamTranscriptStore()
+    @ObservationIgnored private var queuedChatMessages = ChatMessageQueueStore()
+    @ObservationIgnored private var queueDispatchingKeys: Set<ChatTranscriptKey> = []
+    var isChatQueuePaused = false
 
     var configuration: APIConfiguration {
         get { activeEnvironment == .local ? localConfiguration : remoteConfiguration }
@@ -306,6 +346,13 @@ final class WeeAppModel {
         guard let currentSessionID else { return false }
         return streamTranscripts.isStreaming(ChatTranscriptKey(environment: activeEnvironment, sessionID: currentSessionID))
     }
+
+    var currentQueuedChatMessages: [QueuedChatMessage] {
+        guard let currentSessionID else { return [] }
+        return queuedChatMessages.messages(for: ChatTranscriptKey(environment: activeEnvironment, sessionID: currentSessionID))
+    }
+
+    var currentChatQueueCount: Int { currentQueuedChatMessages.count }
 
     func bootstrap() async {
         await requestNotificationPermission()
@@ -1490,22 +1537,50 @@ final class WeeAppModel {
         }
     }
 
-    func sendChat(_ prompt: String, attachments: [ChatAttachment] = []) async {
+    func sendChat(
+        _ prompt: String,
+        attachments: [ChatAttachment] = [],
+        sessionKey: ChatTranscriptKey? = nil,
+        isQueuedDispatch: Bool = false
+    ) async -> Bool {
         let trimmed = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty || !attachments.isEmpty else { return }
-        let streamEnvironment = activeEnvironment
+        guard !trimmed.isEmpty || !attachments.isEmpty else { return false }
+        let streamEnvironment = sessionKey?.environmentValue ?? activeEnvironment
+        let streamConfiguration = streamEnvironment == .local ? localConfiguration : remoteConfiguration
+        let streamClient = client(for: streamEnvironment)
 
-        guard hasAuthToken else {
-            let message = "Authentication required. Add a bearer token in Settings, then click Save."
-            errorMessage = message
-            chatMessages.append(ChatMessage(role: .system, text: message))
-            return
+        if !isQueuedDispatch,
+           sessionKey == nil,
+           let currentSessionID {
+            let key = ChatTranscriptKey(environment: activeEnvironment, sessionID: currentSessionID)
+            if streamTranscripts.isStreaming(key)
+                || queueDispatchingKeys.contains(key)
+                || !queuedChatMessages.messages(for: key).isEmpty {
+                queuedChatMessages.enqueue(QueuedChatMessage(text: trimmed, attachments: attachments), for: key)
+                if !streamTranscripts.isStreaming(key), !queueDispatchingKeys.contains(key) {
+                    scheduleNextQueuedMessage(for: key)
+                }
+                return true
+            }
         }
 
-        chatMessages.append(ChatMessage(role: .user, text: trimmed, attachments: attachments))
+        guard !streamConfiguration.token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            let message = "Authentication required. Add a bearer token in Settings, then click Save."
+            if sessionKey.map(isViewingChat) ?? true {
+                errorMessage = message
+                chatMessages.append(ChatMessage(role: .system, text: message))
+            }
+            return false
+        }
+
+        let userMessage = ChatMessage(role: .user, text: trimmed, attachments: attachments)
+        var sourceMessages = sessionKey.map { streamTranscripts.messages(for: $0, serverMessages: []) } ?? chatMessages
+        sourceMessages.append(userMessage)
+        if sessionKey.map(isViewingChat) ?? true {
+            chatMessages = sourceMessages
+        }
         // Capture the source transcript before an await point. Navigation can
         // replace `chatMessages`, but this is the transcript the stream owns.
-        let sourceMessages = chatMessages
         isLoading = true
         errorMessage = nil
         var sourceTranscriptKey: ChatTranscriptKey?
@@ -1520,13 +1595,15 @@ final class WeeAppModel {
 
         do {
             let sessionID: String
-            if let currentSessionID {
+            if let sessionKey {
+                sessionID = sessionKey.sessionID
+            } else if let currentSessionID {
                 sessionID = currentSessionID
             } else {
                 let desiredAgent = selectedAgent
                 let desiredRuntime = selectedRuntimeOrNil
                 let desiredModel = selectedModelOrNil
-                let session = try await client.createSession(agent: nil, model: nil, runtime: nil)
+                let session = try await streamClient.createSession(agent: nil, model: nil, runtime: nil)
                 currentSessionID = session.sessionID
                 addActiveSessionToHistory(session.sessionID, agent: session.agent)
                 if let agent = session.agent, !agent.isEmpty {
@@ -1553,7 +1630,7 @@ final class WeeAppModel {
             streamTranscripts.retainTranscript(for: transcriptKey, messages: sourceMessages)
 
             for attachment in attachments {
-                _ = try await client.uploadFile(
+                _ = try await streamClient.uploadFile(
                     sessionID: sessionID,
                     data: attachment.data,
                     filename: attachment.filename,
@@ -1578,7 +1655,7 @@ final class WeeAppModel {
                 chatMessages = streamingMessages
             }
 
-            let bytes = try await client.stream(
+            let bytes = try await streamClient.stream(
                 sessionID: sessionID,
                 query: query,
                 agent: nil,
@@ -1588,6 +1665,7 @@ final class WeeAppModel {
 
             var rawStreamText = ""
             var lastActivityText = ""
+            var streamReportedError = false
             for try await line in bytes.lines {
                 guard let json = streamPayload(from: line) else { continue }
                 guard let data = json.data(using: .utf8),
@@ -1638,6 +1716,7 @@ final class WeeAppModel {
                         selectedModel = model
                     }
                 case "error":
+                    streamReportedError = true
                     let message = event.message ?? event.text ?? "Stream error"
                     updateStreamTranscript(streamKey, messageID: streamMessageID) { streamMessage in
                         streamMessage.text = message
@@ -1678,6 +1757,10 @@ final class WeeAppModel {
                 saveConfiguration()
                 await loadHistorySessions()
             }
+            if !streamReportedError, !isQueuedDispatch {
+                scheduleNextQueuedMessage(for: streamKey)
+            }
+            return !streamReportedError
         } catch {
             let message = handleAuthErrorIfNeeded(error) ?? error.localizedDescription
             if let activeStreamKey, let activeStreamMessageID {
@@ -1699,6 +1782,7 @@ final class WeeAppModel {
                 errorMessage = message
                 chatMessages.append(ChatMessage(role: .system, text: message))
             }
+            return false
         }
     }
 
@@ -1714,6 +1798,52 @@ final class WeeAppModel {
         streamTranscripts.updateMessage(id: messageID, for: key, update: update)
         if isViewingChat(key) {
             chatMessages = streamTranscripts.messages(for: key, serverMessages: [])
+        }
+    }
+
+    func toggleChatQueuePause() {
+        isChatQueuePaused.toggle()
+        guard !isChatQueuePaused, let currentSessionID else { return }
+        let key = ChatTranscriptKey(environment: activeEnvironment, sessionID: currentSessionID)
+        if !streamTranscripts.isStreaming(key) {
+            scheduleNextQueuedMessage(for: key)
+        }
+    }
+
+    func removeQueuedChatMessage(id: UUID) {
+        guard let currentSessionID else { return }
+        let key = ChatTranscriptKey(environment: activeEnvironment, sessionID: currentSessionID)
+        _ = queuedChatMessages.remove(id: id, for: key)
+    }
+
+    func takeQueuedChatMessageForEditing(id: UUID) -> QueuedChatMessage? {
+        guard let currentSessionID else { return nil }
+        let key = ChatTranscriptKey(environment: activeEnvironment, sessionID: currentSessionID)
+        return queuedChatMessages.remove(id: id, for: key)
+    }
+
+    private func scheduleNextQueuedMessage(for key: ChatTranscriptKey) {
+        guard !isChatQueuePaused,
+              !streamTranscripts.isStreaming(key),
+              !queueDispatchingKeys.contains(key),
+              !queuedChatMessages.messages(for: key).isEmpty else { return }
+        queueDispatchingKeys.insert(key)
+        Task { @MainActor [weak self] in
+            await self?.dispatchNextQueuedMessage(for: key)
+        }
+    }
+
+    private func dispatchNextQueuedMessage(for key: ChatTranscriptKey) async {
+        guard !isChatQueuePaused,
+              !streamTranscripts.isStreaming(key),
+              let next = queuedChatMessages.takeNext(for: key) else {
+            queueDispatchingKeys.remove(key)
+            return
+        }
+        let succeeded = await sendChat(next.text, attachments: next.attachments, sessionKey: key, isQueuedDispatch: true)
+        queueDispatchingKeys.remove(key)
+        if succeeded {
+            scheduleNextQueuedMessage(for: key)
         }
     }
 

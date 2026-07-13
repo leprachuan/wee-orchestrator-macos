@@ -113,6 +113,14 @@ struct ChatView: View {
 
     private var inputBar: some View {
         VStack(spacing: 8) {
+            if !model.currentQueuedChatMessages.isEmpty {
+                ChatQueuePanel(model: model) { item in
+                    guard let queued = model.takeQueuedChatMessageForEditing(id: item.id) else { return }
+                    draft = queued.text
+                    pendingAttachments = queued.attachments
+                }
+            }
+
             if !pendingAttachments.isEmpty {
                 attachmentPreview
             }
@@ -181,7 +189,7 @@ struct ChatView: View {
                         .frame(width: 22, height: 22)
                 }
                 .buttonStyle(WeePrimaryButtonStyle())
-                .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && pendingAttachments.isEmpty || model.isCurrentSessionStreaming)
+                .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && pendingAttachments.isEmpty)
                 .keyboardShortcut(.return, modifiers: .command)
             }
         }
@@ -236,7 +244,6 @@ struct ChatView: View {
         let prompt = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         let attachments = pendingAttachments
         guard !prompt.isEmpty || !attachments.isEmpty else { return }
-        guard !model.isCurrentSessionStreaming else { return }
 
         draft = ""
         pendingAttachments = []
@@ -283,6 +290,81 @@ struct ChatView: View {
             return utType.preferredMIMEType ?? "application/octet-stream"
         }
         return "application/octet-stream"
+    }
+}
+
+private struct ChatQueuePanel: View {
+    @Bindable var model: WeeAppModel
+    let onEdit: (QueuedChatMessage) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Image(systemName: "list.bullet.rectangle.portrait.fill")
+                    .foregroundStyle(WeeTheme.accent)
+                Text("Queued messages")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(WeeTheme.textPrimary)
+                Text("\(model.currentChatQueueCount)")
+                    .font(.caption2.monospacedDigit().weight(.bold))
+                    .foregroundStyle(WeeTheme.accent)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(WeeTheme.accent.opacity(0.14), in: Capsule())
+                Spacer()
+                Button {
+                    model.toggleChatQueuePause()
+                } label: {
+                    Label(
+                        model.isChatQueuePaused ? "Resume" : "Pause",
+                        systemImage: model.isChatQueuePaused ? "play.fill" : "pause.fill"
+                    )
+                }
+                .buttonStyle(WeeGhostButtonStyle())
+            }
+
+            Text(model.isChatQueuePaused ? "Queue paused — resume to send the next message." : "Messages send automatically when the current response completes.")
+                .font(.caption2)
+                .foregroundStyle(WeeTheme.textSecondary)
+
+            ForEach(model.currentQueuedChatMessages) { item in
+                HStack(spacing: 8) {
+                    Image(systemName: "circle")
+                        .font(.caption2)
+                        .foregroundStyle(WeeTheme.textMuted)
+                    Text(item.text.isEmpty ? "Attached \(item.attachments.count) file(s)" : item.text)
+                        .font(.caption)
+                        .foregroundStyle(WeeTheme.textPrimary)
+                        .lineLimit(1)
+                    if !item.attachments.isEmpty {
+                        Image(systemName: "paperclip")
+                            .font(.caption2)
+                            .foregroundStyle(WeeTheme.textSecondary)
+                    }
+                    Spacer(minLength: 0)
+                    Button("Edit") { onEdit(item) }
+                        .buttonStyle(.plain)
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(WeeTheme.accent)
+                    Button {
+                        model.removeQueuedChatMessage(id: item.id)
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.caption2.weight(.bold))
+                            .frame(width: 18, height: 18)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(WeeTheme.textSecondary)
+                    .help("Remove queued message")
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
+                .background(WeeTheme.sunken, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+            }
+        }
+        .padding(8)
+        .background(WeeTheme.surfaceRaised, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(WeeTheme.glassStroke))
     }
 }
 

@@ -142,4 +142,33 @@ final class HistorySessionMergeTests: XCTestCase {
         XCTAssertEqual(update?.version, AppSemanticVersion("0.3.0"))
         XCTAssertEqual(update?.archiveURL.absoluteString, "https://example.com/0.3.0.zip")
     }
+
+    func test_issue_13_queueIsOrderedAndScopedToItsSession() {
+        let localSession = ChatTranscriptKey(environment: .local, sessionID: "local-session")
+        let remoteSession = ChatTranscriptKey(environment: .remote, sessionID: "remote-session")
+        let first = QueuedChatMessage(text: "first", attachments: [])
+        let second = QueuedChatMessage(text: "second", attachments: [])
+        let remote = QueuedChatMessage(text: "remote", attachments: [])
+        var queue = ChatMessageQueueStore()
+
+        queue.enqueue(first, for: localSession)
+        queue.enqueue(second, for: localSession)
+        queue.enqueue(remote, for: remoteSession)
+
+        XCTAssertEqual(queue.takeNext(for: localSession)?.id, first.id)
+        XCTAssertEqual(queue.messages(for: localSession).map(\.id), [second.id])
+        XCTAssertEqual(queue.messages(for: remoteSession).map(\.id), [remote.id])
+    }
+
+    func test_issue_13_removeQueuedMessageLeavesRemainingOrderUntouched() {
+        let key = ChatTranscriptKey(environment: .local, sessionID: "session")
+        let first = QueuedChatMessage(text: "first", attachments: [])
+        let second = QueuedChatMessage(text: "second", attachments: [])
+        var queue = ChatMessageQueueStore()
+        queue.enqueue(first, for: key)
+        queue.enqueue(second, for: key)
+
+        XCTAssertEqual(queue.remove(id: first.id, for: key)?.id, first.id)
+        XCTAssertEqual(queue.takeNext(for: key)?.id, second.id)
+    }
 }
