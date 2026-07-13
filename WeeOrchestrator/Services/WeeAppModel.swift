@@ -1315,14 +1315,23 @@ final class WeeAppModel {
             }
 
             if let index = chatMessages.firstIndex(where: { $0.id == streamMessageID }),
-               chatMessages[index].text.isEmpty {
+               chatMessages[index].text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 let finalText = preferredFinalStreamText(accumulated: rawStreamText, doneResponse: nil)
-                chatMessages[index].text = finalText.isEmpty ? lastActivityText : finalText
-            }
-
-            if let index = chatMessages.firstIndex(where: { $0.id == streamMessageID }),
-               chatMessages[index].text.isEmpty {
-                chatMessages.remove(at: index)
+                if !finalText.isEmpty {
+                    chatMessages[index].text = finalText
+                } else if !lastActivityText.isEmpty {
+                    chatMessages[index].text = lastActivityText
+                } else {
+                    // A well-formed stream always provides text, activity, a
+                    // done event, or an error. Keep this message visible when
+                    // a runtime closes the stream without any of those signals
+                    // so the user can see and report the actual failure.
+                    let message = "The runtime ended without returning a response. Check the Local API service output, then retry."
+                    chatMessages[index].text = message
+                    if activeEnvironment == streamEnvironment {
+                        errorMessage = message
+                    }
+                }
             }
 
             if activeEnvironment == streamEnvironment {
