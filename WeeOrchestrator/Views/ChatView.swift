@@ -106,7 +106,7 @@ struct ChatView: View {
     }
 
     private func isStreaming(_ message: ChatMessage) -> Bool {
-        model.isLoading
+        model.isCurrentSessionStreaming
             && message.role == .assistant
             && model.chatMessages.last?.id == message.id
     }
@@ -181,7 +181,7 @@ struct ChatView: View {
                         .frame(width: 22, height: 22)
                 }
                 .buttonStyle(WeePrimaryButtonStyle())
-                .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && pendingAttachments.isEmpty || model.isLoading)
+                .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && pendingAttachments.isEmpty || model.isCurrentSessionStreaming)
                 .keyboardShortcut(.return, modifiers: .command)
             }
         }
@@ -236,7 +236,7 @@ struct ChatView: View {
         let prompt = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         let attachments = pendingAttachments
         guard !prompt.isEmpty || !attachments.isEmpty else { return }
-        guard !model.isLoading else { return }
+        guard !model.isCurrentSessionStreaming else { return }
 
         draft = ""
         pendingAttachments = []

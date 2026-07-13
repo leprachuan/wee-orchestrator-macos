@@ -29,6 +29,59 @@ private struct OllamaTagsResponse: Decodable {
     }
 }
 
+/// Chat UI state is normally backed by one visible transcript. A stream can
+/// continue while that transcript is no longer visible, however, so retain a
+/// copy by environment and session until the API history has caught up.
+struct ChatTranscriptKey: Hashable {
+    let environment: String
+    let sessionID: String
+
+    init(environment: WeeEnvironment, sessionID: String) {
+        self.environment = environment.rawValue
+        self.sessionID = sessionID
+    }
+}
+
+struct ChatStreamTranscriptStore {
+    private var transcripts: [ChatTranscriptKey: [ChatMessage]] = [:]
+    private var activeStreams: Set<ChatTranscriptKey> = []
+
+    mutating func beginStream(for key: ChatTranscriptKey, messages: [ChatMessage]) {
+        transcripts[key] = messages
+        activeStreams.insert(key)
+    }
+
+    mutating func retainTranscript(for key: ChatTranscriptKey, messages: [ChatMessage]) {
+        transcripts[key] = messages
+    }
+
+    mutating func updateMessage(id: UUID, for key: ChatTranscriptKey, update: (inout ChatMessage) -> Void) {
+        guard var messages = transcripts[key],
+              let index = messages.firstIndex(where: { $0.id == id }) else { return }
+        update(&messages[index])
+        transcripts[key] = messages
+    }
+
+    mutating func finishStream(for key: ChatTranscriptKey) {
+        activeStreams.remove(key)
+    }
+
+    func isStreaming(_ key: ChatTranscriptKey) -> Bool {
+        activeStreams.contains(key)
+    }
+
+    func messages(for key: ChatTranscriptKey, serverMessages: [ChatMessage]) -> [ChatMessage] {
+        guard let cached = transcripts[key] else { return serverMessages }
+        // While streaming, server history can legitimately lag behind the
+        // current assistant response. Keep the local transcript authoritative
+        // until the stream completes and the server has caught up.
+        if activeStreams.contains(key) || serverMessages.count < cached.count {
+            return cached
+        }
+        return serverMessages
+    }
+}
+
 @MainActor
 @Observable
 final class WeeAppModel {
@@ -95,6 +148,7 @@ final class WeeAppModel {
     @ObservationIgnored private var localAPIProcess: Process?
     @ObservationIgnored private var localLogPipe: Pipe?
     @ObservationIgnored private var ollamaProcess: Process?
+    @ObservationIgnored private var streamTranscripts = ChatStreamTranscriptStore()
 
     var configuration: APIConfiguration {
         get { activeEnvironment == .local ? localConfiguration : remoteConfiguration }
@@ -151,6 +205,11 @@ final class WeeAppModel {
 
     var isAuthenticated: Bool {
         hasAuthToken
+    }
+
+    var isCurrentSessionStreaming: Bool {
+        guard let currentSessionID else { return false }
+        return streamTranscripts.isStreaming(ChatTranscriptKey(environment: activeEnvironment, sessionID: currentSessionID))
     }
 
     func bootstrap() async {
@@ -1200,9 +1259,20 @@ final class WeeAppModel {
         }
 
         chatMessages.append(ChatMessage(role: .user, text: trimmed, attachments: attachments))
+        // Capture the source transcript before an await point. Navigation can
+        // replace `chatMessages`, but this is the transcript the stream owns.
+        let sourceMessages = chatMessages
         isLoading = true
         errorMessage = nil
-        defer { isLoading = false }
+        var sourceTranscriptKey: ChatTranscriptKey?
+        var activeStreamKey: ChatTranscriptKey?
+        var activeStreamMessageID: UUID?
+        defer {
+            if let activeStreamKey {
+                streamTranscripts.finishStream(for: activeStreamKey)
+            }
+            isLoading = false
+        }
 
         do {
             let sessionID: String
@@ -1234,6 +1304,10 @@ final class WeeAppModel {
                 sessionID = session.sessionID
             }
 
+            let transcriptKey = ChatTranscriptKey(environment: streamEnvironment, sessionID: sessionID)
+            sourceTranscriptKey = transcriptKey
+            streamTranscripts.retainTranscript(for: transcriptKey, messages: sourceMessages)
+
             for attachment in attachments {
                 _ = try await client.uploadFile(
                     sessionID: sessionID,
@@ -1244,13 +1318,21 @@ final class WeeAppModel {
             }
 
             let query = attachments.isEmpty ? trimmed : (trimmed.isEmpty ? "[Attached \(attachments.count) file(s)]" : trimmed)
+            let streamKey = transcriptKey
+            activeStreamKey = streamKey
 
-            // A stream can outlive the visible chat if the user switches from
-            // Local to Remote while it is running. Keep an identity, not an
-            // array index: switching environments replaces `chatMessages`.
+            // A stream can outlive the visible chat or selected session. Keep
+            // the entire source transcript by identity rather than relying on
+            // the visible `chatMessages` array.
             let streamMessage = ChatMessage(role: .assistant, text: "")
             let streamMessageID = streamMessage.id
-            chatMessages.append(streamMessage)
+            activeStreamMessageID = streamMessageID
+            var streamingMessages = sourceMessages
+            streamingMessages.append(streamMessage)
+            streamTranscripts.beginStream(for: streamKey, messages: streamingMessages)
+            if isViewingChat(streamKey) {
+                chatMessages = streamingMessages
+            }
 
             let bytes = try await client.stream(
                 sessionID: sessionID,
@@ -1272,78 +1354,122 @@ final class WeeAppModel {
                     if let text = event.text {
                         rawStreamText += text
                         let cleaned = preferredFinalStreamText(accumulated: rawStreamText, doneResponse: nil)
-                        if !cleaned.isEmpty,
-                           let index = chatMessages.firstIndex(where: { $0.id == streamMessageID }) {
-                            chatMessages[index].text = cleaned
+                        if !cleaned.isEmpty {
+                            updateStreamTranscript(streamKey, messageID: streamMessageID) { message in
+                                message.text = cleaned
+                            }
                         }
                     }
                 case "tool_call":
                     lastActivityText = streamActivityText(from: event)
-                    if let index = chatMessages.firstIndex(where: { $0.id == streamMessageID }),
-                       chatMessages[index].text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                    if let message = streamTranscripts.messages(for: streamKey, serverMessages: [] as [ChatMessage]).first(where: { $0.id == streamMessageID }),
+                       message.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                        !lastActivityText.isEmpty {
-                        chatMessages[index].text = lastActivityText
+                        updateStreamTranscript(streamKey, messageID: streamMessageID) { message in
+                            message.text = lastActivityText
+                        }
                     }
                 case "done":
                     let finalText = preferredFinalStreamText(accumulated: rawStreamText, doneResponse: event.response)
-                    if let index = chatMessages.firstIndex(where: { $0.id == streamMessageID }) {
+                    if let message = streamTranscripts.messages(for: streamKey, serverMessages: [] as [ChatMessage]).first(where: { $0.id == streamMessageID }) {
                         if !finalText.isEmpty {
-                            chatMessages[index].text = finalText
-                        } else if chatMessages[index].text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                            updateStreamTranscript(streamKey, messageID: streamMessageID) { message in
+                                message.text = finalText
+                            }
+                        } else if message.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                                   !lastActivityText.isEmpty {
-                            chatMessages[index].text = lastActivityText
+                            updateStreamTranscript(streamKey, messageID: streamMessageID) { message in
+                                message.text = lastActivityText
+                            }
                         }
                     }
                     // Do not let a Local stream overwrite the current Remote
                     // environment's model/runtime after navigation.
-                    if activeEnvironment == streamEnvironment,
+                    if isViewingChat(streamKey),
                        let runtime = event.runtime, !runtime.isEmpty {
                         selectedRuntime = runtime
                     }
-                    if activeEnvironment == streamEnvironment,
+                    if isViewingChat(streamKey),
                        let model = event.model, !model.isEmpty {
                         selectedModel = model
                     }
                 case "error":
                     let message = event.message ?? event.text ?? "Stream error"
-                    if let index = chatMessages.firstIndex(where: { $0.id == streamMessageID }) {
-                        chatMessages[index].text = message
+                    updateStreamTranscript(streamKey, messageID: streamMessageID) { streamMessage in
+                        streamMessage.text = message
                     }
                 default:
                     break
                 }
             }
 
-            if let index = chatMessages.firstIndex(where: { $0.id == streamMessageID }),
-               chatMessages[index].text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            if let message = streamTranscripts.messages(for: streamKey, serverMessages: [] as [ChatMessage]).first(where: { $0.id == streamMessageID }),
+               message.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 let finalText = preferredFinalStreamText(accumulated: rawStreamText, doneResponse: nil)
                 if !finalText.isEmpty {
-                    chatMessages[index].text = finalText
+                    updateStreamTranscript(streamKey, messageID: streamMessageID) { message in
+                        message.text = finalText
+                    }
                 } else if !lastActivityText.isEmpty {
-                    chatMessages[index].text = lastActivityText
+                    updateStreamTranscript(streamKey, messageID: streamMessageID) { message in
+                        message.text = lastActivityText
+                    }
                 } else {
                     // A well-formed stream always provides text, activity, a
                     // done event, or an error. Keep this message visible when
                     // a runtime closes the stream without any of those signals
                     // so the user can see and report the actual failure.
                     let message = "The runtime ended without returning a response. Check the Local API service output, then retry."
-                    chatMessages[index].text = message
-                    if activeEnvironment == streamEnvironment {
+                    updateStreamTranscript(streamKey, messageID: streamMessageID) { streamMessage in
+                        streamMessage.text = message
+                    }
+                    if isViewingChat(streamKey) {
                         errorMessage = message
                     }
                 }
             }
 
-            if activeEnvironment == streamEnvironment {
+            streamTranscripts.finishStream(for: streamKey)
+            if isViewingChat(streamKey) {
                 saveConfiguration()
                 await loadHistorySessions()
             }
         } catch {
             let message = handleAuthErrorIfNeeded(error) ?? error.localizedDescription
-            if activeEnvironment == streamEnvironment {
+            if let activeStreamKey, let activeStreamMessageID {
+                updateStreamTranscript(activeStreamKey, messageID: activeStreamMessageID) { streamMessage in
+                    streamMessage.text = message
+                }
+                if isViewingChat(activeStreamKey) {
+                    errorMessage = message
+                }
+            } else if let sourceTranscriptKey {
+                var errorMessageTranscript = streamTranscripts.messages(for: sourceTranscriptKey, serverMessages: [])
+                errorMessageTranscript.append(ChatMessage(role: .system, text: message))
+                streamTranscripts.retainTranscript(for: sourceTranscriptKey, messages: errorMessageTranscript)
+                if isViewingChat(sourceTranscriptKey) {
+                    errorMessage = message
+                    chatMessages = errorMessageTranscript
+                }
+            } else if activeEnvironment == streamEnvironment {
                 errorMessage = message
                 chatMessages.append(ChatMessage(role: .system, text: message))
             }
+        }
+    }
+
+    private func isViewingChat(_ key: ChatTranscriptKey) -> Bool {
+        key.environment == activeEnvironment.rawValue && key.sessionID == currentSessionID
+    }
+
+    private func updateStreamTranscript(
+        _ key: ChatTranscriptKey,
+        messageID: UUID,
+        update: (inout ChatMessage) -> Void
+    ) {
+        streamTranscripts.updateMessage(id: messageID, for: key, update: update)
+        if isViewingChat(key) {
+            chatMessages = streamTranscripts.messages(for: key, serverMessages: [])
         }
     }
 
@@ -1428,18 +1554,33 @@ final class WeeAppModel {
     func selectHistorySession(_ session: HistorySessionSummary) async {
         guard hasAuthToken else { return }
 
+        let transcriptKey = ChatTranscriptKey(environment: activeEnvironment, sessionID: session.sessionID)
         isLoading = true
         errorMessage = nil
         defer { isLoading = false }
 
         do {
+            // Do not replace an in-flight transcript with the API's older
+            // persisted history. Its stream continues in the model even when
+            // the user navigates to another view or thread.
+            if streamTranscripts.isStreaming(transcriptKey) {
+                currentSessionID = session.sessionID
+                if let agent = session.agent, !agent.isEmpty {
+                    selectedAgent = agent
+                    saveConfiguration()
+                }
+                chatMessages = streamTranscripts.messages(for: transcriptKey, serverMessages: [])
+                return
+            }
+
             let response = try await client.historyMessages(sessionID: session.sessionID)
             currentSessionID = session.sessionID
             if let agent = session.agent, !agent.isEmpty {
                 selectedAgent = agent
                 saveConfiguration()
             }
-            chatMessages = response.messages.map(ChatMessage.init(historyMessage:))
+            let serverMessages = response.messages.map(ChatMessage.init(historyMessage:))
+            chatMessages = streamTranscripts.messages(for: transcriptKey, serverMessages: serverMessages)
             if chatMessages.isEmpty {
                 chatMessages = [ChatMessage(role: .system, text: "This chat has no messages yet.")]
             }

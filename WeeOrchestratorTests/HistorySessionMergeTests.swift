@@ -68,4 +68,43 @@ final class HistorySessionMergeTests: XCTestCase {
 
         XCTAssertEqual(merged.map(\.sessionID), ["older-session"])
     }
+
+    /// Issue #11: selecting another app section or chat replaced the one
+    /// visible transcript while a stream was active, so future stream chunks
+    /// could not be rendered when returning to their source session.
+    func test_issue_11_activeStreamTranscriptSurvivesNavigationAwayAndBack() {
+        let key = ChatTranscriptKey(environment: .local, sessionID: "streaming-session")
+        let user = ChatMessage(role: .user, text: "Look this up")
+        let assistant = ChatMessage(role: .assistant, text: "")
+        var store = ChatStreamTranscriptStore()
+
+        store.beginStream(for: key, messages: [user, assistant])
+        store.updateMessage(id: assistant.id, for: key) { message in
+            message.text = "The stream completed while another view was open."
+        }
+
+        // Simulate selecting another thread: the visible transcript is now
+        // unrelated, but the source session must still restore its live text.
+        let otherThread = [ChatMessage(role: .system, text: "Another chat")]
+        XCTAssertEqual(otherThread.first?.text, "Another chat")
+        XCTAssertTrue(store.isStreaming(key))
+
+        let restored = store.messages(for: key, serverMessages: [])
+        XCTAssertEqual(restored.count, 2)
+        XCTAssertEqual(restored.last?.text, "The stream completed while another view was open.")
+    }
+
+    func test_issue_11_cachedTranscriptWinsUntilServerHistoryCatchesUp() {
+        let key = ChatTranscriptKey(environment: .remote, sessionID: "streaming-session")
+        let user = ChatMessage(role: .user, text: "Question")
+        let assistant = ChatMessage(role: .assistant, text: "Partial answer")
+        var store = ChatStreamTranscriptStore()
+        store.beginStream(for: key, messages: [user, assistant])
+
+        XCTAssertEqual(store.messages(for: key, serverMessages: [user]).last?.text, "Partial answer")
+
+        store.finishStream(for: key)
+        let serverAnswer = ChatMessage(role: .assistant, text: "Final answer")
+        XCTAssertEqual(store.messages(for: key, serverMessages: [user, serverAnswer]).last?.text, "Final answer")
+    }
 }
