@@ -24,6 +24,7 @@ channels: only a tested, versioned GitHub Release is an app build we give out.
 - GitHub release tag: `macos-vMAJOR.MINOR.PATCH`
 - Release title: `Wee Orchestrator for macOS vMAJOR.MINOR.PATCH`
 - Asset: `WeeOrchestrator-macOS-vMAJOR.MINOR.PATCH.zip`
+- Checksum asset: `WeeOrchestrator-macOS-vMAJOR.MINOR.PATCH.zip.sha256`
 
 For example, the first SemVer release is `macos-v0.2.0` with the asset
 `WeeOrchestrator-macOS-v0.2.0.zip`.
@@ -43,7 +44,8 @@ For example, the first SemVer release is `macos-v0.2.0` with the asset
 
 3. Build a Release archive, sign the `.app`, verify its signature, then create
    a zip containing the app bundle. Publish it to the API repository with the
-   tag and asset names above, together with a SHA-256 checksum.
+   tag and asset names above, **including the `.zip.sha256` checksum asset**.
+   The in-app updater verifies this checksum before it installs an update.
 4. Verify the GitHub release asset and the app's `CFBundleShortVersionString`
    and `CFBundleVersion` before announcing it.
 

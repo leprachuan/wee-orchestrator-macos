@@ -107,4 +107,39 @@ final class HistorySessionMergeTests: XCTestCase {
         let serverAnswer = ChatMessage(role: .assistant, text: "Final answer")
         XCTAssertEqual(store.messages(for: key, serverMessages: [user, serverAnswer]).last?.text, "Final answer")
     }
+
+    func test_issue_12_selectsNewestMacReleaseAndIgnoresAPIs() {
+        let apiRelease = GitHubRelease(
+            tagName: "api-v9.0.0",
+            body: nil,
+            draft: false,
+            prerelease: false,
+            assets: []
+        )
+        let olderMacRelease = GitHubRelease(
+            tagName: "macos-v0.2.3",
+            body: "SHA-256: `aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa`",
+            draft: false,
+            prerelease: false,
+            assets: [GitHubReleaseAsset(name: "WeeOrchestrator-macOS-v0.2.3.zip", browserDownloadURL: URL(string: "https://example.com/0.2.3.zip")!)]
+        )
+        let newestMacRelease = GitHubRelease(
+            tagName: "macos-v0.3.0",
+            body: nil,
+            draft: false,
+            prerelease: false,
+            assets: [GitHubReleaseAsset(
+                name: "WeeOrchestrator-macOS-v0.3.0.zip",
+                browserDownloadURL: URL(string: "https://example.com/0.3.0.zip")!
+            )]
+        )
+
+        let update = MacAppReleaseSelector.latestUpdate(
+            from: [apiRelease, olderMacRelease, newestMacRelease],
+            newerThan: AppSemanticVersion("0.2.2")!
+        )
+
+        XCTAssertEqual(update?.version, AppSemanticVersion("0.3.0"))
+        XCTAssertEqual(update?.archiveURL.absoluteString, "https://example.com/0.3.0.zip")
+    }
 }

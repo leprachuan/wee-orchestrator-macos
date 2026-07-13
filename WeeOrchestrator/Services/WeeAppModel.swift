@@ -1,7 +1,9 @@
+import AppKit
 import Foundation
 import Observation
 import Security
 import UserNotifications
+import CryptoKit
 
 private final class GitOutputCollector: @unchecked Sendable {
     private let lock = NSLock()
@@ -82,6 +84,95 @@ struct ChatStreamTranscriptStore {
     }
 }
 
+struct AppSemanticVersion: Comparable, Equatable, CustomStringConvertible {
+    let major: Int
+    let minor: Int
+    let patch: Int
+
+    init?(_ value: String) {
+        let values = value.split(separator: ".", omittingEmptySubsequences: false)
+        guard values.count == 3,
+              let major = Int(values[0]),
+              let minor = Int(values[1]),
+              let patch = Int(values[2]),
+              major >= 0, minor >= 0, patch >= 0 else { return nil }
+        self.major = major
+        self.minor = minor
+        self.patch = patch
+    }
+
+    var description: String { "\(major).\(minor).\(patch)" }
+
+    static func < (lhs: AppSemanticVersion, rhs: AppSemanticVersion) -> Bool {
+        (lhs.major, lhs.minor, lhs.patch) < (rhs.major, rhs.minor, rhs.patch)
+    }
+}
+
+struct GitHubReleaseAsset: Decodable {
+    let name: String
+    let browserDownloadURL: URL
+
+    enum CodingKeys: String, CodingKey {
+        case name
+        case browserDownloadURL = "browser_download_url"
+    }
+}
+
+struct GitHubRelease: Decodable {
+    let tagName: String
+    let body: String?
+    let draft: Bool
+    let prerelease: Bool
+    let assets: [GitHubReleaseAsset]
+
+    enum CodingKeys: String, CodingKey {
+        case tagName = "tag_name"
+        case body, draft, prerelease, assets
+    }
+}
+
+struct MacAppUpdate: Identifiable, Equatable {
+    let version: AppSemanticVersion
+    let releaseNotes: String
+    let archiveURL: URL
+    let checksumURL: URL?
+    let bodyChecksum: String?
+
+    var id: String { version.description }
+}
+
+enum MacAppReleaseSelector {
+    static func latestUpdate(from releases: [GitHubRelease], newerThan currentVersion: AppSemanticVersion) -> MacAppUpdate? {
+        releases.compactMap { release -> MacAppUpdate? in
+            guard !release.draft, !release.prerelease,
+                  release.tagName.hasPrefix("macos-v"),
+                  let version = AppSemanticVersion(String(release.tagName.dropFirst("macos-v".count))),
+                  version > currentVersion else { return nil }
+
+            let archiveName = "WeeOrchestrator-macOS-v\(version).zip"
+            guard let archiveURL = release.assets.first(where: { $0.name == archiveName })?.browserDownloadURL else { return nil }
+            let checksumURL = release.assets.first(where: { $0.name == "\(archiveName).sha256" })?.browserDownloadURL
+            return MacAppUpdate(
+                version: version,
+                releaseNotes: release.body ?? "",
+                archiveURL: archiveURL,
+                checksumURL: checksumURL,
+                bodyChecksum: checksum(in: release.body)
+            )
+        }
+        .max(by: { $0.version < $1.version })
+    }
+
+    private static func checksum(in releaseNotes: String?) -> String? {
+        guard let releaseNotes else { return nil }
+        let pattern = #"SHA-256:\s*`?([A-Fa-f0-9]{64})`?"#
+        guard let expression = try? NSRegularExpression(pattern: pattern),
+              let match = expression.firstMatch(in: releaseNotes, range: NSRange(releaseNotes.startIndex..., in: releaseNotes)),
+              let range = Range(match.range(at: 1), in: releaseNotes) else { return nil }
+        return String(releaseNotes[range]).lowercased()
+    }
+}
+
 @MainActor
 @Observable
 final class WeeAppModel {
@@ -142,6 +233,10 @@ final class WeeAppModel {
     var lastRefresh: Date?
     var authPairingIdentity: String?
     var authStatusMessage: String?
+    var availableAppUpdate: MacAppUpdate?
+    var appUpdateStatus: String?
+    var isCheckingForAppUpdate = false
+    var isInstallingAppUpdate = false
 
     private let defaults = UserDefaults.standard
     private var previousTaskStatuses: [String: String] = [:]
@@ -222,6 +317,155 @@ final class WeeAppModel {
         await refreshAgentSources()
         await refreshAll()
         await refreshOllamaStatus()
+        Task { [weak self] in
+            await self?.checkForAppUpdate()
+        }
+    }
+
+    func checkForAppUpdate(showResult: Bool = false) async {
+        guard !isCheckingForAppUpdate else { return }
+        guard let currentVersion = currentAppVersion else {
+            if showResult { appUpdateStatus = "Unable to read this app's version." }
+            return
+        }
+
+        isCheckingForAppUpdate = true
+        defer { isCheckingForAppUpdate = false }
+
+        do {
+            var request = URLRequest(url: URL(string: "https://api.github.com/repos/leprachuan/Wee-Orchestrator/releases?per_page=100")!)
+            request.setValue("WeeOrchestrator-macOS", forHTTPHeaderField: "User-Agent")
+            request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+                throw NSError(domain: "WeeUpdate", code: 1, userInfo: [NSLocalizedDescriptionKey: "The release server did not accept the update check."])
+            }
+
+            let releases = try JSONDecoder().decode([GitHubRelease].self, from: data)
+            availableAppUpdate = MacAppReleaseSelector.latestUpdate(from: releases, newerThan: currentVersion)
+            if let availableAppUpdate {
+                appUpdateStatus = "Wee Orchestrator \(availableAppUpdate.version) is ready to install."
+            } else if showResult {
+                appUpdateStatus = "You're up to date (v\(currentVersion))."
+            }
+        } catch {
+            if showResult {
+                appUpdateStatus = "Unable to check for updates: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    func installAvailableAppUpdate() async {
+        guard let update = availableAppUpdate else { return }
+        guard !isInstallingAppUpdate else { return }
+        guard Bundle.main.bundleURL.pathExtension == "app" else {
+            appUpdateStatus = "This build is not installed as an app bundle. Download the release manually."
+            return
+        }
+        guard FileManager.default.isWritableFile(atPath: Bundle.main.bundleURL.deletingLastPathComponent().path) else {
+            appUpdateStatus = "Move Wee Orchestrator to a writable Applications folder, then try again."
+            return
+        }
+
+        isInstallingAppUpdate = true
+        appUpdateStatus = "Downloading Wee Orchestrator \(update.version)…"
+
+        do {
+            let stagingDirectory = FileManager.default.temporaryDirectory
+                .appendingPathComponent("WeeOrchestrator-Update-\(UUID().uuidString)", isDirectory: true)
+            try FileManager.default.createDirectory(at: stagingDirectory, withIntermediateDirectories: true)
+            let archiveURL = stagingDirectory.appendingPathComponent("WeeOrchestrator.zip")
+            let (temporaryArchiveURL, archiveResponse) = try await URLSession.shared.download(for: URLRequest(url: update.archiveURL))
+            guard let http = archiveResponse as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+                throw NSError(domain: "WeeUpdate", code: 2, userInfo: [NSLocalizedDescriptionKey: "The app archive could not be downloaded."])
+            }
+            try FileManager.default.moveItem(at: temporaryArchiveURL, to: archiveURL)
+
+            let expectedChecksum = try await updateChecksum(for: update)
+            let archiveData = try Data(contentsOf: archiveURL)
+            let actualChecksum = SHA256.hash(data: archiveData).map { String(format: "%02x", $0) }.joined()
+            guard actualChecksum == expectedChecksum else {
+                throw NSError(domain: "WeeUpdate", code: 3, userInfo: [NSLocalizedDescriptionKey: "The downloaded app did not match its published checksum."])
+            }
+
+            let expandedDirectory = stagingDirectory.appendingPathComponent("expanded", isDirectory: true)
+            try FileManager.default.createDirectory(at: expandedDirectory, withIntermediateDirectories: true)
+            _ = try await runCommand(executable: "/usr/bin/ditto", arguments: ["-x", "-k", archiveURL.path, expandedDirectory.path])
+            guard let replacementAppURL = try FileManager.default.contentsOfDirectory(
+                at: expandedDirectory,
+                includingPropertiesForKeys: nil
+            ).first(where: { $0.pathExtension == "app" }) else {
+                throw NSError(domain: "WeeUpdate", code: 4, userInfo: [NSLocalizedDescriptionKey: "The update archive did not contain WeeOrchestrator.app."])
+            }
+            guard Bundle(url: replacementAppURL)?.bundleIdentifier == Bundle.main.bundleIdentifier,
+                  let replacementVersion = Bundle(url: replacementAppURL)?.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String,
+                  AppSemanticVersion(replacementVersion) == update.version else {
+                throw NSError(domain: "WeeUpdate", code: 5, userInfo: [NSLocalizedDescriptionKey: "The update archive is not the expected Wee Orchestrator version."])
+            }
+            _ = try await runCommand(executable: "/usr/bin/codesign", arguments: ["--verify", "--deep", "--strict", replacementAppURL.path])
+
+            try scheduleAppReplacement(source: replacementAppURL, target: Bundle.main.bundleURL, stagingDirectory: stagingDirectory)
+            appUpdateStatus = "Installing Wee Orchestrator \(update.version)…"
+            NSApp.terminate(nil)
+        } catch {
+            isInstallingAppUpdate = false
+            appUpdateStatus = "Update failed: \(error.localizedDescription)"
+        }
+    }
+
+    private var currentAppVersion: AppSemanticVersion? {
+        guard let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String else { return nil }
+        return AppSemanticVersion(version)
+    }
+
+    private func updateChecksum(for update: MacAppUpdate) async throws -> String {
+        if let checksumURL = update.checksumURL {
+            let (data, response) = try await URLSession.shared.data(from: checksumURL)
+            guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode),
+                  let checksum = String(data: data, encoding: .utf8)?
+                    .split(whereSeparator: { $0 == " " || $0 == "\n" || $0 == "\t" })
+                    .first,
+                  checksum.count == 64,
+                  checksum.allSatisfy({ $0.isHexDigit }) else {
+                throw NSError(domain: "WeeUpdate", code: 6, userInfo: [NSLocalizedDescriptionKey: "The published update checksum is invalid."])
+            }
+            return String(checksum).lowercased()
+        }
+        if let bodyChecksum = update.bodyChecksum { return bodyChecksum }
+        throw NSError(domain: "WeeUpdate", code: 7, userInfo: [NSLocalizedDescriptionKey: "This release has no checksum, so it cannot be installed automatically."])
+    }
+
+    private func scheduleAppReplacement(source: URL, target: URL, stagingDirectory: URL) throws {
+        let parent = target.deletingLastPathComponent()
+        guard target.pathExtension == "app", source.pathExtension == "app",
+              FileManager.default.isWritableFile(atPath: parent.path) else {
+            throw NSError(domain: "WeeUpdate", code: 8, userInfo: [NSLocalizedDescriptionKey: "The installed app location is not writable."])
+        }
+
+        let scriptURL = stagingDirectory.appendingPathComponent("install-update.sh")
+        let script = """
+        #!/bin/sh
+        set -eu
+        target="$1"
+        source="$2"
+        backup="${target}.previous"
+        sleep 1
+        rm -rf "$backup"
+        if [ -d "$target" ]; then mv "$target" "$backup"; fi
+        if ! /usr/bin/ditto "$source" "$target"; then
+          if [ -d "$backup" ]; then mv "$backup" "$target"; fi
+          exit 1
+        fi
+        /usr/bin/open "$target"
+        rm -rf "$backup"
+        """
+        try script.data(using: .utf8)?.write(to: scriptURL, options: .atomic)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: scriptURL.path)
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = [scriptURL.path, target.path, source.path]
+        try process.run()
     }
 
     private func waitForLocalAPIReadiness() async {

@@ -57,6 +57,13 @@ struct ContentView: View {
                 sectionView
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .overlay(alignment: .top) {
+                if let update = model.availableAppUpdate {
+                    AppUpdateBanner(model: model, update: update)
+                        .padding(.top, 14)
+                        .padding(.horizontal, 18)
+                }
+            }
         }
         .background(WeeTheme.background)
         .preferredColorScheme(.dark)
@@ -142,6 +149,18 @@ struct ContentView: View {
                 }
                 .buttonStyle(WeeGhostButtonStyle())
                 .keyboardShortcut("r", modifiers: .command)
+
+                Button {
+                    Task { await model.checkForAppUpdate(showResult: true) }
+                } label: {
+                    Label(
+                        model.availableAppUpdate == nil ? "Check for updates" : "Update available",
+                        systemImage: model.availableAppUpdate == nil ? "arrow.triangle.2.circlepath" : "arrow.down.circle.fill"
+                    )
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .buttonStyle(WeeGhostButtonStyle())
+                .disabled(model.isCheckingForAppUpdate || model.isInstallingAppUpdate)
             }
             .padding(10)
             .background(WeeTheme.surface, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
@@ -223,5 +242,57 @@ struct ContentView: View {
         case .scheduledTasks: scheduledCount
         default: 0
         }
+    }
+}
+
+private struct AppUpdateBanner: View {
+    @Bindable var model: WeeAppModel
+    let update: MacAppUpdate
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "arrow.down.app.fill")
+                .font(.title3)
+                .foregroundStyle(WeeTheme.accent)
+                .frame(width: 28, height: 28)
+                .background(WeeTheme.accent.opacity(0.15), in: Circle())
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Wee Orchestrator \(update.version.description) is available")
+                    .font(.subheadline.weight(.bold))
+                    .foregroundStyle(WeeTheme.textPrimary)
+                Text(model.appUpdateStatus ?? "Download, verify, install, and relaunch in one step.")
+                    .font(.caption)
+                    .foregroundStyle(WeeTheme.textSecondary)
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 8)
+
+            Button("Not now") {
+                model.availableAppUpdate = nil
+                model.appUpdateStatus = nil
+            }
+            .buttonStyle(WeeGhostButtonStyle())
+            .disabled(model.isInstallingAppUpdate)
+
+            Button {
+                Task { await model.installAvailableAppUpdate() }
+            } label: {
+                HStack(spacing: 6) {
+                    if model.isInstallingAppUpdate {
+                        ProgressView().controlSize(.small).tint(.black)
+                    }
+                    Text(model.isInstallingAppUpdate ? "Installing…" : "Update now")
+                }
+            }
+            .buttonStyle(WeePrimaryButtonStyle())
+            .disabled(model.isInstallingAppUpdate)
+        }
+        .padding(10)
+        .frame(maxWidth: 760)
+        .background(WeeTheme.surfaceRaised, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(WeeTheme.accent.opacity(0.5)))
+        .shadow(color: .black.opacity(0.3), radius: 16, y: 8)
     }
 }

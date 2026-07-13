@@ -46,6 +46,17 @@ struct WeeOrchestratorApp: App {
                     Task { await model.refreshAll() }
                 }
                 .keyboardShortcut("r", modifiers: .command)
+
+                Divider()
+
+                Button("Check for Updates…") {
+                    Task { await model.checkForAppUpdate(showResult: true) }
+                }
+
+                Button("Install Available Update") {
+                    Task { await model.installAvailableAppUpdate() }
+                }
+                .disabled(model.availableAppUpdate == nil || model.isInstallingAppUpdate)
             }
         }
     }
