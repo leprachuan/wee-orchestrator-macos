@@ -322,6 +322,26 @@ struct CancelSessionResponse: Decodable {
     let message: String
 }
 
+struct KanbanSettingsResponse: Decodable, Equatable {
+    let githubRepo: String
+    let effectiveRepo: String
+    let fallbackRepo: String
+
+    enum CodingKeys: String, CodingKey {
+        case githubRepo = "github_repo"
+        case effectiveRepo = "effective_repo"
+        case fallbackRepo = "fallback_repo"
+    }
+}
+
+struct KanbanSettingsUpdateRequest: Encodable {
+    let githubRepo: String
+
+    enum CodingKeys: String, CodingKey {
+        case githubRepo = "github_repo"
+    }
+}
+
 struct EnvSettingsResponse: Decodable, Equatable {
     let content: String?
     let exists: Bool?

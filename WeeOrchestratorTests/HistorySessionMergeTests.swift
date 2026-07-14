@@ -192,4 +192,13 @@ final class HistorySessionMergeTests: XCTestCase {
         XCTAssertEqual(ChatComposerAction.action(for: "/cancel", attachments: [ChatAttachment(filename: "notes.txt", data: Data("notes".utf8), mimeType: "text/plain")]), .send)
         XCTAssertEqual(ChatComposerAction.action(for: "/cancel now", attachments: []), .send)
     }
+
+    func test_issue_414_kanbanRepositorySettingsDecodeAPIFields() throws {
+        let data = Data(#"{"github_repo":"owner/todos","effective_repo":"owner/todos","fallback_repo":"owner/fallback"}"#.utf8)
+        let settings = try JSONDecoder().decode(KanbanSettingsResponse.self, from: data)
+
+        XCTAssertEqual(settings.githubRepo, "owner/todos")
+        XCTAssertEqual(settings.effectiveRepo, "owner/todos")
+        XCTAssertEqual(settings.fallbackRepo, "owner/fallback")
+    }
 }

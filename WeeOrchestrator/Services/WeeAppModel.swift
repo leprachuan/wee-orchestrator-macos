@@ -254,6 +254,11 @@ final class WeeAppModel {
     var localSourceOutput = ""
     var localModelManifestStatus = ""
     var localModelManifestRuntimes: [String] = []
+    var localKanbanRepository = ""
+    var localKanbanEffectiveRepository = ""
+    var localKanbanFallbackRepository = ""
+    var localKanbanSettingsStatus = ""
+    var isSavingLocalKanbanSettings = false
     var health: HealthResponse?
     var appConfig: AppConfigResponse?
     var agents: [AgentSummary] = []
@@ -564,6 +569,46 @@ final class WeeAppModel {
         KeychainStore.saveSecret(remoteConfiguration.token, account: "api-token-remote")
         KeychainStore.saveSecret(localConfiguration.token, account: "api-token-local")
         KeychainStore.saveSecret(localOpenRouterAPIKey.trimmingCharacters(in: .whitespacesAndNewlines), account: Self.localOpenRouterKeyAccount)
+    }
+
+    func loadLocalKanbanSettings() async {
+        guard !localConfiguration.token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            localKanbanSettingsStatus = "Add a Local API token to configure the Kanban repository."
+            return
+        }
+
+        do {
+            let settings = try await client(for: .local).kanbanSettings()
+            localKanbanRepository = settings.githubRepo
+            localKanbanEffectiveRepository = settings.effectiveRepo
+            localKanbanFallbackRepository = settings.fallbackRepo
+            localKanbanSettingsStatus = ""
+        } catch {
+            localKanbanSettingsStatus = handleAuthErrorIfNeeded(error) ?? error.localizedDescription
+        }
+    }
+
+    func saveLocalKanbanSettings() async -> Bool {
+        let repository = localKanbanRepository.trimmingCharacters(in: .whitespacesAndNewlines)
+        isSavingLocalKanbanSettings = true
+        defer { isSavingLocalKanbanSettings = false }
+
+        do {
+            let settings = try await client(for: .local).saveKanbanSettings(githubRepo: repository)
+            localKanbanRepository = settings.githubRepo
+            localKanbanEffectiveRepository = settings.effectiveRepo
+            localKanbanFallbackRepository = settings.fallbackRepo
+            localKanbanSettingsStatus = repository.isEmpty
+                ? "Repository override cleared. Using the checkout's Git remote."
+                : "Kanban repository saved."
+            if activeEnvironment == .local {
+                await loadKanbanBoard()
+            }
+            return true
+        } catch {
+            localKanbanSettingsStatus = handleAuthErrorIfNeeded(error) ?? error.localizedDescription
+            return false
+        }
     }
 
     func switchEnvironment(to environment: WeeEnvironment) async {

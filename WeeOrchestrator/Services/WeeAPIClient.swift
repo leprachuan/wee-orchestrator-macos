@@ -127,6 +127,14 @@ struct WeeAPIClient {
         try await request("PUT", path: "/api/v1/settings/notifications", body: NotificationSettingsResponse(notificationsEnabled: enabled, updatedAt: nil, available: nil, message: nil))
     }
 
+    func kanbanSettings() async throws -> KanbanSettingsResponse {
+        try await request("GET", path: "/api/v1/settings/kanban")
+    }
+
+    func saveKanbanSettings(githubRepo: String) async throws -> KanbanSettingsResponse {
+        try await request("PUT", path: "/api/v1/settings/kanban", body: KanbanSettingsUpdateRequest(githubRepo: githubRepo))
+    }
+
     func runtimes() async throws -> [RuntimeEntry] {
         let response: RuntimesResponse = try await request("GET", path: "/api/v1/runtimes")
         return response.entries
