@@ -1615,8 +1615,7 @@ final class WeeAppModel {
             if streamTranscripts.isStreaming(key)
                 || queueDispatchingKeys.contains(key)
                 || !queuedChatMessages.messages(for: key).isEmpty {
-                queuedChatMessages.enqueue(QueuedChatMessage(text: trimmed, attachments: attachments), for: key)
-                markChatQueueChanged()
+                enqueueChatMessage(QueuedChatMessage(text: trimmed, attachments: attachments), for: key)
                 if !streamTranscripts.isStreaming(key), !queueDispatchingKeys.contains(key) {
                     scheduleNextQueuedMessage(for: key)
                 }
@@ -1970,6 +1969,14 @@ final class WeeAppModel {
 
     private func markChatQueueChanged() {
         chatQueueRevision &+= 1
+    }
+
+    /// Enqueues a chat message and bumps the observation revision so the
+    /// queue panel refreshes. Internal (not private) so tests can seed the
+    /// queue directly without driving a full network stream.
+    func enqueueChatMessage(_ message: QueuedChatMessage, for key: ChatTranscriptKey) {
+        queuedChatMessages.enqueue(message, for: key)
+        markChatQueueChanged()
     }
 
     func startNewChat() async {
