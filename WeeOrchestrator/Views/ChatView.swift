@@ -429,16 +429,13 @@ private struct ChatQueuePanel: View {
                         .buttonStyle(.plain)
                         .font(.caption2.weight(.semibold))
                         .foregroundStyle(WeeTheme.accent)
-                    Button {
+                    Button("Cancel") {
                         model.removeQueuedChatMessage(id: item.id)
-                    } label: {
-                        Image(systemName: "xmark")
-                            .font(.caption2.weight(.bold))
-                            .frame(width: 18, height: 18)
                     }
                     .buttonStyle(.plain)
-                    .foregroundStyle(WeeTheme.textSecondary)
-                    .help("Remove queued message")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(WeeTheme.danger)
+                    .help("Cancel queued message")
                 }
                 .padding(.horizontal, 8)
                 .padding(.vertical, 6)

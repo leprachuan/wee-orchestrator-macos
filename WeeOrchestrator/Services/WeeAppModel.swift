@@ -298,6 +298,9 @@ final class WeeAppModel {
     @ObservationIgnored private var queuedChatMessages = ChatMessageQueueStore()
     @ObservationIgnored private var queueDispatchingKeys: Set<ChatTranscriptKey> = []
     @ObservationIgnored private var cancellationRequestedKeys: Set<ChatTranscriptKey> = []
+    /// The queue store is intentionally not observed directly. Bump this on
+    /// every mutation so SwiftUI refreshes the visible per-session queue.
+    private var chatQueueRevision = 0
     var isChatQueuePaused = false
 
     var configuration: APIConfiguration {
@@ -363,6 +366,7 @@ final class WeeAppModel {
     }
 
     var currentQueuedChatMessages: [QueuedChatMessage] {
+        _ = chatQueueRevision
         guard let currentSessionID else { return [] }
         return queuedChatMessages.messages(for: ChatTranscriptKey(environment: activeEnvironment, sessionID: currentSessionID))
     }
@@ -1612,6 +1616,7 @@ final class WeeAppModel {
                 || queueDispatchingKeys.contains(key)
                 || !queuedChatMessages.messages(for: key).isEmpty {
                 queuedChatMessages.enqueue(QueuedChatMessage(text: trimmed, attachments: attachments), for: key)
+                markChatQueueChanged()
                 if !streamTranscripts.isStreaming(key), !queueDispatchingKeys.contains(key) {
                     scheduleNextQueuedMessage(for: key)
                 }
@@ -1922,13 +1927,19 @@ final class WeeAppModel {
     func removeQueuedChatMessage(id: UUID) {
         guard let currentSessionID else { return }
         let key = ChatTranscriptKey(environment: activeEnvironment, sessionID: currentSessionID)
-        _ = queuedChatMessages.remove(id: id, for: key)
+        if queuedChatMessages.remove(id: id, for: key) != nil {
+            markChatQueueChanged()
+        }
     }
 
     func takeQueuedChatMessageForEditing(id: UUID) -> QueuedChatMessage? {
         guard let currentSessionID else { return nil }
         let key = ChatTranscriptKey(environment: activeEnvironment, sessionID: currentSessionID)
-        return queuedChatMessages.remove(id: id, for: key)
+        let message = queuedChatMessages.remove(id: id, for: key)
+        if message != nil {
+            markChatQueueChanged()
+        }
+        return message
     }
 
     private func scheduleNextQueuedMessage(for key: ChatTranscriptKey) {
@@ -1949,11 +1960,16 @@ final class WeeAppModel {
             queueDispatchingKeys.remove(key)
             return
         }
+        markChatQueueChanged()
         let succeeded = await sendChat(next.text, attachments: next.attachments, sessionKey: key, isQueuedDispatch: true)
         queueDispatchingKeys.remove(key)
         if succeeded {
             scheduleNextQueuedMessage(for: key)
         }
+    }
+
+    private func markChatQueueChanged() {
+        chatQueueRevision &+= 1
     }
 
     func startNewChat() async {
