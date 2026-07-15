@@ -29,6 +29,9 @@
 		A10020 /* SessionResetDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10022; };
 		A10021 /* SessionResetDetectorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10023; };
 		A10022 /* AppDelegateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10024; };
+		A10023 /* ChatMessageQueueObservationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10025; };
+		A10024 /* ChatStreamTranscriptStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10026; };
+		A10025 /* KanbanEnabledTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10027; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -56,6 +59,9 @@
 		B10022 /* SessionResetDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionResetDetector.swift; sourceTree = "<group>"; };
 		B10023 /* SessionResetDetectorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionResetDetectorTests.swift; sourceTree = "<group>"; };
 		B10024 /* AppDelegateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegateTests.swift; sourceTree = "<group>"; };
+		B10025 /* ChatMessageQueueObservationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatMessageQueueObservationTests.swift; sourceTree = "<group>"; };
+		B10026 /* ChatStreamTranscriptStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatStreamTranscriptStoreTests.swift; sourceTree = "<group>"; };
+		B10027 /* KanbanEnabledTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KanbanEnabledTests.swift; sourceTree = "<group>"; };
 		P10001 /* WeeOrchestrator.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = WeeOrchestrator.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		P10002 /* WeeOrchestratorTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = WeeOrchestratorTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -162,6 +168,9 @@
 				B10021 /* OllamaRegistryClientTests.swift */,
 				B10023 /* SessionResetDetectorTests.swift */,
 				B10024 /* AppDelegateTests.swift */,
+				B10025 /* ChatMessageQueueObservationTests.swift */,
+				B10026 /* ChatStreamTranscriptStoreTests.swift */,
+				B10027 /* KanbanEnabledTests.swift */,
 			);
 			path = WeeOrchestratorTests;
 			sourceTree = "<group>";
@@ -294,6 +303,9 @@
 				A10019,
 				A10021,
 				A10022,
+				A10023,
+				A10024,
+				A10025,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
