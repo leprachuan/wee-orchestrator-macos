@@ -32,6 +32,8 @@
 		A10023 /* ChatMessageQueueObservationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10025; };
 		A10024 /* ChatStreamTranscriptStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10026; };
 		A10025 /* KanbanEnabledTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10027; };
+		A10026 /* AppTextSizeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10028; };
+		A10027 /* HourlyUpdateCheckTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10029; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -62,6 +64,8 @@
 		B10025 /* ChatMessageQueueObservationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatMessageQueueObservationTests.swift; sourceTree = "<group>"; };
 		B10026 /* ChatStreamTranscriptStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatStreamTranscriptStoreTests.swift; sourceTree = "<group>"; };
 		B10027 /* KanbanEnabledTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KanbanEnabledTests.swift; sourceTree = "<group>"; };
+		B10028 /* AppTextSizeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppTextSizeTests.swift; sourceTree = "<group>"; };
+		B10029 /* HourlyUpdateCheckTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HourlyUpdateCheckTests.swift; sourceTree = "<group>"; };
 		P10001 /* WeeOrchestrator.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = WeeOrchestrator.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		P10002 /* WeeOrchestratorTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = WeeOrchestratorTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -171,6 +175,8 @@
 				B10025 /* ChatMessageQueueObservationTests.swift */,
 				B10026 /* ChatStreamTranscriptStoreTests.swift */,
 				B10027 /* KanbanEnabledTests.swift */,
+				B10028 /* AppTextSizeTests.swift */,
+				B10029 /* HourlyUpdateCheckTests.swift */,
 			);
 			path = WeeOrchestratorTests;
 			sourceTree = "<group>";
@@ -306,6 +312,8 @@
 				A10023,
 				A10024,
 				A10025,
+				A10026,
+				A10027,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
