@@ -27,6 +27,7 @@ struct WeeOrchestratorApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView(model: model)
+                .dynamicTypeSize(model.appTextSize)
                 .onAppear { appDelegate.model = model }
         }
         .defaultSize(width: 1360, height: 860)

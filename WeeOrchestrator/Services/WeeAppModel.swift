@@ -2,6 +2,7 @@ import AppKit
 import Foundation
 import Observation
 import Security
+import SwiftUI
 import UserNotifications
 import CryptoKit
 
@@ -224,6 +225,11 @@ enum MacAppReleaseSelector {
 final class WeeAppModel {
     private static let localSharedKeyAccount = "local-api-shared-key"
     private static let localOpenRouterKeyAccount = "local-openrouter-api-key"
+    /// Issue #17: exposes a bounded, non-accessibility subset of
+    /// DynamicTypeSize as simple "smaller/larger" steps rather than the full
+    /// 12-step range, which is more control than a compact utility app needs.
+    static let textSizeSteps: [DynamicTypeSize] = [.xSmall, .small, .medium, .large, .xLarge, .xxLarge, .xxxLarge]
+    private static let defaultTextSizeIndex = 3
 
     var activeEnvironment: WeeEnvironment
     var localConfiguration: APIConfiguration
@@ -260,6 +266,7 @@ final class WeeAppModel {
     var localKanbanSettingsStatus = ""
     var isSavingLocalKanbanSettings = false
     var kanbanEnabled = true
+    var appTextSize: DynamicTypeSize = WeeAppModel.textSizeSteps[WeeAppModel.defaultTextSizeIndex]
     var health: HealthResponse?
     var appConfig: AppConfigResponse?
     var agents: [AgentSummary] = []
@@ -292,6 +299,11 @@ final class WeeAppModel {
 
     private let defaults = UserDefaults.standard
     private var previousTaskStatuses: [String: String] = [:]
+    @ObservationIgnored var hourlyUpdateCheckTask: Task<Void, Never>?
+    /// Test seam: counts actual loop starts (not calls suppressed by the
+    /// already-running guard) so duplicate-loop prevention is verifiable
+    /// without waiting out a real 3600s sleep.
+    @ObservationIgnored private(set) var hourlyUpdateCheckLoopStartCount = 0
     @ObservationIgnored private var localAPIProcess: Process?
     @ObservationIgnored private var localLogPipe: Pipe?
     @ObservationIgnored private var ollamaProcess: Process?
@@ -353,6 +365,10 @@ final class WeeAppModel {
         selectedModel = defaults.string(forKey: "wee.selectedModel") ?? ""
         selectedPermissionMode = defaults.string(forKey: "wee.selectedPermissionMode") ?? "restricted"
         kanbanEnabled = defaults.object(forKey: "wee.kanban.enabled") as? Bool ?? true
+        let storedTextSizeIndex = defaults.object(forKey: "wee.appTextSize") as? Int ?? Self.defaultTextSizeIndex
+        appTextSize = Self.textSizeSteps.indices.contains(storedTextSizeIndex)
+            ? Self.textSizeSteps[storedTextSizeIndex]
+            : Self.textSizeSteps[Self.defaultTextSizeIndex]
     }
 
     var client: WeeAPIClient {
@@ -379,6 +395,36 @@ final class WeeAppModel {
 
     private func markStreamingChanged() {
         streamingRevision &+= 1
+    }
+
+    private var textSizeIndex: Int {
+        Self.textSizeSteps.firstIndex(of: appTextSize) ?? Self.defaultTextSizeIndex
+    }
+
+    var canIncreaseTextSize: Bool { textSizeIndex < Self.textSizeSteps.count - 1 }
+    var canDecreaseTextSize: Bool { textSizeIndex > 0 }
+
+    var textSizeLabel: String {
+        switch appTextSize {
+        case .xSmall: "Smallest"
+        case .small: "Smaller"
+        case .medium: "Small"
+        case .large: "Default"
+        case .xLarge: "Larger"
+        case .xxLarge: "Large"
+        case .xxxLarge: "Largest"
+        default: "Default"
+        }
+    }
+
+    func increaseTextSize() { setTextSizeIndex(textSizeIndex + 1) }
+    func decreaseTextSize() { setTextSizeIndex(textSizeIndex - 1) }
+    func resetTextSize() { setTextSizeIndex(Self.defaultTextSizeIndex) }
+
+    private func setTextSizeIndex(_ index: Int) {
+        let clamped = min(max(index, 0), Self.textSizeSteps.count - 1)
+        appTextSize = Self.textSizeSteps[clamped]
+        defaults.set(clamped, forKey: "wee.appTextSize")
     }
 
     func setKanbanEnabled(_ enabled: Bool) {
@@ -410,6 +456,23 @@ final class WeeAppModel {
         await refreshOllamaStatus()
         Task { [weak self] in
             await self?.checkForAppUpdate()
+        }
+        startHourlyUpdateCheckLoopIfNeeded()
+    }
+
+    /// Issue #19: check for updates automatically once an hour, not just at
+    /// launch or on a manual click. Guarded so opening additional windows
+    /// (each re-runs `bootstrap()` against the same shared model) doesn't
+    /// spawn duplicate loops.
+    func startHourlyUpdateCheckLoopIfNeeded() {
+        guard hourlyUpdateCheckTask == nil else { return }
+        hourlyUpdateCheckLoopStartCount += 1
+        hourlyUpdateCheckTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(3600))
+                guard !Task.isCancelled else { return }
+                await self?.checkForAppUpdate()
+            }
         }
     }
 
@@ -1181,6 +1244,7 @@ final class WeeAppModel {
                 arguments: installArguments,
                 workingDirectory: checkout
             )
+            output += await ensureGithubCopilotSDKInstalled(venvPython: venvPython, checkout: checkout)
             localSourceOutput = String((localSourceOutput + output).suffix(20_000))
             localServiceConfiguration.workingDirectory = checkout
             if configuredPython == LocalAPIServiceConfiguration.defaults.executablePath || !FileManager.default.isExecutableFile(atPath: configuredPython) {
@@ -1191,6 +1255,33 @@ final class WeeAppModel {
         } catch {
             localSourceStatus = "Dependency setup failed: \(error.localizedDescription)"
             return false
+        }
+    }
+
+    /// Issue #18: the Copilot/copilot-sdk runtimes depend on github-copilot-sdk,
+    /// but it isn't reliably pinned in the backend's requirements.txt. Verify
+    /// it importable in the freshly-installed venv and install it directly if
+    /// not, so a fresh local API install doesn't fail at first Copilot use.
+    /// Best-effort: a failure here is logged but does not fail the bootstrap,
+    /// since every other runtime already installed successfully.
+    private func ensureGithubCopilotSDKInstalled(venvPython: String, checkout: String) async -> String {
+        let alreadyPresent = (try? await runCommand(
+            executable: venvPython,
+            arguments: ["-c", "import github_copilot_sdk"],
+            workingDirectory: checkout
+        )) != nil
+        guard !alreadyPresent else { return "" }
+
+        localSourceStatus = "Installing github-copilot-sdk…"
+        do {
+            let output = try await runCommand(
+                executable: venvPython,
+                arguments: ["-m", "pip", "install", "github-copilot-sdk"],
+                workingDirectory: checkout
+            )
+            return "\n" + output
+        } catch {
+            return "\nWarning: could not install github-copilot-sdk (\(error.localizedDescription)). The Copilot/copilot-sdk runtimes may not work until it's installed manually.\n"
         }
     }
 

@@ -47,6 +47,7 @@ struct SettingsView: View {
             ScrollView {
                 VStack(spacing: 8) {
                     connectionSection
+                    appearanceSection
                     if environment == .local {
                         localSourceSection
                         localKanbanRepositorySection
@@ -112,6 +113,47 @@ struct SettingsView: View {
     private var advancedTokenSection: some View {
         SettingsSectionBox(title: "Advanced Access", systemImage: "key.fill") {
             manualTokenSection
+        }
+    }
+
+    private var appearanceSection: some View {
+        SettingsSectionBox(title: "Appearance", systemImage: "textformat.size") {
+            HStack(spacing: 12) {
+                Text("Text size")
+                    .font(.subheadline)
+                    .foregroundStyle(WeeTheme.textPrimary)
+
+                Spacer()
+
+                Button {
+                    model.decreaseTextSize()
+                } label: {
+                    Image(systemName: "textformat.size.smaller")
+                }
+                .buttonStyle(CompactIconButtonStyle())
+                .disabled(!model.canDecreaseTextSize)
+                .help("Decrease text size")
+
+                Text(model.textSizeLabel)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(WeeTheme.textSecondary)
+                    .frame(width: 64)
+
+                Button {
+                    model.increaseTextSize()
+                } label: {
+                    Image(systemName: "textformat.size.larger")
+                }
+                .buttonStyle(CompactIconButtonStyle())
+                .disabled(!model.canIncreaseTextSize)
+                .help("Increase text size")
+
+                Button("Reset") {
+                    model.resetTextSize()
+                }
+                .buttonStyle(WeeGhostButtonStyle())
+                .disabled(model.textSizeLabel == "Default")
+            }
         }
     }
 
