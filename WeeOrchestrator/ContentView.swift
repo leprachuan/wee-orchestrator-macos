@@ -47,6 +47,15 @@ enum AppSection: String, CaseIterable, Identifiable {
 struct ContentView: View {
     @Bindable var model: WeeAppModel
     @State private var selectedSection: AppSection = .chat
+    /// Issue #22: the Local/Remote environment previously lived only on the
+    /// shared model, so it was effectively one global toggle for every open
+    /// window. `WeeAppModel` is a single instance shared across all windows
+    /// (native multi-window support), so this per-window @State is what
+    /// gives each window its own remembered mode — SwiftUI allocates
+    /// independent @State storage per window/view-identity. New windows
+    /// default to Local, matching the issue's stated default.
+    @State private var windowEnvironment: WeeEnvironment = .local
+    @State private var thisWindow: NSWindow?
 
     var body: some View {
         HStack(spacing: 0) {
@@ -58,14 +67,32 @@ struct ContentView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+        .background(WindowAccessor(window: $thisWindow))
         .background(WeeTheme.background)
         .preferredColorScheme(.dark)
         .frame(minWidth: 960, minHeight: 640)
-        .task { await model.bootstrap() }
+        .task {
+            await model.bootstrap()
+            if model.activeEnvironment != windowEnvironment {
+                await model.switchEnvironment(to: windowEnvironment)
+            }
+        }
         .onChange(of: model.kanbanEnabled) { _, enabled in
             if !enabled, selectedSection == .kanban {
                 selectedSection = .chat
             }
+        }
+        .onChange(of: model.activeEnvironment) { _, newValue in
+            // Only adopt the change if it happened while this window was the
+            // one the user was driving — otherwise another window switching
+            // its own mode would silently overwrite this window's memory too.
+            guard thisWindow?.isKeyWindow == true else { return }
+            windowEnvironment = newValue
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { note in
+            guard let window = note.object as? NSWindow, window === thisWindow else { return }
+            guard model.activeEnvironment != windowEnvironment else { return }
+            Task { await model.switchEnvironment(to: windowEnvironment) }
         }
         .sheet(isPresented: isUpdateModalPresented) {
             if let update = model.availableAppUpdate {
@@ -73,6 +100,35 @@ struct ContentView: View {
             }
         }
         .interactiveDismissDisabled(model.isInstallingAppUpdate)
+    }
+
+    private var environmentPicker: some View {
+        Menu {
+            ForEach(WeeEnvironment.allCases) { environment in
+                Button {
+                    windowEnvironment = environment
+                    Task { await model.switchEnvironment(to: environment) }
+                } label: {
+                    Label(environment.title, systemImage: environment == model.activeEnvironment ? "checkmark.circle.fill" : environment.symbol)
+                }
+            }
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: model.activeEnvironment.symbol)
+                Text("\(model.activeEnvironment.title) API")
+                Spacer()
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.system(size: 8, weight: .bold))
+                    .foregroundStyle(WeeTheme.textMuted)
+                Text(model.agents.count.description)
+                    .foregroundStyle(WeeTheme.accent)
+            }
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(WeeTheme.textSecondary)
+            .contentShape(Rectangle())
+        }
+        .menuStyle(.borderlessButton)
+        .help("This window's Local/Remote mode")
     }
 
     /// Issue #19: an available update now surfaces as a real modal (blocking,
@@ -143,15 +199,7 @@ struct ContentView: View {
                         .foregroundStyle(WeeTheme.textPrimary)
                 }
 
-                HStack(spacing: 6) {
-                    Image(systemName: model.activeEnvironment.symbol)
-                    Text("\(model.activeEnvironment.title) API")
-                    Spacer()
-                    Text(model.agents.count.description)
-                        .foregroundStyle(WeeTheme.accent)
-                }
-                .font(.caption2.weight(.semibold))
-                .foregroundStyle(WeeTheme.textSecondary)
+                environmentPicker
 
                 HStack {
                     Text(model.health?.environment ?? model.appConfig?.appEnv ?? "Not connected")
@@ -323,4 +371,22 @@ private struct AppUpdateModal: View {
         .background(WeeTheme.background)
         .preferredColorScheme(.dark)
     }
+}
+
+/// Standard SwiftUI/AppKit bridge for obtaining the NSWindow hosting this
+/// view. Used to identify which native window ("tab") a ContentView instance
+/// belongs to, so the per-window environment can resync when that specific
+/// window regains focus.
+private struct WindowAccessor: NSViewRepresentable {
+    @Binding var window: NSWindow?
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        DispatchQueue.main.async {
+            window = view.window
+        }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {}
 }

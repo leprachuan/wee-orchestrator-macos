@@ -469,7 +469,6 @@ private struct HeaderPanel: View {
             Divider().frame(height: 28).overlay(WeeTheme.divider)
 
             HStack(spacing: 6) {
-                environmentMenu
                 agentMenu
                 runtimeMenu
                 modelMenu
