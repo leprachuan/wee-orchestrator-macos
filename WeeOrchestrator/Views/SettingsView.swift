@@ -56,7 +56,10 @@ struct SettingsView: View {
                         localServiceSection
                     }
                     connectorSection
-                    if environment == .remote { telegramAuthSection }
+                    if environment == .remote {
+                        telegramAuthSection
+                        remoteSSHDeploymentSection
+                    }
                     advancedTokenSection
                     environmentSection
                     connectionSummary
@@ -438,6 +441,72 @@ struct SettingsView: View {
                 DisclosureGroup("Git output") {
                     ScrollView {
                         Text(model.localSourceOutput)
+                            .font(.system(.caption, design: .monospaced))
+                            .foregroundStyle(WeeTheme.textSecondary)
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .frame(height: 110)
+                    .padding(8)
+                    .background(WeeTheme.sunken, in: RoundedRectangle(cornerRadius: 7))
+                }
+            }
+        }
+    }
+
+    private var remoteSSHDeploymentSection: some View {
+        SettingsSectionBox(title: "Remote Deployment (SSH)", systemImage: "terminal") {
+            Text("Install or update the Wee API on a remote Linux host over SSH. Key-based auth only — password prompts aren't supported from here.")
+                .font(.caption)
+                .foregroundStyle(WeeTheme.textSecondary)
+
+            FieldRow(title: "Host") {
+                TextField("user@192.168.1.100", text: $model.remoteSSHHost)
+            }
+            FieldRow(title: "SSH Key") {
+                TextField("~/.ssh/id_ed25519 (optional)", text: $model.remoteSSHKeyPath)
+            }
+            FieldRow(title: "Repository") {
+                TextField("https://github.com/owner/repo.git", text: $model.remoteSSHRepositoryURL)
+            }
+            FieldRow(title: "Remote Directory") {
+                TextField("/opt/wee-orchestrator", text: $model.remoteSSHCheckoutDirectory)
+            }
+
+            HStack {
+                Button {
+                    model.saveConfiguration()
+                    Task { await model.installRemoteAPIOverSSH() }
+                } label: {
+                    Label("Install", systemImage: "arrow.down.to.line.compact")
+                }
+                .buttonStyle(WeePrimaryButtonStyle())
+                .disabled(model.isRemoteSSHWorking)
+
+                Button {
+                    model.saveConfiguration()
+                    Task { await model.updateRemoteAPIOverSSH() }
+                } label: {
+                    Label("Update", systemImage: "arrow.triangle.2.circlepath")
+                }
+                .buttonStyle(WeeGhostButtonStyle())
+                .disabled(model.isRemoteSSHWorking)
+
+                if model.isRemoteSSHWorking {
+                    ProgressView().controlSize(.small).tint(WeeTheme.accent)
+                }
+            }
+
+            if !model.remoteSSHStatus.isEmpty {
+                Text(model.remoteSSHStatus)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(model.remoteSSHStatus.localizedCaseInsensitiveContains("failed") ? WeeTheme.danger : WeeTheme.textSecondary)
+            }
+
+            if !model.remoteSSHOutput.isEmpty {
+                DisclosureGroup("SSH output") {
+                    ScrollView {
+                        Text(model.remoteSSHOutput)
                             .font(.system(.caption, design: .monospaced))
                             .foregroundStyle(WeeTheme.textSecondary)
                             .textSelection(.enabled)

@@ -267,6 +267,13 @@ final class WeeAppModel {
     var isSavingLocalKanbanSettings = false
     var kanbanEnabled = true
     var appTextSize: DynamicTypeSize = WeeAppModel.textSizeSteps[WeeAppModel.defaultTextSizeIndex]
+    var remoteSSHHost = ""
+    var remoteSSHKeyPath = ""
+    var remoteSSHRepositoryURL = "https://github.com/leprachuan/Wee-Orchestrator.git"
+    var remoteSSHCheckoutDirectory = "/opt/n8n-copilot-shim-dev"
+    var remoteSSHStatus = ""
+    var remoteSSHOutput = ""
+    var isRemoteSSHWorking = false
     var health: HealthResponse?
     var appConfig: AppConfigResponse?
     var agents: [AgentSummary] = []
@@ -304,6 +311,8 @@ final class WeeAppModel {
     /// already-running guard) so duplicate-loop prevention is verifiable
     /// without waiting out a real 3600s sleep.
     @ObservationIgnored private(set) var hourlyUpdateCheckLoopStartCount = 0
+    @ObservationIgnored var backgroundTaskAutoRefreshTask: Task<Void, Never>?
+    @ObservationIgnored private(set) var backgroundTaskAutoRefreshLoopStartCount = 0
     @ObservationIgnored private var localAPIProcess: Process?
     @ObservationIgnored private var localLogPipe: Pipe?
     @ObservationIgnored private var ollamaProcess: Process?
@@ -369,6 +378,10 @@ final class WeeAppModel {
         appTextSize = Self.textSizeSteps.indices.contains(storedTextSizeIndex)
             ? Self.textSizeSteps[storedTextSizeIndex]
             : Self.textSizeSteps[Self.defaultTextSizeIndex]
+        remoteSSHHost = defaults.string(forKey: "wee.remoteSSH.host") ?? ""
+        remoteSSHKeyPath = defaults.string(forKey: "wee.remoteSSH.keyPath") ?? ""
+        remoteSSHRepositoryURL = defaults.string(forKey: "wee.remoteSSH.repositoryURL") ?? remoteSSHRepositoryURL
+        remoteSSHCheckoutDirectory = defaults.string(forKey: "wee.remoteSSH.checkoutDirectory") ?? remoteSSHCheckoutDirectory
     }
 
     var client: WeeAPIClient {
@@ -458,6 +471,31 @@ final class WeeAppModel {
             await self?.checkForAppUpdate()
         }
         startHourlyUpdateCheckLoopIfNeeded()
+        startBackgroundTaskAutoRefreshLoopIfNeeded()
+    }
+
+    /// Issue #20: background task status previously only updated on a
+    /// manual refresh. Poll quietly (no isLoading spinner, no other state
+    /// touched) so a task's status catches up within a minute on its own.
+    /// Same duplicate-loop guard pattern as the hourly update check, for the
+    /// same reason (bootstrap() re-runs per window against the shared model).
+    func startBackgroundTaskAutoRefreshLoopIfNeeded() {
+        guard backgroundTaskAutoRefreshTask == nil else { return }
+        backgroundTaskAutoRefreshLoopStartCount += 1
+        backgroundTaskAutoRefreshTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(60))
+                guard !Task.isCancelled else { return }
+                await self?.refreshBackgroundTasksQuietly()
+            }
+        }
+    }
+
+    private func refreshBackgroundTasksQuietly() async {
+        guard !configuration.token.isEmpty, let newTasks = try? await client.backgroundTasks() else { return }
+        let ordered = BackgroundTaskOrdering.newestFirst(newTasks)
+        notifyCompletedTasks(old: tasks, new: ordered)
+        tasks = ordered
     }
 
     /// Issue #19: check for updates automatically once an hour, not just at
@@ -658,6 +696,10 @@ final class WeeAppModel {
         defaults.set(selectedRuntime, forKey: "wee.selectedRuntime")
         defaults.set(selectedModel, forKey: "wee.selectedModel")
         defaults.set(selectedPermissionMode, forKey: "wee.selectedPermissionMode")
+        defaults.set(remoteSSHHost, forKey: "wee.remoteSSH.host")
+        defaults.set(remoteSSHKeyPath, forKey: "wee.remoteSSH.keyPath")
+        defaults.set(remoteSSHRepositoryURL, forKey: "wee.remoteSSH.repositoryURL")
+        defaults.set(remoteSSHCheckoutDirectory, forKey: "wee.remoteSSH.checkoutDirectory")
         KeychainStore.saveSecret(remoteConfiguration.token, account: "api-token-remote")
         KeychainStore.saveSecret(localConfiguration.token, account: "api-token-local")
         KeychainStore.saveSecret(localOpenRouterAPIKey.trimmingCharacters(in: .whitespacesAndNewlines), account: Self.localOpenRouterKeyAccount)
@@ -1287,6 +1329,107 @@ final class WeeAppModel {
 
     private static func expandedPath(_ value: String) -> String {
         (value as NSString).expandingTildeInPath.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    // MARK: - Issue #21: Remote API deployment over SSH
+
+    /// Installs (clone-or-reuse + Python venv bootstrap) the API on a
+    /// user-specified remote host over SSH, mirroring the local install
+    /// flow (`cloneLocalAPISource` + `bootstrapLocalAPIEnvironment`) but
+    /// executed remotely as a single non-interactive SSH command.
+    func installRemoteAPIOverSSH() async {
+        let host = remoteSSHHost.trimmingCharacters(in: .whitespacesAndNewlines)
+        let repository = remoteSSHRepositoryURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        let directory = remoteSSHCheckoutDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !host.isEmpty else {
+            remoteSSHStatus = "Remote host is required"
+            return
+        }
+        guard !repository.isEmpty else {
+            remoteSSHStatus = "Repository URL is required"
+            return
+        }
+        guard !directory.isEmpty else {
+            remoteSSHStatus = "Remote install directory is required"
+            return
+        }
+
+        isRemoteSSHWorking = true
+        remoteSSHStatus = "Installing on \(host)…"
+        remoteSSHOutput = ""
+        defer { isRemoteSSHWorking = false }
+
+        let script = """
+        set -e
+        if [ -d '\(directory)/.git' ]; then
+          cd '\(directory)' && git pull
+        else
+          mkdir -p '\(directory)' && git clone '\(repository)' '\(directory)' && cd '\(directory)'
+        fi
+        python3 -m venv .venv
+        .venv/bin/pip install -r requirements.txt
+        """
+
+        do {
+            remoteSSHOutput = try await runSSH(script, host: host)
+            remoteSSHStatus = "Install complete"
+            saveConfiguration()
+        } catch {
+            remoteSSHStatus = "Install failed: \(error.localizedDescription)"
+        }
+    }
+
+    /// Pulls latest and reinstalls dependencies in an existing remote
+    /// checkout. Does not restart any remote service — service management
+    /// (systemd unit name, etc.) is deployment-specific and out of scope
+    /// here; this covers the code/dependency side of an update.
+    func updateRemoteAPIOverSSH() async {
+        let host = remoteSSHHost.trimmingCharacters(in: .whitespacesAndNewlines)
+        let directory = remoteSSHCheckoutDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !host.isEmpty else {
+            remoteSSHStatus = "Remote host is required"
+            return
+        }
+        guard !directory.isEmpty else {
+            remoteSSHStatus = "Remote install directory is required"
+            return
+        }
+
+        isRemoteSSHWorking = true
+        remoteSSHStatus = "Updating \(host)…"
+        remoteSSHOutput = ""
+        defer { isRemoteSSHWorking = false }
+
+        let script = """
+        set -e
+        cd '\(directory)'
+        git pull
+        .venv/bin/pip install -r requirements.txt
+        """
+
+        do {
+            remoteSSHOutput = try await runSSH(script, host: host)
+            remoteSSHStatus = "Update complete"
+            saveConfiguration()
+        } catch {
+            remoteSSHStatus = "Update failed: \(error.localizedDescription)"
+        }
+    }
+
+    /// BatchMode disables interactive password/passphrase prompts (there's
+    /// no TTY for the user to answer them from a subprocess), so auth must
+    /// be key-based. accept-new auto-trusts a host's key on first contact
+    /// instead of hanging on an interactive fingerprint prompt — a standard
+    /// non-interactive-tooling default, not a security hardening choice.
+    private func runSSH(_ remoteCommand: String, host: String) async throws -> String {
+        var arguments = ["-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new"]
+        let keyPath = Self.expandedPath(remoteSSHKeyPath)
+        if !keyPath.isEmpty {
+            arguments += ["-i", keyPath]
+        }
+        arguments.append(host)
+        arguments.append(remoteCommand)
+        return try await runCommand(executable: "/usr/bin/ssh", arguments: arguments)
     }
 
     /// The cloned repository includes its deployment agents.json. Keep the Mac's
