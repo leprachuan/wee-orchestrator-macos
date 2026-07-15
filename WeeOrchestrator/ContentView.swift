@@ -69,6 +69,15 @@ struct ContentView: View {
         .preferredColorScheme(.dark)
         .frame(minWidth: 960, minHeight: 640)
         .task { await model.bootstrap() }
+        .onChange(of: model.kanbanEnabled) { _, enabled in
+            if !enabled, selectedSection == .kanban {
+                selectedSection = .chat
+            }
+        }
+    }
+
+    private var visibleSections: [AppSection] {
+        AppSection.allCases.filter { $0 != .kanban || model.kanbanEnabled }
     }
 
     private var workspaceRail: some View {
@@ -101,7 +110,7 @@ struct ContentView: View {
                 .padding(.bottom, 6)
 
             VStack(spacing: 3) {
-                ForEach(AppSection.allCases) { section in
+                ForEach(visibleSections) { section in
                     railButton(section)
                 }
             }
@@ -220,7 +229,12 @@ struct ContentView: View {
     @ViewBuilder private var sectionView: some View {
         switch selectedSection {
         case .chat: ChatView(model: model)
-        case .kanban: KanbanView(model: model)
+        case .kanban:
+            if model.kanbanEnabled {
+                KanbanView(model: model)
+            } else {
+                ChatView(model: model)
+            }
         case .backgroundTasks: TasksView(model: model, mode: .background)
         case .scheduledTasks: TasksView(model: model, mode: .scheduled)
         case .agents: AgentsView(model: model)

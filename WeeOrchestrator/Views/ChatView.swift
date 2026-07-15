@@ -755,6 +755,12 @@ private struct RecentChatsRail: View {
                     Text(session.displayTitle)
                         .font(.caption.weight(.semibold))
                         .lineLimit(1)
+                    if model.isSessionStreaming(session.sessionID) {
+                        ProgressView()
+                            .controlSize(.mini)
+                            .tint(WeeTheme.accent)
+                            .help("Streaming")
+                    }
                     if session.sessionID == model.currentSessionID {
                         Image(systemName: "checkmark.circle.fill")
                             .font(.caption)
@@ -812,7 +818,11 @@ private struct SessionHistorySheet: View {
                             isPresented = false
                             Task { await model.selectHistorySession(session) }
                         } label: {
-                            HistorySessionRow(session: session, isSelected: session.sessionID == model.currentSessionID)
+                            HistorySessionRow(
+                                session: session,
+                                isSelected: session.sessionID == model.currentSessionID,
+                                isStreaming: model.isSessionStreaming(session.sessionID)
+                            )
                         }
                         .buttonStyle(.plain)
                     }
@@ -830,6 +840,7 @@ private struct SessionHistorySheet: View {
 private struct HistorySessionRow: View {
     let session: HistorySessionSummary
     let isSelected: Bool
+    var isStreaming: Bool = false
 
     var body: some View {
         HStack(spacing: 12) {
@@ -838,10 +849,18 @@ private struct HistorySessionRow: View {
                 .frame(width: 22)
 
             VStack(alignment: .leading, spacing: 4) {
-                Text(session.displayTitle)
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(WeeTheme.textPrimary)
-                    .lineLimit(1)
+                HStack(spacing: 6) {
+                    Text(session.displayTitle)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(WeeTheme.textPrimary)
+                        .lineLimit(1)
+                    if isStreaming {
+                        ProgressView()
+                            .controlSize(.mini)
+                            .tint(WeeTheme.accent)
+                            .help("Streaming")
+                    }
+                }
 
                 Text(session.displayPreview)
                     .font(.caption)

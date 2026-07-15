@@ -411,54 +411,64 @@ struct SettingsView: View {
 
     private var localKanbanRepositorySection: some View {
         SettingsSectionBox(title: "TODO Kanban", systemImage: "rectangle.3.group.bubble") {
-            Text("Choose the GitHub repository whose issues are shown on this Mac's Kanban board.")
-                .font(.caption)
-                .foregroundStyle(WeeTheme.textSecondary)
+            Toggle("Show Kanban board", isOn: Binding(
+                get: { model.kanbanEnabled },
+                set: { model.setKanbanEnabled($0) }
+            ))
+            .tint(WeeTheme.accent)
 
-            FieldRow(title: "Repository") {
-                TextField("owner/repository", text: $model.localKanbanRepository)
-            }
+            Group {
+                Text("Choose the GitHub repository whose issues are shown on this Mac's Kanban board.")
+                    .font(.caption)
+                    .foregroundStyle(WeeTheme.textSecondary)
 
-            HStack(spacing: 8) {
-                Button {
-                    Task { _ = await model.saveLocalKanbanSettings() }
-                } label: {
-                    Label("Save Repository", systemImage: "square.and.arrow.down")
+                FieldRow(title: "Repository") {
+                    TextField("owner/repository", text: $model.localKanbanRepository)
                 }
-                .buttonStyle(WeePrimaryButtonStyle())
-                .disabled(model.isSavingLocalKanbanSettings)
 
-                Button {
-                    Task { await model.loadLocalKanbanSettings() }
-                } label: {
-                    Label("Reload", systemImage: "arrow.clockwise")
+                HStack(spacing: 8) {
+                    Button {
+                        Task { _ = await model.saveLocalKanbanSettings() }
+                    } label: {
+                        Label("Save Repository", systemImage: "square.and.arrow.down")
+                    }
+                    .buttonStyle(WeePrimaryButtonStyle())
+                    .disabled(model.isSavingLocalKanbanSettings)
+
+                    Button {
+                        Task { await model.loadLocalKanbanSettings() }
+                    } label: {
+                        Label("Reload", systemImage: "arrow.clockwise")
+                    }
+                    .buttonStyle(WeeGhostButtonStyle())
+                    .disabled(model.isSavingLocalKanbanSettings)
+
+                    if model.isSavingLocalKanbanSettings {
+                        ProgressView().controlSize(.small).tint(WeeTheme.accent)
+                    }
                 }
-                .buttonStyle(WeeGhostButtonStyle())
-                .disabled(model.isSavingLocalKanbanSettings)
 
-                if model.isSavingLocalKanbanSettings {
-                    ProgressView().controlSize(.small).tint(WeeTheme.accent)
+                if !model.localKanbanEffectiveRepository.isEmpty {
+                    LabeledContent("Active repository") {
+                        Text(model.localKanbanEffectiveRepository)
+                            .font(.caption.monospaced())
+                            .foregroundStyle(WeeTheme.textPrimary)
+                            .textSelection(.enabled)
+                    }
+                }
+
+                Text("Use `owner/repository`. Leave the field empty and save to use the Git remote from the local API checkout\(model.localKanbanFallbackRepository.isEmpty ? "." : " (currently \(model.localKanbanFallbackRepository)).")")
+                    .font(.caption)
+                    .foregroundStyle(WeeTheme.textMuted)
+
+                if !model.localKanbanSettingsStatus.isEmpty {
+                    Text(model.localKanbanSettingsStatus)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(model.localKanbanSettingsStatus.localizedCaseInsensitiveContains("invalid") || model.localKanbanSettingsStatus.localizedCaseInsensitiveContains("failed") || model.localKanbanSettingsStatus.localizedCaseInsensitiveContains("error") ? WeeTheme.danger : WeeTheme.textSecondary)
                 }
             }
-
-            if !model.localKanbanEffectiveRepository.isEmpty {
-                LabeledContent("Active repository") {
-                    Text(model.localKanbanEffectiveRepository)
-                        .font(.caption.monospaced())
-                        .foregroundStyle(WeeTheme.textPrimary)
-                        .textSelection(.enabled)
-                }
-            }
-
-            Text("Use `owner/repository`. Leave the field empty and save to use the Git remote from the local API checkout\(model.localKanbanFallbackRepository.isEmpty ? "." : " (currently \(model.localKanbanFallbackRepository)).")")
-                .font(.caption)
-                .foregroundStyle(WeeTheme.textMuted)
-
-            if !model.localKanbanSettingsStatus.isEmpty {
-                Text(model.localKanbanSettingsStatus)
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(model.localKanbanSettingsStatus.localizedCaseInsensitiveContains("invalid") || model.localKanbanSettingsStatus.localizedCaseInsensitiveContains("failed") || model.localKanbanSettingsStatus.localizedCaseInsensitiveContains("error") ? WeeTheme.danger : WeeTheme.textSecondary)
-            }
+            .opacity(model.kanbanEnabled ? 1 : 0.5)
+            .disabled(!model.kanbanEnabled)
         }
     }
 

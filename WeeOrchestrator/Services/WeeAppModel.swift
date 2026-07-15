@@ -259,6 +259,7 @@ final class WeeAppModel {
     var localKanbanFallbackRepository = ""
     var localKanbanSettingsStatus = ""
     var isSavingLocalKanbanSettings = false
+    var kanbanEnabled = true
     var health: HealthResponse?
     var appConfig: AppConfigResponse?
     var agents: [AgentSummary] = []
@@ -302,6 +303,11 @@ final class WeeAppModel {
     /// every mutation so SwiftUI refreshes the visible per-session queue.
     private var chatQueueRevision = 0
     var isChatQueuePaused = false
+    /// `streamTranscripts` is `@ObservationIgnored`. Bump this whenever a
+    /// stream starts or stops so views showing another session's streaming
+    /// state (e.g. the recent chats rail) refresh even when that session
+    /// isn't the one currently visible.
+    private var streamingRevision = 0
 
     var configuration: APIConfiguration {
         get { activeEnvironment == .local ? localConfiguration : remoteConfiguration }
@@ -346,6 +352,7 @@ final class WeeAppModel {
         selectedRuntime = defaults.string(forKey: "wee.selectedRuntime") ?? ""
         selectedModel = defaults.string(forKey: "wee.selectedModel") ?? ""
         selectedPermissionMode = defaults.string(forKey: "wee.selectedPermissionMode") ?? "restricted"
+        kanbanEnabled = defaults.object(forKey: "wee.kanban.enabled") as? Bool ?? true
     }
 
     var client: WeeAPIClient {
@@ -363,6 +370,24 @@ final class WeeAppModel {
     var isCurrentSessionStreaming: Bool {
         guard let currentSessionID else { return false }
         return streamTranscripts.isStreaming(ChatTranscriptKey(environment: activeEnvironment, sessionID: currentSessionID))
+    }
+
+    func isSessionStreaming(_ sessionID: String) -> Bool {
+        _ = streamingRevision
+        return streamTranscripts.isStreaming(ChatTranscriptKey(environment: activeEnvironment, sessionID: sessionID))
+    }
+
+    private func markStreamingChanged() {
+        streamingRevision &+= 1
+    }
+
+    func setKanbanEnabled(_ enabled: Bool) {
+        kanbanEnabled = enabled
+        defaults.set(enabled, forKey: "wee.kanban.enabled")
+        if !enabled {
+            kanbanBoard = nil
+            kanbanStatusMessage = nil
+        }
     }
 
     var currentQueuedChatMessages: [QueuedChatMessage] {
@@ -1648,6 +1673,7 @@ final class WeeAppModel {
         defer {
             if let activeStreamKey {
                 streamTranscripts.finishStream(for: activeStreamKey)
+                markStreamingChanged()
             }
             isLoading = false
         }
@@ -1710,6 +1736,7 @@ final class WeeAppModel {
             var streamingMessages = sourceMessages
             streamingMessages.append(streamMessage)
             streamTranscripts.beginStream(for: streamKey, messages: streamingMessages)
+            markStreamingChanged()
             if isViewingChat(streamKey) {
                 chatMessages = streamingMessages
             }
@@ -2257,6 +2284,11 @@ final class WeeAppModel {
     }
 
     func loadKanbanBoard() async {
+        guard kanbanEnabled else {
+            kanbanBoard = nil
+            kanbanStatusMessage = nil
+            return
+        }
         guard hasAuthToken else {
             kanbanBoard = nil
             kanbanStatusMessage = "Sign in to view the Kanban board."
