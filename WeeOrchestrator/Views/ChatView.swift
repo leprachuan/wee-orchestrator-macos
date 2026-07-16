@@ -84,6 +84,7 @@ struct ChatView: View {
                                 isStreaming: isStreaming(message),
                                 isPreparingSpeech: voice.loadingMessageID == message.id,
                                 isSpeaking: voice.speakingMessageID == message.id,
+                                userAvatarImage: model.userAvatarImage,
                                 onSpeak: {
                                     Task { await voice.toggleSpeech(for: message, model: model) }
                                 }
@@ -885,12 +886,15 @@ private struct ChatBubble: View {
     let isStreaming: Bool
     let isPreparingSpeech: Bool
     let isSpeaking: Bool
+    let userAvatarImage: NSImage?
     let onSpeak: () -> Void
 
     var body: some View {
-        HStack {
+        HStack(alignment: .top, spacing: 8) {
             if message.role == .user {
                 Spacer(minLength: 30)
+            } else if message.role == .assistant {
+                AvatarView(isUser: false, customImage: nil)
             }
 
             VStack(alignment: .leading, spacing: 6) {
@@ -956,6 +960,9 @@ private struct ChatBubble: View {
             .background(bubbleFill, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(WeeTheme.glassStroke))
 
+            if message.role == .user {
+                AvatarView(isUser: true, customImage: userAvatarImage)
+            }
             if message.role != .user {
                 Spacer(minLength: 30)
             }
@@ -976,6 +983,40 @@ private struct ChatBubble: View {
         case .assistant: Color.white.opacity(0.07)
         case .system: WeeTheme.sunken
         }
+    }
+}
+
+/// Issue #25: assistant messages show the Wee icon; user messages show a
+/// custom uploaded image if set (Local/Remote Settings → Appearance),
+/// falling back to a default person icon otherwise.
+private struct AvatarView: View {
+    let isUser: Bool
+    let customImage: NSImage?
+
+    var body: some View {
+        Group {
+            if isUser {
+                if let customImage {
+                    Image(nsImage: customImage)
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                } else {
+                    Image(systemName: "person.crop.circle.fill")
+                        .resizable()
+                        .foregroundStyle(WeeTheme.textSecondary)
+                        .background(WeeTheme.sunken)
+                }
+            } else {
+                Image("WeeIcon")
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .padding(5)
+                    .background(WeeTheme.accent.opacity(0.16))
+            }
+        }
+        .frame(width: 28, height: 28)
+        .clipShape(Circle())
+        .overlay(Circle().stroke(WeeTheme.glassStroke))
     }
 }
 

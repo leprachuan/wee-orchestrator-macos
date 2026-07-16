@@ -173,6 +173,10 @@ struct WeeAPIClient {
         let _: EmptyAPIResponse = try await request("PUT", path: "/api/v1/scheduler/jobs/\(id)", body: job)
     }
 
+    func deleteScheduledJob(id: String) async throws {
+        let _: EmptyAPIResponse = try await request("DELETE", path: "/api/v1/scheduler/jobs/\(id)", body: Optional<String>.none)
+    }
+
     func validateSchedule(_ schedule: String) async throws -> ScheduleValidationResponse {
         try await request(
             "POST",
@@ -245,6 +249,10 @@ struct WeeAPIClient {
 
     func backgroundTask(id: String) async throws -> BackgroundTaskDetail {
         try await request("GET", path: "/api/v1/background-tasks/\(id)")
+    }
+
+    func backgroundTaskLogs(id: String) async throws -> BackgroundTaskLogs {
+        try await request("GET", path: "/api/v1/background-tasks/\(id)/logs")
     }
 
     func createBackgroundTask(

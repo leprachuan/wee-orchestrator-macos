@@ -71,8 +71,8 @@ struct TasksView: View {
             if mode == .scheduled { await model.loadScheduledJobs() }
         }
         .sheet(item: $model.selectedTask) { detail in
-            TaskDetailView(detail: detail)
-                .frame(width: 560, height: 480)
+            TaskDetailView(model: model, detail: detail)
+                .frame(minWidth: 720, idealWidth: 860, maxWidth: 1100, minHeight: 560, idealHeight: 700, maxHeight: 900)
         }
         .sheet(item: $scheduledEditor) { context in
             ModernScheduledJobEditorSheet(model: model, job: context.job)
@@ -270,6 +270,8 @@ private struct ModernScheduledJobEditorSheet: View {
     @State private var executionHistory: [ScheduledExecutionResult] = []
     @State private var isLoadingHistory = false
     @State private var historyError: String?
+    @State private var showDeleteConfirmation = false
+    @State private var isDeleting = false
 
     init(model: WeeAppModel, job: ScheduledJobSummary?) {
         self.model = model
@@ -368,6 +370,24 @@ private struct ModernScheduledJobEditorSheet: View {
             fallbackModel = ""
             Task { await loadModels(for: fallbackRuntime, fallback: true) }
         }
+        .confirmationDialog(
+            "Delete “\(name.isEmpty ? "this scheduled task" : name)”?",
+            isPresented: $showDeleteConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Delete", role: .destructive) {
+                guard let job else { return }
+                Task {
+                    isDeleting = true
+                    try? await model.deleteScheduledJob(id: job.id)
+                    isDeleting = false
+                    dismiss()
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This scheduled task will be permanently removed. This can't be undone.")
+        }
     }
 
     private var editorHeader: some View {
@@ -386,6 +406,13 @@ private struct ModernScheduledJobEditorSheet: View {
             Spacer()
             if let job {
                 Text(job.id).font(.caption.monospaced()).foregroundStyle(WeeTheme.textMuted)
+                Button(role: .destructive) {
+                    showDeleteConfirmation = true
+                } label: {
+                    Label(isDeleting ? "Deleting…" : "Delete", systemImage: "trash")
+                }
+                .buttonStyle(WeeGhostButtonStyle())
+                .disabled(isDeleting)
             }
             Button("Cancel") { dismiss() }
                 .buttonStyle(WeeGhostButtonStyle())
@@ -1034,48 +1061,190 @@ private struct ScheduledJobRow: View {
     }
 }
 
+/// Issue #24: a larger detail view with full launch metadata and a
+/// best-effort live log — polls GET .../logs every few seconds while the
+/// task is still running/queued, since the API has no push/streaming
+/// channel for background task output. Metadata is limited to what the
+/// backend's detail endpoint actually returns today; it doesn't include
+/// timeout or requesting identity/channel, and adding those is a backend
+/// (Wee-Orchestrator API) change outside this client's repo.
 private struct TaskDetailView: View {
+    @Bindable var model: WeeAppModel
     let detail: BackgroundTaskDetail
+
+    @State private var liveOutputLines: [String]?
+    @State private var liveStatus: String?
+    @State private var isLive = false
+
+    private var displayedStatus: String { liveStatus ?? detail.status }
+    private var displayedOutput: [String] { liveOutputLines ?? detail.recentOutput ?? [] }
 
     var body: some View {
         ZStack {
             WeeBackground()
-            ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
-                    HStack {
-                        StatusPill(text: detail.status, color: detail.status == "failed" ? WeeTheme.danger : WeeTheme.accent)
-                        Spacer()
-                        Text(detail.taskID)
-                            .font(.caption.monospaced())
-                            .foregroundStyle(WeeTheme.textMuted)
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 16) {
+                        header
+                        promptSection
+                        metadataGrid
+                        if let error = detail.error {
+                            Text(error)
+                                .font(.subheadline)
+                                .foregroundStyle(WeeTheme.danger)
+                                .textSelection(.enabled)
+                        }
+                        logsSection
+                            .id("logsBottom")
                     }
-
-                    Text(detail.prompt)
-                        .font(.headline)
-                        .foregroundStyle(WeeTheme.textPrimary)
-
-                    if let error = detail.error {
-                        Text(error)
-                            .font(.subheadline)
-                            .foregroundStyle(WeeTheme.danger)
-                    }
-
-                    if let output = detail.recentOutput, !output.isEmpty {
-                        Text(output.joined(separator: "\n"))
-                            .font(.caption.monospaced())
-                            .foregroundStyle(WeeTheme.textSecondary)
-                            .textSelection(.enabled)
-                            .padding(12)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(WeeTheme.sunken, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-                    }
+                    .padding(20)
+                    .glassPanel()
+                    .padding(20)
                 }
-                .padding(18)
-                .glassPanel()
-                .padding(18)
+                .onChange(of: displayedOutput.count) {
+                    withAnimation(.snappy) { proxy.scrollTo("logsBottom", anchor: .bottom) }
+                }
             }
         }
         .preferredColorScheme(.dark)
+        .task { await pollLogsWhileActive() }
+    }
+
+    private var header: some View {
+        HStack(spacing: 10) {
+            StatusPill(text: displayedStatus, color: statusColor, symbol: statusSymbol)
+            if isLive {
+                HStack(spacing: 4) {
+                    Circle().fill(WeeTheme.emerald).frame(width: 6, height: 6)
+                    Text("LIVE").font(.system(size: 9, weight: .bold)).tracking(0.6)
+                }
+                .foregroundStyle(WeeTheme.emerald)
+            }
+            Spacer()
+            Text(detail.taskID)
+                .font(.caption.monospaced())
+                .foregroundStyle(WeeTheme.textMuted)
+                .textSelection(.enabled)
+        }
+    }
+
+    private var promptSection: some View {
+        Text(detail.prompt)
+            .font(.headline)
+            .foregroundStyle(WeeTheme.textPrimary)
+            .textSelection(.enabled)
+    }
+
+    private var metadataGrid: some View {
+        LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], alignment: .leading, spacing: 10) {
+            MetadataRow(label: "Agent", value: detail.agent)
+            MetadataRow(label: "Session", value: detail.sessionID ?? "—")
+            MetadataRow(label: "Runtime", value: detail.actualRuntime ?? detail.runtime ?? "—")
+            MetadataRow(label: "Model", value: detail.actualModel ?? detail.model ?? "—")
+            if detail.usedFallback == true {
+                MetadataRow(label: "Fallback runtime", value: detail.fallbackRuntime ?? "—")
+                MetadataRow(label: "Fallback model", value: detail.fallbackModel ?? "—")
+            }
+            MetadataRow(label: "Started", value: formattedDate(detail.createdAt))
+            MetadataRow(label: "Completed", value: formattedDate(detail.completedAt) ?? (isActiveStatus(displayedStatus) ? "In progress" : "—"))
+            if let pid = detail.pid, pid > 0 {
+                MetadataRow(label: "PID", value: "\(pid)")
+            }
+            if let count = detail.toolCallCount {
+                MetadataRow(label: "Tool calls", value: "\(count)")
+            }
+        }
+        .padding(12)
+        .background(WeeTheme.sunken, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+    }
+
+    private var logsSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("LOGS")
+                .font(.system(size: 9, weight: .bold))
+                .tracking(1)
+                .foregroundStyle(WeeTheme.textMuted)
+
+            if displayedOutput.isEmpty {
+                Text("No output yet.")
+                    .font(.caption)
+                    .foregroundStyle(WeeTheme.textMuted)
+                    .padding(12)
+            } else {
+                Text(displayedOutput.joined(separator: "\n"))
+                    .font(.caption.monospaced())
+                    .foregroundStyle(WeeTheme.textSecondary)
+                    .textSelection(.enabled)
+                    .padding(12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(WeeTheme.sunken, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+    }
+
+    private func isActiveStatus(_ status: String) -> Bool {
+        status == "running" || status == "queued"
+    }
+
+    private func pollLogsWhileActive() async {
+        guard isActiveStatus(detail.status) else { return }
+        isLive = true
+        defer { isLive = false }
+        while !Task.isCancelled {
+            if let logs = try? await model.client.backgroundTaskLogs(id: detail.taskID) {
+                liveOutputLines = logs.outputLines
+                liveStatus = logs.status
+                if !isActiveStatus(logs.status) { break }
+            }
+            try? await Task.sleep(for: .seconds(3))
+        }
+    }
+
+    private func formattedDate(_ raw: String?) -> String? {
+        guard let date = BackgroundTaskOrdering.date(from: raw) else { return nil }
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .medium
+        return formatter.string(from: date)
+    }
+
+    private var statusColor: Color {
+        switch displayedStatus {
+        case "running": WeeTheme.accent
+        case "queued": WeeTheme.gold
+        case "failed": WeeTheme.danger
+        default: WeeTheme.emerald
+        }
+    }
+
+    private var statusSymbol: String {
+        switch displayedStatus {
+        case "running": "bolt.fill"
+        case "queued": "clock.fill"
+        case "failed": "xmark.octagon.fill"
+        default: "checkmark.circle.fill"
+        }
+    }
+}
+
+private struct MetadataRow: View {
+    let label: String
+    let value: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(label.uppercased())
+                .font(.system(size: 9, weight: .bold))
+                .tracking(0.6)
+                .foregroundStyle(WeeTheme.textMuted)
+            Text(value ?? "—")
+                .font(.caption.weight(.medium))
+                .foregroundStyle(WeeTheme.textPrimary)
+                .textSelection(.enabled)
+                .lineLimit(1)
+                .truncationMode(.middle)
+        }
     }
 }
 

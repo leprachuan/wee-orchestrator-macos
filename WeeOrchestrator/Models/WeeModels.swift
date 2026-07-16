@@ -995,7 +995,7 @@ enum BackgroundTaskOrdering {
             .map(\.element)
     }
 
-    private static func date(from value: String?) -> Date? {
+    static func date(from value: String?) -> Date? {
         guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else { return nil }
 
         let formatter = ISO8601DateFormatter()
@@ -1015,11 +1015,17 @@ struct BackgroundTaskDetail: Decodable, Identifiable {
     let model: String?
     let prompt: String
     let status: String
+    let pid: Int?
     let createdAt: String?
     let completedAt: String?
     let recentOutput: [String]?
     let error: String?
     let toolCallCount: Int?
+    let usedFallback: Bool?
+    let actualRuntime: String?
+    let actualModel: String?
+    let fallbackRuntime: String?
+    let fallbackModel: String?
 
     enum CodingKeys: String, CodingKey {
         case taskID = "task_id"
@@ -1029,11 +1035,32 @@ struct BackgroundTaskDetail: Decodable, Identifiable {
         case model
         case prompt
         case status
+        case pid
         case createdAt = "created_at"
         case completedAt = "completed_at"
         case recentOutput = "recent_output"
         case error
         case toolCallCount = "tool_call_count"
+        case usedFallback = "used_fallback"
+        case actualRuntime = "actual_runtime"
+        case actualModel = "actual_model"
+        case fallbackRuntime = "fallback_runtime"
+        case fallbackModel = "fallback_model"
+    }
+}
+
+/// Issue #24: powers a lightweight live-log poll while the task detail modal
+/// is open. The backend's /logs endpoint returns the full (unclipped)
+/// output_lines, unlike the main detail endpoint's last-50 slice.
+struct BackgroundTaskLogs: Decodable {
+    let status: String
+    let outputLines: [String]
+    let error: String?
+
+    enum CodingKeys: String, CodingKey {
+        case status
+        case outputLines = "output_lines"
+        case error
     }
 }
 

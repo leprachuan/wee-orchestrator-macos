@@ -274,6 +274,7 @@ final class WeeAppModel {
     var remoteSSHStatus = ""
     var remoteSSHOutput = ""
     var isRemoteSSHWorking = false
+    var userAvatarImagePath = ""
     var health: HealthResponse?
     var appConfig: AppConfigResponse?
     var agents: [AgentSummary] = []
@@ -382,6 +383,7 @@ final class WeeAppModel {
         remoteSSHKeyPath = defaults.string(forKey: "wee.remoteSSH.keyPath") ?? ""
         remoteSSHRepositoryURL = defaults.string(forKey: "wee.remoteSSH.repositoryURL") ?? remoteSSHRepositoryURL
         remoteSSHCheckoutDirectory = defaults.string(forKey: "wee.remoteSSH.checkoutDirectory") ?? remoteSSHCheckoutDirectory
+        userAvatarImagePath = defaults.string(forKey: "wee.userAvatarImagePath") ?? ""
     }
 
     var client: WeeAPIClient {
@@ -438,6 +440,42 @@ final class WeeAppModel {
         let clamped = min(max(index, 0), Self.textSizeSteps.count - 1)
         appTextSize = Self.textSizeSteps[clamped]
         defaults.set(clamped, forKey: "wee.appTextSize")
+    }
+
+    /// Issue #25: user avatar bubble. Stored as a copied file under
+    /// Application Support (not the original picked URL, which may be a
+    /// sandboxed/temporary security-scoped location) with only the resolved
+    /// path persisted — never the image data itself — in UserDefaults.
+    var userAvatarImage: NSImage? {
+        guard !userAvatarImagePath.isEmpty else { return nil }
+        return NSImage(contentsOfFile: userAvatarImagePath)
+    }
+
+    func setUserAvatarImage(from sourceURL: URL) {
+        let fileManager = FileManager.default
+        guard let directory = try? fileManager.url(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask,
+            appropriateFor: nil,
+            create: true
+        ).appendingPathComponent("WeeOrchestrator", isDirectory: true) else { return }
+        try? fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+
+        let ext = sourceURL.pathExtension.isEmpty ? "png" : sourceURL.pathExtension
+        let destination = directory.appendingPathComponent("user-avatar.\(ext)")
+        try? fileManager.removeItem(at: destination)
+        guard (try? fileManager.copyItem(at: sourceURL, to: destination)) != nil else { return }
+
+        userAvatarImagePath = destination.path
+        defaults.set(destination.path, forKey: "wee.userAvatarImagePath")
+    }
+
+    func clearUserAvatarImage() {
+        if !userAvatarImagePath.isEmpty {
+            try? FileManager.default.removeItem(atPath: userAvatarImagePath)
+        }
+        userAvatarImagePath = ""
+        defaults.removeObject(forKey: "wee.userAvatarImagePath")
     }
 
     func setKanbanEnabled(_ enabled: Bool) {
@@ -2515,6 +2553,13 @@ final class WeeAppModel {
         }
         await loadScheduledJobs()
         schedulerStatusMessage = id == nil ? "Scheduled task created." : "Scheduled task updated."
+    }
+
+    /// Issue #26.
+    func deleteScheduledJob(id: String) async throws {
+        try await client.deleteScheduledJob(id: id)
+        await loadScheduledJobs()
+        schedulerStatusMessage = "Scheduled task deleted."
     }
 
     func loadKanbanBoard() async {

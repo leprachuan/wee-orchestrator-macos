@@ -31,6 +31,7 @@ struct SettingsView: View {
     @State private var showPullConfirmation = false
     @State private var localCatalogRuntime = "claude"
     @State private var localCatalogModelText = ""
+    @State private var showAvatarPicker = false
 
     private let runtimeFallbacks = ["copilot", "copilot-sdk", "claude", "claude-sdk", "gemini", "opencode", "codex", "devin"]
 
@@ -156,6 +157,48 @@ struct SettingsView: View {
                 }
                 .buttonStyle(WeeGhostButtonStyle())
                 .disabled(model.textSizeLabel == "Default")
+            }
+
+            Divider().overlay(WeeTheme.divider)
+
+            HStack(spacing: 12) {
+                Text("Your avatar")
+                    .font(.subheadline)
+                    .foregroundStyle(WeeTheme.textPrimary)
+
+                Spacer()
+
+                Group {
+                    if let image = model.userAvatarImage {
+                        Image(nsImage: image)
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                    } else {
+                        Image(systemName: "person.crop.circle.fill")
+                            .resizable()
+                            .foregroundStyle(WeeTheme.textSecondary)
+                    }
+                }
+                .frame(width: 28, height: 28)
+                .clipShape(Circle())
+                .overlay(Circle().stroke(WeeTheme.glassStroke))
+
+                Button("Choose Image…") {
+                    showAvatarPicker = true
+                }
+                .buttonStyle(WeeGhostButtonStyle())
+
+                if model.userAvatarImage != nil {
+                    Button("Remove") {
+                        model.clearUserAvatarImage()
+                    }
+                    .buttonStyle(WeeGhostButtonStyle())
+                }
+            }
+        }
+        .fileImporter(isPresented: $showAvatarPicker, allowedContentTypes: [.image]) { result in
+            if case .success(let url) = result {
+                model.setUserAvatarImage(from: url)
             }
         }
     }
