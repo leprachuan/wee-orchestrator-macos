@@ -393,15 +393,15 @@ private struct ModernScheduledJobEditorSheet: View {
     private var editorHeader: some View {
         HStack(spacing: 12) {
             Image(systemName: job == nil ? "calendar.badge.plus" : "calendar.badge.clock")
-                .font(.system(size: 17, weight: .semibold))
+                .weeFont(size: 17, weight: .semibold)
                 .foregroundStyle(WeeTheme.accent)
                 .frame(width: 36, height: 36)
                 .background(WeeTheme.accent.opacity(0.13), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
             VStack(alignment: .leading, spacing: 2) {
                 Text(job == nil ? "NEW SCHEDULED TASK" : "EDIT SCHEDULED TASK")
-                    .font(.system(size: 9, weight: .bold)).tracking(1).foregroundStyle(WeeTheme.textMuted)
+                    .weeFont(size: 9, weight: .bold).tracking(1).foregroundStyle(WeeTheme.textMuted)
                 Text(name.isEmpty ? "Untitled schedule" : name)
-                    .font(.system(size: 18, weight: .bold)).foregroundStyle(WeeTheme.textPrimary).lineLimit(1)
+                    .weeFont(size: 18, weight: .bold).foregroundStyle(WeeTheme.textPrimary).lineLimit(1)
             }
             Spacer()
             if let job {
@@ -864,7 +864,7 @@ private struct SchedulerEditorField<Content: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
             Text(title.uppercased())
-                .font(.system(size: 9, weight: .bold)).tracking(0.8).foregroundStyle(WeeTheme.textMuted)
+                .weeFont(size: 9, weight: .bold).tracking(0.8).foregroundStyle(WeeTheme.textMuted)
             content
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -1116,7 +1116,7 @@ private struct TaskDetailView: View {
             if isLive {
                 HStack(spacing: 4) {
                     Circle().fill(WeeTheme.emerald).frame(width: 6, height: 6)
-                    Text("LIVE").font(.system(size: 9, weight: .bold)).tracking(0.6)
+                    Text("LIVE").weeFont(size: 9, weight: .bold).tracking(0.6)
                 }
                 .foregroundStyle(WeeTheme.emerald)
             }
@@ -1161,7 +1161,7 @@ private struct TaskDetailView: View {
     private var logsSection: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("LOGS")
-                .font(.system(size: 9, weight: .bold))
+                .weeFont(size: 9, weight: .bold)
                 .tracking(1)
                 .foregroundStyle(WeeTheme.textMuted)
 
@@ -1235,7 +1235,7 @@ private struct MetadataRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(label.uppercased())
-                .font(.system(size: 9, weight: .bold))
+                .weeFont(size: 9, weight: .bold)
                 .tracking(0.6)
                 .foregroundStyle(WeeTheme.textMuted)
             Text(value ?? "—")

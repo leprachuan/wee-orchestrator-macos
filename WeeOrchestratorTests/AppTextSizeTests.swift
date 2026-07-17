@@ -3,6 +3,11 @@ import XCTest
 
 @MainActor
 final class AppTextSizeTests: XCTestCase {
+    override func setUp() {
+        super.setUp()
+        UserDefaults.standard.removeObject(forKey: "wee.appTextSize")
+    }
+
     override func tearDown() {
         UserDefaults.standard.removeObject(forKey: "wee.appTextSize")
         super.tearDown()
@@ -38,5 +43,23 @@ final class AppTextSizeTests: XCTestCase {
 
         let reloaded = WeeAppModel()
         XCTAssertEqual(reloaded.appTextSize, expected)
+    }
+
+    func testTypographyScaleChangesAtEachSupportedExtreme() {
+        XCTAssertEqual(WeeTypography.scale(for: .large), 1.0, accuracy: 0.001)
+        XCTAssertLessThan(WeeTypography.scale(for: .xSmall), 1.0)
+        XCTAssertGreaterThan(WeeTypography.scale(for: .xxxLarge), 1.0)
+        XCTAssertGreaterThan(
+            WeeTypography.scale(for: .xxxLarge),
+            WeeTypography.scale(for: .xLarge)
+        )
+    }
+
+    func testSemanticTextStylesUseTheSharedTextSizeScale() {
+        let bodySize = WeeTypography.pointSize(for: .body)
+        let captionSize = WeeTypography.pointSize(for: .caption)
+
+        XCTAssertGreaterThan(bodySize * WeeTypography.scale(for: .xxxLarge), bodySize)
+        XCTAssertLessThan(captionSize * WeeTypography.scale(for: .xSmall), captionSize)
     }
 }

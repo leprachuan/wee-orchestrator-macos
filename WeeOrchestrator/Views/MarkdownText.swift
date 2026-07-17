@@ -280,8 +280,9 @@ struct MarkdownText: View {
                 .textSelection(.enabled)
 
         case .heading(let level, let text):
+            let style = headingStyle(level)
             renderInline(stripImageSyntax(text))
-                .font(headingFont(level))
+                .weeFont(style.style, weight: style.weight)
                 .padding(.top, level <= 2 ? 4 : 2)
 
         case .list(let items, let ordered):
@@ -321,19 +322,19 @@ struct MarkdownText: View {
         }
     }
 
-    private func headingFont(_ level: Int) -> Font {
+    private func headingStyle(_ level: Int) -> (style: Font.TextStyle, weight: Font.Weight) {
         switch level {
-        case 1: return .title3.bold()
-        case 2: return .headline
-        case 3: return .subheadline.bold()
-        default: return .body.bold()
+        case 1: return (.title3, .bold)
+        case 2: return (.headline, .regular)
+        case 3: return (.subheadline, .bold)
+        default: return (.body, .bold)
         }
     }
 
     private func listRow(_ item: ListItem, index: Int, ordered: Bool) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             Text(listMarker(item, index: index, ordered: ordered))
-                .font(.body)
+                .weeFont(.body)
                 .foregroundStyle(WeeTheme.textMuted)
                 .frame(width: item.checked == nil && !ordered ? 10 : 24, alignment: .trailing)
             renderInline(stripImageSyntax(item.text))
@@ -353,14 +354,14 @@ struct MarkdownText: View {
         VStack(alignment: .leading, spacing: 0) {
             if !language.isEmpty {
                 Text(language)
-                    .font(.caption.weight(.semibold))
+                    .weeFont(.caption, weight: .semibold)
                     .foregroundStyle(WeeTheme.textMuted)
                     .padding(.horizontal, 10)
                     .padding(.top, 8)
             }
             ScrollView(.horizontal) {
                 Text(content)
-                    .font(.system(.callout, design: .monospaced))
+                    .weeFont(.callout, design: .monospaced)
                     .foregroundStyle(WeeTheme.textPrimary)
                     .textSelection(.enabled)
                     .padding(10)
@@ -391,7 +392,7 @@ struct MarkdownText: View {
         HStack(alignment: .top, spacing: 0) {
             ForEach(0..<columnCount, id: \.self) { column in
                 renderInline(column < cells.count ? cells[column] : "")
-                    .font(isHeader ? .caption.bold() : .caption)
+                    .weeFont(.caption, weight: isHeader ? .bold : .regular)
                     .frame(minWidth: 120, maxWidth: 260, alignment: .leading)
                     .padding(8)
                     .background(isHeader ? Color.white.opacity(0.08) : Color.clear)
@@ -415,7 +416,7 @@ struct MarkdownText: View {
                 HStack(spacing: 6) {
                     Image(systemName: "photo.badge.exclamationmark")
                     Text(alt.isEmpty ? "Image failed to load" : alt)
-                        .font(.caption)
+                        .weeFont(.caption)
                 }
                 .foregroundStyle(WeeTheme.textMuted)
                 .padding(8)
@@ -425,7 +426,7 @@ struct MarkdownText: View {
                     ProgressView()
                         .controlSize(.small)
                     Text(alt.isEmpty ? "Loading image..." : alt)
-                        .font(.caption)
+                        .weeFont(.caption)
                         .foregroundStyle(WeeTheme.textMuted)
                 }
                 .padding(8)
@@ -437,15 +438,15 @@ struct MarkdownText: View {
         text.replacing(Self.imagePattern, with: { match in String(match.1) })
     }
 
-    private func renderInline(_ text: String) -> Text {
+    private func renderInline(_ text: String) -> some View {
         let cleaned = stripImageSyntax(text)
         if let attributed = try? AttributedString(markdown: cleaned, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)) {
             return Text(attributed)
-                .font(.body)
+                .weeFont(.body)
                 .foregroundColor(WeeTheme.textPrimary)
         }
         return Text(cleaned)
-            .font(.body)
+            .weeFont(.body)
             .foregroundColor(WeeTheme.textPrimary)
     }
 }

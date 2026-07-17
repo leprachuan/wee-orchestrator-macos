@@ -22,6 +22,78 @@ enum WeeTheme {
     static let sunken = Color.black.opacity(0.24)
 }
 
+/// Fixed-point fonts do not respond to SwiftUI's Dynamic Type environment on
+/// macOS. Use this scale for the app's compact desktop typography so the
+/// Appearance text-size control has a visible, consistent effect.
+enum WeeTypography {
+    static func scale(for size: DynamicTypeSize) -> CGFloat {
+        switch size {
+        case .xSmall: 0.80
+        case .small: 0.90
+        case .medium: 0.95
+        case .large: 1.00
+        case .xLarge: 1.15
+        case .xxLarge: 1.30
+        case .xxxLarge: 1.45
+        default: 1.00
+        }
+    }
+
+    static func pointSize(for style: Font.TextStyle) -> CGFloat {
+        switch style {
+        case .largeTitle: 26
+        case .title: 22
+        case .title2: 20
+        case .title3: 18
+        case .headline: 13
+        case .subheadline: 12
+        case .body: 13
+        case .callout: 12
+        case .footnote: 11
+        case .caption: 11
+        case .caption2: 10
+        @unknown default: 13
+        }
+    }
+}
+
+private struct WeeScalableFont: ViewModifier {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+    let size: CGFloat
+    let weight: Font.Weight
+    let design: Font.Design
+
+    func body(content: Content) -> some View {
+        content.font(.system(
+            size: size * WeeTypography.scale(for: dynamicTypeSize),
+            weight: weight,
+            design: design
+        ))
+    }
+}
+
+extension View {
+    func weeFont(
+        size: CGFloat,
+        weight: Font.Weight = .regular,
+        design: Font.Design = .default
+    ) -> some View {
+        modifier(WeeScalableFont(size: size, weight: weight, design: design))
+    }
+
+    /// The macOS desktop client uses a persisted in-app text-size preference,
+    /// not the system-wide accessibility setting. Apply semantic typography
+    /// through this modifier so it participates in that preference too.
+    func weeFont(
+        _ style: Font.TextStyle,
+        weight: Font.Weight = .regular,
+        design: Font.Design = .default
+    ) -> some View {
+        weeFont(size: WeeTypography.pointSize(for: style), weight: weight, design: design)
+    }
+}
+
 struct WeeBackground: View {
     var body: some View {
         WeeTheme.background.ignoresSafeArea()
@@ -60,10 +132,10 @@ struct StatusPill: View {
         HStack(spacing: 4) {
             if let symbol {
                 Image(systemName: symbol)
-                    .font(.system(size: 9, weight: .bold))
+                    .weeFont(size: 9, weight: .bold)
             }
             Text(text)
-                .font(.system(size: 10.5, weight: .semibold))
+                .weeFont(size: 10.5, weight: .semibold)
                 .lineLimit(1)
         }
         .foregroundStyle(color)
@@ -83,14 +155,14 @@ struct PageHeader<Actions: View>: View {
     var body: some View {
         HStack(spacing: 12) {
             Image(systemName: symbol)
-                .font(.system(size: 15, weight: .semibold))
+                .weeFont(size: 15, weight: .semibold)
                 .foregroundStyle(WeeTheme.accent)
                 .frame(width: 32, height: 32)
                 .background(WeeTheme.accent.opacity(0.12), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
-                    .font(.system(size: 17, weight: .bold))
+                    .weeFont(size: 17, weight: .bold)
                     .foregroundStyle(WeeTheme.textPrimary)
                 Text(subtitle)
                     .font(.caption)
@@ -110,7 +182,7 @@ struct PageHeader<Actions: View>: View {
 struct CompactIconButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.system(size: 12, weight: .semibold))
+            .weeFont(size: 12, weight: .semibold)
             .foregroundStyle(configuration.isPressed ? WeeTheme.textPrimary : WeeTheme.textSecondary)
             .frame(minWidth: 28, minHeight: 28)
             .background(configuration.isPressed ? WeeTheme.surfaceHover : WeeTheme.surfaceRaised, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
@@ -140,7 +212,7 @@ struct RuntimeIconView: View {
                 .frame(width: size, height: size).opacity(0.9)
         } else {
             Image(systemName: "server.rack")
-                .font(.system(size: size * 0.7)).frame(width: size, height: size).opacity(0.9)
+                .weeFont(size: size * 0.7).frame(width: size, height: size).opacity(0.9)
         }
     }
 }

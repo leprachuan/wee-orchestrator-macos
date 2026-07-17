@@ -118,12 +118,12 @@ struct ContentView: View {
                 Text("\(model.activeEnvironment.title) API")
                 Spacer()
                 Image(systemName: "chevron.up.chevron.down")
-                    .font(.system(size: 8, weight: .bold))
+                    .weeFont(size: 8, weight: .bold)
                     .foregroundStyle(WeeTheme.textMuted)
                 Text(model.agents.count.description)
                     .foregroundStyle(WeeTheme.accent)
             }
-            .font(.caption2.weight(.semibold))
+            .weeFont(.caption2, weight: .semibold)
             .foregroundStyle(WeeTheme.textSecondary)
             .contentShape(Rectangle())
         }
@@ -160,10 +160,10 @@ struct ContentView: View {
 
                 VStack(alignment: .leading, spacing: 0) {
                     Text("WEE")
-                        .font(.system(size: 14, weight: .black, design: .rounded))
+                        .weeFont(size: 14, weight: .black, design: .rounded)
                         .foregroundStyle(WeeTheme.textPrimary)
                     Text("ORCHESTRATOR")
-                        .font(.system(size: 8, weight: .bold))
+                        .weeFont(size: 8, weight: .bold)
                         .tracking(1.1)
                         .foregroundStyle(WeeTheme.textMuted)
                 }
@@ -173,7 +173,7 @@ struct ContentView: View {
             .padding(.bottom, 18)
 
             Text("WORKSPACE")
-                .font(.system(size: 9, weight: .bold))
+                .weeFont(size: 9, weight: .bold)
                 .tracking(1.2)
                 .foregroundStyle(WeeTheme.textMuted)
                 .padding(.horizontal, 14)
@@ -195,7 +195,7 @@ struct ContentView: View {
                         .frame(width: 7, height: 7)
                         .shadow(color: (isHealthy ? WeeTheme.emerald : WeeTheme.gold).opacity(0.5), radius: 4)
                     Text(isHealthy ? "System online" : "Connection pending")
-                        .font(.caption.weight(.semibold))
+                        .weeFont(.caption, weight: .semibold)
                         .foregroundStyle(WeeTheme.textPrimary)
                 }
 
@@ -203,7 +203,7 @@ struct ContentView: View {
 
                 HStack {
                     Text(model.health?.environment ?? model.appConfig?.appEnv ?? "Not connected")
-                        .font(.caption2)
+                        .weeFont(.caption2)
                         .foregroundStyle(WeeTheme.textMuted)
                         .lineLimit(1)
                     Spacer()
@@ -249,18 +249,18 @@ struct ContentView: View {
         } label: {
             HStack(spacing: 10) {
                 Image(systemName: section.symbol)
-                    .font(.system(size: 13, weight: .semibold))
+                    .weeFont(size: 13, weight: .semibold)
                     .frame(width: 18)
                     .foregroundStyle(selectedSection == section ? WeeTheme.accent : WeeTheme.textSecondary)
 
                 VStack(alignment: .leading, spacing: 1) {
                     Text(section.title)
-                        .font(.system(size: 13, weight: .semibold))
+                        .weeFont(size: 13, weight: .semibold)
                         .foregroundStyle(selectedSection == section ? WeeTheme.textPrimary : WeeTheme.textSecondary)
                         .lineLimit(1)
                         .minimumScaleFactor(0.82)
                     Text(section.eyebrow)
-                        .font(.system(size: 8, weight: .bold))
+                        .weeFont(size: 8, weight: .bold)
                         .tracking(0.7)
                         .foregroundStyle(WeeTheme.textMuted)
                 }
@@ -268,7 +268,7 @@ struct ContentView: View {
                 Spacer(minLength: 4)
                 if badgeCount(for: section) > 0 {
                     Text("\(badgeCount(for: section))")
-                        .font(.system(size: 9, weight: .bold))
+                        .weeFont(size: 9, weight: .bold)
                         .foregroundStyle(section == .kanban ? WeeTheme.gold : WeeTheme.accent)
                         .padding(.horizontal, 5)
                         .padding(.vertical, 2)
@@ -328,18 +328,18 @@ private struct AppUpdateModal: View {
     var body: some View {
         VStack(spacing: 18) {
             Image(systemName: "arrow.down.app.fill")
-                .font(.system(size: 34))
+                .weeFont(size: 34)
                 .foregroundStyle(WeeTheme.accent)
                 .frame(width: 60, height: 60)
                 .background(WeeTheme.accent.opacity(0.15), in: Circle())
 
             VStack(spacing: 6) {
                 Text("Wee Orchestrator \(update.version.description) is available")
-                    .font(.title3.weight(.bold))
+                    .weeFont(.title3, weight: .bold)
                     .foregroundStyle(WeeTheme.textPrimary)
                     .multilineTextAlignment(.center)
                 Text(model.appUpdateStatus ?? "Download, verify, install, and relaunch in one step.")
-                    .font(.subheadline)
+                    .weeFont(.subheadline)
                     .foregroundStyle(WeeTheme.textSecondary)
                     .multilineTextAlignment(.center)
             }

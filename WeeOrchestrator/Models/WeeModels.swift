@@ -1170,12 +1170,35 @@ struct SessionStatusResponse: Decodable {
     let agent: String?
     let runtime: String?
     let model: String?
+    let contextUsage: SessionContextUsage?
 
     enum CodingKeys: String, CodingKey {
         case sessionID = "session_id"
         case agent
         case runtime
         case model
+        case contextUsage = "context_usage"
+    }
+}
+
+struct SessionContextUsage: Decodable, Equatable {
+    let runtime: String?
+    let model: String?
+    let contextWindow: Int
+    let currentContextTokens: Int
+    let percentUsed: Double?
+    let compactionTriggerTokens: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case runtime, model
+        case contextWindow = "context_window"
+        case currentContextTokens = "current_context_tokens"
+        case percentUsed = "percent_used"
+        case compactionTriggerTokens = "compaction_trigger_tokens"
+    }
+
+    var progress: Double {
+        min(1, max(0, percentUsed.map { $0 / 100 } ?? Double(currentContextTokens) / Double(max(contextWindow, 1))))
     }
 }
 

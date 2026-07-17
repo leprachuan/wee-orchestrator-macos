@@ -124,7 +124,7 @@ struct SettingsView: View {
         SettingsSectionBox(title: "Appearance", systemImage: "textformat.size") {
             HStack(spacing: 12) {
                 Text("Text size")
-                    .font(.subheadline)
+                    .weeFont(.subheadline)
                     .foregroundStyle(WeeTheme.textPrimary)
 
                 Spacer()
@@ -139,7 +139,7 @@ struct SettingsView: View {
                 .help("Decrease text size")
 
                 Text(model.textSizeLabel)
-                    .font(.caption.weight(.semibold))
+                    .weeFont(.caption, weight: .semibold)
                     .foregroundStyle(WeeTheme.textSecondary)
                     .frame(width: 64)
 
@@ -163,7 +163,7 @@ struct SettingsView: View {
 
             HStack(spacing: 12) {
                 Text("Your avatar")
-                    .font(.subheadline)
+                    .weeFont(.subheadline)
                     .foregroundStyle(WeeTheme.textPrimary)
 
                 Spacer()
@@ -247,7 +247,7 @@ struct SettingsView: View {
 
             if let testResult {
                 Text(testResult)
-                    .font(.caption)
+                    .weeFont(.caption)
                     .foregroundStyle(testResult == "Connected" || testResult == "Saved" ? WeeTheme.accent : WeeTheme.danger)
             }
         }
@@ -262,7 +262,7 @@ struct SettingsView: View {
                     symbol: model.isLocalServiceRunning ? "play.circle.fill" : "stop.circle"
                 )
                 Text(model.localServiceStatus)
-                    .font(.caption)
+                    .weeFont(.caption)
                     .foregroundStyle(WeeTheme.textSecondary)
                     .lineLimit(1)
             }
@@ -313,7 +313,7 @@ struct SettingsView: View {
                 DisclosureGroup("Recent service output") {
                     ScrollView {
                         Text(model.localServiceLog)
-                            .font(.system(.caption, design: .monospaced))
+                            .weeFont(.caption, design: .monospaced)
                             .foregroundStyle(WeeTheme.textSecondary)
                             .textSelection(.enabled)
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -325,7 +325,7 @@ struct SettingsView: View {
             }
 
             Text("The local service runs only the executable and arguments configured above. It is never enabled automatically unless you opt in.")
-                .font(.caption)
+                .weeFont(.caption)
                 .foregroundStyle(WeeTheme.gold)
         }
     }
@@ -371,7 +371,7 @@ struct SettingsView: View {
             }
 
             Text("This key is stored only in this Mac’s Keychain and is passed directly to the locally managed API. Save while the service is running to restart it with the new key.")
-                .font(.caption)
+                .weeFont(.caption)
                 .foregroundStyle(WeeTheme.textMuted)
         }
     }
@@ -379,7 +379,7 @@ struct SettingsView: View {
     private var localModelCatalogSection: some View {
         SettingsSectionBox(title: "Local API Model Catalog", systemImage: "list.bullet.rectangle") {
             Text("Maintain the model options offered by this Mac’s local API. Enter one model ID per line; duplicate and blank entries are removed when you save.")
-                .font(.caption)
+                .weeFont(.caption)
                 .foregroundStyle(WeeTheme.textSecondary)
 
             Picker("Runtime", selection: $localCatalogRuntime) {
@@ -391,7 +391,7 @@ struct SettingsView: View {
             .onChange(of: localCatalogRuntime) { _, _ in loadLocalCatalogModels() }
 
             TextEditor(text: $localCatalogModelText)
-                .font(.system(.body, design: .monospaced))
+                .weeFont(.body, design: .monospaced)
                 .scrollContentBackground(.hidden)
                 .padding(8)
                 .frame(minHeight: 150)
@@ -420,12 +420,12 @@ struct SettingsView: View {
 
             if !model.localModelManifestStatus.isEmpty {
                 Text(model.localModelManifestStatus)
-                    .font(.caption)
+                    .weeFont(.caption)
                     .foregroundStyle(model.localModelManifestStatus.localizedCaseInsensitiveContains("could not") || model.localModelManifestStatus.localizedCaseInsensitiveContains("add at least") ? WeeTheme.danger : WeeTheme.textMuted)
             }
 
             Text("This edits every configured local runtime except Wee, whose catalog is discovered dynamically from Ollama and OpenRouter. It never changes the Remote API or account access.")
-                .font(.caption)
+                .weeFont(.caption)
                 .foregroundStyle(WeeTheme.textMuted)
         }
     }
@@ -442,7 +442,7 @@ struct SettingsView: View {
     private var localSourceSection: some View {
         SettingsSectionBox(title: "API Source", systemImage: "arrow.down.doc") {
             Text("Install or update the local Wee API before starting the service.")
-                .font(.caption)
+                .weeFont(.caption)
                 .foregroundStyle(WeeTheme.textSecondary)
 
             FieldRow(title: "Repository") {
@@ -477,14 +477,14 @@ struct SettingsView: View {
             }
 
             Text(model.localSourceStatus)
-                .font(.caption.weight(.semibold))
+                .weeFont(.caption, weight: .semibold)
                 .foregroundStyle(model.localSourceStatus.localizedCaseInsensitiveContains("failed") ? WeeTheme.danger : WeeTheme.textSecondary)
 
             if !model.localSourceOutput.isEmpty {
                 DisclosureGroup("Git output") {
                     ScrollView {
                         Text(model.localSourceOutput)
-                            .font(.system(.caption, design: .monospaced))
+                            .weeFont(.caption, design: .monospaced)
                             .foregroundStyle(WeeTheme.textSecondary)
                             .textSelection(.enabled)
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -500,7 +500,7 @@ struct SettingsView: View {
     private var remoteSSHDeploymentSection: some View {
         SettingsSectionBox(title: "Remote Deployment (SSH)", systemImage: "terminal") {
             Text("Install or update the Wee API on a remote Linux host over SSH. Key-based auth only — password prompts aren't supported from here.")
-                .font(.caption)
+                .weeFont(.caption)
                 .foregroundStyle(WeeTheme.textSecondary)
 
             FieldRow(title: "Host") {
@@ -542,7 +542,7 @@ struct SettingsView: View {
 
             if !model.remoteSSHStatus.isEmpty {
                 Text(model.remoteSSHStatus)
-                    .font(.caption.weight(.semibold))
+                    .weeFont(.caption, weight: .semibold)
                     .foregroundStyle(model.remoteSSHStatus.localizedCaseInsensitiveContains("failed") ? WeeTheme.danger : WeeTheme.textSecondary)
             }
 
@@ -550,7 +550,7 @@ struct SettingsView: View {
                 DisclosureGroup("SSH output") {
                     ScrollView {
                         Text(model.remoteSSHOutput)
-                            .font(.system(.caption, design: .monospaced))
+                            .weeFont(.caption, design: .monospaced)
                             .foregroundStyle(WeeTheme.textSecondary)
                             .textSelection(.enabled)
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -573,7 +573,7 @@ struct SettingsView: View {
 
             Group {
                 Text("Choose the GitHub repository whose issues are shown on this Mac's Kanban board.")
-                    .font(.caption)
+                    .weeFont(.caption)
                     .foregroundStyle(WeeTheme.textSecondary)
 
                 FieldRow(title: "Repository") {
@@ -605,19 +605,19 @@ struct SettingsView: View {
                 if !model.localKanbanEffectiveRepository.isEmpty {
                     LabeledContent("Active repository") {
                         Text(model.localKanbanEffectiveRepository)
-                            .font(.caption.monospaced())
+                            .weeFont(.caption, design: .monospaced)
                             .foregroundStyle(WeeTheme.textPrimary)
                             .textSelection(.enabled)
                     }
                 }
 
                 Text("Use `owner/repository`. Leave the field empty and save to use the Git remote from the local API checkout\(model.localKanbanFallbackRepository.isEmpty ? "." : " (currently \(model.localKanbanFallbackRepository)).")")
-                    .font(.caption)
+                    .weeFont(.caption)
                     .foregroundStyle(WeeTheme.textMuted)
 
                 if !model.localKanbanSettingsStatus.isEmpty {
                     Text(model.localKanbanSettingsStatus)
-                        .font(.caption.weight(.semibold))
+                        .weeFont(.caption, weight: .semibold)
                         .foregroundStyle(model.localKanbanSettingsStatus.localizedCaseInsensitiveContains("invalid") || model.localKanbanSettingsStatus.localizedCaseInsensitiveContains("failed") || model.localKanbanSettingsStatus.localizedCaseInsensitiveContains("error") ? WeeTheme.danger : WeeTheme.textSecondary)
                 }
             }
@@ -647,7 +647,7 @@ struct SettingsView: View {
                     symbol: connectorConfigured ? "checkmark.shield.fill" : "exclamationmark.shield"
                 )
                 Text(model.activeEnvironment.title)
-                    .font(.caption)
+                    .weeFont(.caption)
                     .foregroundStyle(WeeTheme.textMuted)
             }
 
@@ -675,12 +675,12 @@ struct SettingsView: View {
             }
 
             Text("Tokens are sent directly to the selected Wee API and stored by its secure secret store; they are never written to app preferences.")
-                .font(.caption)
+                .weeFont(.caption)
                 .foregroundStyle(WeeTheme.textMuted)
 
             if let connectorStatus {
                 Text(connectorStatus)
-                    .font(.caption)
+                    .weeFont(.caption)
                     .foregroundStyle(connectorStatus.localizedCaseInsensitiveContains("failed") ? WeeTheme.danger : WeeTheme.accent)
             }
         }
@@ -699,7 +699,7 @@ struct SettingsView: View {
             if model.isAuthenticated {
                 VStack(alignment: .leading, spacing: 8) {
                     Text(model.configuration.identity.isEmpty ? "Authenticated" : model.configuration.identity)
-                        .font(.subheadline.weight(.semibold))
+                        .weeFont(.subheadline, weight: .semibold)
                         .foregroundStyle(WeeTheme.textPrimary)
                         .lineLimit(1)
 
@@ -753,7 +753,7 @@ struct SettingsView: View {
 
             if let authStatus = model.authStatusMessage {
                 Text(authStatus)
-                    .font(.caption)
+                    .weeFont(.caption)
                     .foregroundStyle(authStatus.localizedCaseInsensitiveContains("signed in") || authStatus.localizedCaseInsensitiveContains("sent") ? WeeTheme.accent : WeeTheme.danger)
             }
         }
@@ -782,7 +782,7 @@ struct SettingsView: View {
             .padding(.top, 10)
         } label: {
             Label("Advanced Token", systemImage: "key")
-                .font(.subheadline.weight(.semibold))
+                .weeFont(.subheadline, weight: .semibold)
                 .foregroundStyle(WeeTheme.textSecondary)
         }
         .tint(WeeTheme.accent)
@@ -881,13 +881,13 @@ struct SettingsView: View {
 
             if draftAgent != originalAgent {
                 Text("Unsaved agent changes")
-                    .font(.caption.weight(.semibold))
+                    .weeFont(.caption, weight: .semibold)
                     .foregroundStyle(WeeTheme.gold)
             }
 
             if let settingsStatus {
                 Text(settingsStatus)
-                    .font(.caption)
+                    .weeFont(.caption)
                     .foregroundStyle(settingsStatusIsError ? WeeTheme.danger : WeeTheme.accent)
             }
         }
@@ -968,12 +968,12 @@ struct SettingsView: View {
                     }
 
                     Text("Changes to .env require a service restart to take effect.")
-                        .font(.caption)
+                        .weeFont(.caption)
                         .foregroundStyle(WeeTheme.gold)
 
                     if let envStatus {
                         Text(envStatus)
-                            .font(.caption)
+                            .weeFont(.caption)
                             .foregroundStyle(envStatusIsError ? WeeTheme.danger : WeeTheme.accent)
                     }
                 }
@@ -996,13 +996,13 @@ struct SettingsView: View {
 
             if let loaded = model.health?.agentsLoaded {
                 Text("\(loaded) agents loaded")
-                    .font(.caption)
+                    .weeFont(.caption)
                     .foregroundStyle(WeeTheme.textSecondary)
             }
 
             if let lastRefresh = model.lastRefresh {
                 Text(lastRefresh.formatted(date: .omitted, time: .standard))
-                    .font(.caption)
+                    .weeFont(.caption)
                     .foregroundStyle(WeeTheme.textMuted)
             }
         }
@@ -1377,7 +1377,7 @@ private struct SettingsSectionBox<Content: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Label(title, systemImage: systemImage)
-                .font(.headline.weight(.semibold))
+                .weeFont(.headline, weight: .semibold)
                 .foregroundStyle(WeeTheme.textPrimary)
 
             content
@@ -1396,7 +1396,7 @@ private struct FieldRow<Content: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
             Text(title)
-                .font(.caption.weight(.semibold))
+                .weeFont(.caption, weight: .semibold)
                 .foregroundStyle(WeeTheme.textMuted)
                 .textCase(.uppercase)
 
@@ -1419,14 +1419,14 @@ private struct TextAreaRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
             Text(title)
-                .font(.caption.weight(.semibold))
+                .weeFont(.caption, weight: .semibold)
                 .foregroundStyle(WeeTheme.textMuted)
                 .textCase(.uppercase)
 
             TextEditor(text: $text)
                 .scrollContentBackground(.hidden)
                 .foregroundStyle(WeeTheme.textPrimary)
-                .font(.system(.body, design: .monospaced))
+                .weeFont(.body, design: .monospaced)
                 .frame(minHeight: minHeight)
                 .padding(8)
                 .background(WeeTheme.sunken, in: RoundedRectangle(cornerRadius: 8, style: .continuous))

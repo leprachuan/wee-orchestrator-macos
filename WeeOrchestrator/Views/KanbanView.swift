@@ -174,7 +174,7 @@ struct KanbanView: View {
                     Image(systemName: "bell.badge.fill")
                         .foregroundStyle(WeeTheme.gold)
                     Text("DUE SOON")
-                        .font(.system(size: 9, weight: .bold))
+                        .weeFont(size: 9, weight: .bold)
                         .tracking(0.8)
                         .foregroundStyle(WeeTheme.textSecondary)
                     StatusPill(text: "\(cards.count)", color: WeeTheme.gold)
@@ -205,7 +205,7 @@ struct KanbanView: View {
                                         .foregroundStyle(dueColor(for: card))
                                         .lineLimit(1)
                                     Image(systemName: "chevron.right")
-                                        .font(.system(size: 8, weight: .bold))
+                                        .weeFont(size: 8, weight: .bold)
                                         .foregroundStyle(WeeTheme.textMuted)
                                 }
                                 .padding(.horizontal, 8)
@@ -568,7 +568,7 @@ private struct KanbanItemDetailSheet: View {
     private var modalHeader: some View {
         HStack(spacing: 12) {
             Image(systemName: "checklist")
-                .font(.system(size: 17, weight: .semibold))
+                .weeFont(size: 17, weight: .semibold)
                 .foregroundStyle(WeeTheme.accent)
                 .frame(width: 36, height: 36)
                 .background(WeeTheme.accent.opacity(0.13), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
@@ -576,7 +576,7 @@ private struct KanbanItemDetailSheet: View {
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
                     Text("KANBAN ITEM")
-                        .font(.system(size: 9, weight: .bold))
+                        .weeFont(size: 9, weight: .bold)
                         .tracking(1)
                         .foregroundStyle(WeeTheme.textMuted)
                     StatusPill(text: KanbanColumnID(rawValue: status)?.title ?? status, color: WeeTheme.accent)
@@ -585,7 +585,7 @@ private struct KanbanItemDetailSheet: View {
                     }
                 }
                 Text(title.isEmpty ? card.title : title)
-                    .font(.system(size: 18, weight: .bold))
+                    .weeFont(size: 18, weight: .bold)
                     .foregroundStyle(WeeTheme.textPrimary)
                     .lineLimit(1)
             }
@@ -797,7 +797,7 @@ private struct KanbanItemDetailSheet: View {
 
     private func editorLabel(_ text: String) -> some View {
         Text(text.uppercased())
-            .font(.system(size: 9, weight: .bold))
+            .weeFont(size: 9, weight: .bold)
             .tracking(0.8)
             .foregroundStyle(WeeTheme.textMuted)
     }

@@ -225,6 +225,7 @@ enum MacAppReleaseSelector {
 final class WeeAppModel {
     private static let localSharedKeyAccount = "local-api-shared-key"
     private static let localOpenRouterKeyAccount = "local-openrouter-api-key"
+    private static let appTextSizeKey = "wee.appTextSize"
     /// Issue #17: exposes a bounded, non-accessibility subset of
     /// DynamicTypeSize as simple "smaller/larger" steps rather than the full
     /// 12-step range, which is more control than a compact utility app needs.
@@ -295,6 +296,7 @@ final class WeeAppModel {
     var selectedModel: String = ""
     var selectedPermissionMode: String = "restricted"
     var currentSessionID: String?
+    var sessionContextUsage: SessionContextUsage?
     var isLoading = false
     var errorMessage: String?
     var lastRefresh: Date?
@@ -375,7 +377,7 @@ final class WeeAppModel {
         selectedModel = defaults.string(forKey: "wee.selectedModel") ?? ""
         selectedPermissionMode = defaults.string(forKey: "wee.selectedPermissionMode") ?? "restricted"
         kanbanEnabled = defaults.object(forKey: "wee.kanban.enabled") as? Bool ?? true
-        let storedTextSizeIndex = defaults.object(forKey: "wee.appTextSize") as? Int ?? Self.defaultTextSizeIndex
+        let storedTextSizeIndex = defaults.object(forKey: Self.appTextSizeKey) as? Int ?? Self.defaultTextSizeIndex
         appTextSize = Self.textSizeSteps.indices.contains(storedTextSizeIndex)
             ? Self.textSizeSteps[storedTextSizeIndex]
             : Self.textSizeSteps[Self.defaultTextSizeIndex]
@@ -439,7 +441,10 @@ final class WeeAppModel {
     private func setTextSizeIndex(_ index: Int) {
         let clamped = min(max(index, 0), Self.textSizeSteps.count - 1)
         appTextSize = Self.textSizeSteps[clamped]
-        defaults.set(clamped, forKey: "wee.appTextSize")
+        defaults.set(clamped, forKey: Self.appTextSizeKey)
+        // UserDefaults normally flushes asynchronously. Persist immediately so
+        // changing this control and immediately quitting the app is durable.
+        defaults.synchronize()
     }
 
     /// Issue #25: user avatar bubble. Stored as a copied file under
@@ -713,6 +718,7 @@ final class WeeAppModel {
     }
 
     func saveConfiguration() {
+        defaults.set(textSizeIndex, forKey: Self.appTextSizeKey)
         defaults.set(activeEnvironment.rawValue, forKey: "wee.activeEnvironment")
         defaults.set(remoteConfiguration.baseURLString, forKey: "wee.baseURL")
         defaults.set(remoteConfiguration.identity, forKey: "wee.identity")
@@ -1027,9 +1033,7 @@ final class WeeAppModel {
             localSourceOutput = String((localSourceOutput + output).suffix(20_000))
             knownModelContextWindows[model.name] = model.contextWindow
             await refreshOllamaStatus()
-            // The API caches Ollama discovery briefly; restart its local process
-            // so this newly downloaded model is immediately in the `wee` list.
-            if isLocalServiceRunning { restartLocalAPI() }
+            await refreshLocalWeeCatalog(afterModelChange: model.name)
         } catch {
             ollamaStatus = "Download failed: \(error.localizedDescription)"
         }
@@ -1113,7 +1117,7 @@ final class WeeAppModel {
             localSourceOutput = String((localSourceOutput + output).suffix(20_000))
             knownModelContextWindows[registryModel.fullTag] = registryModel.contextWindow
             await refreshOllamaStatus()
-            if isLocalServiceRunning { restartLocalAPI() }
+            await refreshLocalWeeCatalog(afterModelChange: registryModel.fullTag)
         } catch {
             ollamaStatus = "Download failed: \(error.localizedDescription)"
         }
@@ -1150,7 +1154,7 @@ final class WeeAppModel {
             await refreshOllamaStatus()
             localModelConfiguration.selectedModel = name
             saveConfiguration()
-            if isLocalServiceRunning { restartLocalAPI() }
+            await refreshLocalWeeCatalog(afterModelChange: name)
         } catch {
             ollamaStatus = "Download failed: \(error.localizedDescription)"
         }
@@ -1169,7 +1173,7 @@ final class WeeAppModel {
             await refreshOllamaStatus()
             // Match the download path: force the local API to drop its cached
             // Ollama inventory so the removed model stops being offered.
-            if isLocalServiceRunning { restartLocalAPI() }
+            await refreshLocalWeeCatalog(afterModelChange: model.name, shouldContainModel: false)
         } catch {
             ollamaStatus = "Remove failed: \(error.localizedDescription)"
         }
@@ -1187,7 +1191,9 @@ final class WeeAppModel {
         }
         localModelConfiguration.selectedModel = name
         saveConfiguration()
-        if isLocalServiceRunning { restartLocalAPI() }
+        Task { @MainActor [weak self] in
+            await self?.refreshLocalWeeCatalog(afterModelChange: name)
+        }
     }
 
     /// Reads a runtime's ordered model list from the local API checkout. The
@@ -1623,6 +1629,10 @@ final class WeeAppModel {
         environment["AGENT_CONFIG_FILE"] = agentsConfigurationURL.path
         environment["API_SHARED_KEY"] = localSharedKey
         environment["WEE_OLLAMA_HOST"] = "http://127.0.0.1:11434"
+        // Ollama's server default is only 4K. The Local Models screen accepts
+        // 64K+ models specifically for agentic work, so request that usable
+        // window on every completion the Local API sends to Ollama.
+        environment["WEE_OLLAMA_CONTEXT_WINDOW"] = "65536"
         let openRouterKey = localOpenRouterAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
         if !openRouterKey.isEmpty {
             environment["OPENROUTER_API_KEY"] = openRouterKey
@@ -1690,6 +1700,35 @@ final class WeeAppModel {
         Task { @MainActor [weak self] in
             try? await Task.sleep(for: .milliseconds(500))
             await self?.startLocalAPI()
+        }
+    }
+
+    /// Refreshes the chat picker after changing Ollama's local inventory.
+    /// The Local API caches Ollama discovery for a minute, so restart the
+    /// app-owned bridge, then retry until its rebuilt catalog reflects the
+    /// change. This prevents a user from needing to refresh or restart Wee.
+    private func refreshLocalWeeCatalog(afterModelChange modelName: String, shouldContainModel: Bool = true) async {
+        let normalizedRuntime = selectedRuntime.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let candidateIDs = Set([modelName, "ollama/\(modelName)"])
+
+        if isLocalServiceRunning {
+            restartLocalAPI()
+        }
+
+        guard activeEnvironment == .local, hasAuthToken, normalizedRuntime == "wee" else { return }
+
+        // Allow the replacement API process to bind its port before its first
+        // catalog request. If the bridge is externally managed, this still
+        // refreshes the visible picker once without trying to control it.
+        let attempts = isLocalServiceRunning ? 12 : 1
+        for attempt in 0..<attempts {
+            if attempt > 0 || isLocalServiceRunning {
+                try? await Task.sleep(for: .milliseconds(500))
+            }
+
+            await loadAvailableModels(for: "wee")
+            let containsModel = availableModels.contains { candidateIDs.contains($0.id) }
+            if containsModel == shouldContainModel { return }
         }
     }
 
@@ -2817,6 +2856,7 @@ final class WeeAppModel {
             if let agent = status.agent, !agent.isEmpty { selectedAgent = agent }
             if let runtime = status.runtime, !runtime.isEmpty { selectedRuntime = runtime }
             if let model = status.model, !model.isEmpty { selectedModel = model }
+            sessionContextUsage = status.contextUsage
             saveConfiguration()
         } catch {}
     }

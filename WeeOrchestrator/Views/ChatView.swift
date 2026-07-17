@@ -44,9 +44,9 @@ struct ChatView: View {
                     .overlay {
                         VStack(spacing: 8) {
                             Image(systemName: "arrow.down.doc.fill")
-                                .font(.largeTitle)
+                                .weeFont(.largeTitle)
                             Text("Drop files here")
-                                .font(.headline)
+                                .weeFont(.headline)
                         }
                         .foregroundStyle(WeeTheme.accent)
                     }
@@ -133,7 +133,7 @@ struct ChatView: View {
                     Text(voiceStatus).lineLimit(1)
                     Spacer()
                 }
-                .font(.caption.weight(.semibold))
+                .weeFont(.caption, weight: .semibold)
                 .foregroundStyle(voice.statusIsError ? WeeTheme.danger : WeeTheme.accent)
                 .padding(.horizontal, 4)
             }
@@ -164,7 +164,7 @@ struct ChatView: View {
                         }
                         if voice.isRecording {
                             Text(voice.elapsedText)
-                                .font(.caption2.monospacedDigit().weight(.semibold))
+                                .weeFont(.caption2, weight: .semibold).monospacedDigit()
                         }
                     }
                     .frame(minWidth: 20, minHeight: 20)
@@ -216,9 +216,9 @@ struct ChatView: View {
                         } else {
                             VStack(spacing: 4) {
                                 Image(systemName: "doc.fill")
-                                    .font(.title3)
+                                    .weeFont(.title3)
                                 Text(attachment.filename)
-                                    .font(.caption2)
+                                    .weeFont(.caption2)
                                     .lineLimit(1)
                             }
                             .foregroundStyle(WeeTheme.textSecondary)
@@ -230,7 +230,7 @@ struct ChatView: View {
                             pendingAttachments.removeAll { $0.id == attachment.id }
                         } label: {
                             Image(systemName: "xmark.circle.fill")
-                                .font(.caption)
+                                .weeFont(.caption)
                                 .foregroundStyle(.white)
                                 .background(Circle().fill(.black.opacity(0.6)))
                         }
@@ -387,10 +387,10 @@ private struct ChatQueuePanel: View {
                 Image(systemName: "list.bullet.rectangle.portrait.fill")
                     .foregroundStyle(WeeTheme.accent)
                 Text("Queued messages")
-                    .font(.caption.weight(.bold))
+                    .weeFont(.caption, weight: .bold)
                     .foregroundStyle(WeeTheme.textPrimary)
                 Text("\(model.currentChatQueueCount)")
-                    .font(.caption2.monospacedDigit().weight(.bold))
+                    .weeFont(.caption2, weight: .bold).monospacedDigit()
                     .foregroundStyle(WeeTheme.accent)
                     .padding(.horizontal, 6)
                     .padding(.vertical, 2)
@@ -408,33 +408,33 @@ private struct ChatQueuePanel: View {
             }
 
             Text(model.isChatQueuePaused ? "Queue paused — resume to send the next message." : "Messages send automatically when the current response completes.")
-                .font(.caption2)
+                .weeFont(.caption2)
                 .foregroundStyle(WeeTheme.textSecondary)
 
             ForEach(model.currentQueuedChatMessages) { item in
                 HStack(spacing: 8) {
                     Image(systemName: "circle")
-                        .font(.caption2)
+                        .weeFont(.caption2)
                         .foregroundStyle(WeeTheme.textMuted)
                     Text(item.text.isEmpty ? "Attached \(item.attachments.count) file(s)" : item.text)
-                        .font(.caption)
+                        .weeFont(.caption)
                         .foregroundStyle(WeeTheme.textPrimary)
                         .lineLimit(1)
                     if !item.attachments.isEmpty {
                         Image(systemName: "paperclip")
-                            .font(.caption2)
+                            .weeFont(.caption2)
                             .foregroundStyle(WeeTheme.textSecondary)
                     }
                     Spacer(minLength: 0)
                     Button("Edit") { onEdit(item) }
                         .buttonStyle(.plain)
-                        .font(.caption2.weight(.semibold))
+                        .weeFont(.caption2, weight: .semibold)
                         .foregroundStyle(WeeTheme.accent)
                     Button("Cancel") {
                         model.removeQueuedChatMessage(id: item.id)
                     }
                     .buttonStyle(.plain)
-                    .font(.caption2.weight(.semibold))
+                    .weeFont(.caption2, weight: .semibold)
                     .foregroundStyle(WeeTheme.danger)
                     .help("Cancel queued message")
                 }
@@ -457,11 +457,11 @@ private struct HeaderPanel: View {
         HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 2) {
                 Text("CHAT SESSION")
-                    .font(.system(size: 9, weight: .bold))
+                    .weeFont(size: 9, weight: .bold)
                     .tracking(1)
                     .foregroundStyle(WeeTheme.textMuted)
                 Text(model.currentSessionID ?? "New Session")
-                    .font(.system(size: 15, weight: .bold))
+                    .weeFont(size: 15, weight: .bold)
                     .foregroundStyle(WeeTheme.textPrimary)
                     .lineLimit(1)
             }
@@ -474,6 +474,9 @@ private struct HeaderPanel: View {
                 runtimeMenu
                 modelMenu
                 fullAccessButton
+                if let usage = model.sessionContextUsage {
+                    ContextUsageRing(usage: usage)
+                }
             }
 
             Spacer(minLength: 0)
@@ -576,10 +579,10 @@ private struct HeaderPanel: View {
                 Text(model.selectedRuntime.isEmpty ? "Runtime" : model.selectedRuntime)
                     .lineLimit(1)
                 Image(systemName: "chevron.down")
-                    .font(.caption2.weight(.bold))
+                    .weeFont(.caption2, weight: .bold)
                     .opacity(0.75)
             }
-            .font(.caption.weight(.semibold))
+            .weeFont(.caption, weight: .semibold)
             .foregroundStyle(WeeTheme.accent)
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
@@ -664,16 +667,56 @@ private struct HeaderChip: View {
                 .lineLimit(1)
             if showsDisclosure {
                 Image(systemName: "chevron.down")
-                    .font(.caption2.weight(.bold))
+                    .weeFont(.caption2, weight: .bold)
                     .opacity(0.75)
             }
         }
-        .font(.caption.weight(.semibold))
+        .weeFont(.caption, weight: .semibold)
         .foregroundStyle(foreground)
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
         .background(background, in: Capsule())
         .overlay(Capsule().stroke(WeeTheme.glassStroke))
+    }
+}
+
+private struct ContextUsageRing: View {
+    let usage: SessionContextUsage
+
+    private var compactionProgress: Double? {
+        guard usage.runtime == "wee", let trigger = usage.compactionTriggerTokens else { return nil }
+        return min(1, max(0, Double(trigger) / Double(max(usage.contextWindow, 1))))
+    }
+
+    private var tooltip: String {
+        var text = "Context: \(usage.currentContextTokens.formatted()) / \(usage.contextWindow.formatted()) tokens (\(Int((usage.progress * 100).rounded()))%)"
+        if let trigger = usage.compactionTriggerTokens {
+            text += " · Wee compacts at \(trigger.formatted()) tokens"
+        }
+        return text
+    }
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .stroke(WeeTheme.surfaceHover, lineWidth: 4)
+            Circle()
+                .trim(from: 0, to: usage.progress)
+                .stroke(usage.progress >= 0.75 ? WeeTheme.gold : WeeTheme.accent, style: StrokeStyle(lineWidth: 4, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+            if let compactionProgress {
+                Capsule()
+                    .fill(WeeTheme.gold)
+                    .frame(width: 2, height: 6)
+                    .offset(y: -13)
+                    .rotationEffect(.degrees(compactionProgress * 360))
+            }
+            Text("\(Int((usage.progress * 100).rounded()))")
+                .weeFont(size: 8, weight: .bold)
+        }
+        .frame(width: 30, height: 30)
+        .accessibilityLabel(tooltip)
+        .help(tooltip)
     }
 }
 
@@ -707,12 +750,12 @@ private struct RecentChatsRail: View {
                 VStack(alignment: .leading, spacing: 10) {
                     HStack {
                         Text("RECENT CHATS")
-                            .font(.system(size: 9, weight: .bold))
+                            .weeFont(size: 9, weight: .bold)
                             .tracking(1)
                             .foregroundStyle(WeeTheme.textMuted)
                         Spacer()
                         Text("\(model.historySessions.count)")
-                            .font(.caption2.monospacedDigit())
+                            .weeFont(.caption2).monospacedDigit()
                             .foregroundStyle(WeeTheme.textMuted)
                     }
                     .padding(.horizontal, 10)
@@ -724,7 +767,7 @@ private struct RecentChatsRail: View {
                                 Image(systemName: "bubble.left")
                                     .foregroundStyle(WeeTheme.textMuted)
                                 Text("Your recent sessions will appear here.")
-                                    .font(.caption)
+                                    .weeFont(.caption)
                                     .foregroundStyle(WeeTheme.textSecondary)
                                     .multilineTextAlignment(.center)
                             }
@@ -753,7 +796,7 @@ private struct RecentChatsRail: View {
             VStack(alignment: .leading, spacing: 5) {
                 HStack(spacing: 6) {
                     Text(session.displayTitle)
-                        .font(.caption.weight(.semibold))
+                        .weeFont(.caption, weight: .semibold)
                         .lineLimit(1)
                     if model.isSessionStreaming(session.sessionID) {
                         ProgressView()
@@ -763,16 +806,16 @@ private struct RecentChatsRail: View {
                     }
                     if session.sessionID == model.currentSessionID {
                         Image(systemName: "checkmark.circle.fill")
-                            .font(.caption)
+                            .weeFont(.caption)
                             .foregroundStyle(WeeTheme.accent)
                     }
                 }
                 Text(session.agent ?? "agent")
-                    .font(.caption2.weight(.medium))
+                    .weeFont(.caption2, weight: .medium)
                     .foregroundStyle(WeeTheme.gold)
                     .lineLimit(1)
                 Text(session.displayPreview)
-                    .font(.caption2)
+                    .weeFont(.caption2)
                     .foregroundStyle(WeeTheme.textSecondary)
                     .lineLimit(width == nil ? 2 : 1)
             }
@@ -794,7 +837,7 @@ private struct SessionHistorySheet: View {
         VStack(spacing: 0) {
             HStack {
                 Text("Chat History")
-                    .font(.title3.weight(.bold))
+                    .weeFont(.title3, weight: .bold)
                     .foregroundStyle(WeeTheme.textPrimary)
                 Spacer()
                 Button("Done") { isPresented = false }
@@ -851,7 +894,7 @@ private struct HistorySessionRow: View {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
                     Text(session.displayTitle)
-                        .font(.subheadline.weight(.semibold))
+                        .weeFont(.subheadline, weight: .semibold)
                         .foregroundStyle(WeeTheme.textPrimary)
                         .lineLimit(1)
                     if isStreaming {
@@ -863,13 +906,13 @@ private struct HistorySessionRow: View {
                 }
 
                 Text(session.displayPreview)
-                    .font(.caption)
+                    .weeFont(.caption)
                     .foregroundStyle(WeeTheme.textSecondary)
                     .lineLimit(2)
 
                 if let agent = session.agent, !agent.isEmpty {
                     Text(agent)
-                        .font(.caption2.weight(.semibold))
+                        .weeFont(.caption2, weight: .semibold)
                         .foregroundStyle(WeeTheme.gold)
                         .lineLimit(1)
                 }
@@ -900,7 +943,7 @@ private struct ChatBubble: View {
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 8) {
                     Text(message.role.rawValue.capitalized)
-                        .font(.caption2.weight(.bold))
+                        .weeFont(.caption2, weight: .bold)
                         .foregroundStyle(roleColor)
                         .textCase(.uppercase)
 
@@ -913,7 +956,7 @@ private struct ChatBubble: View {
                                     ProgressView().controlSize(.mini).tint(WeeTheme.accent)
                                 } else {
                                     Image(systemName: isSpeaking ? "stop.fill" : "speaker.wave.2.fill")
-                                        .font(.caption)
+                                        .weeFont(.caption)
                                 }
                             }
                             .frame(width: 18, height: 18)
@@ -938,9 +981,9 @@ private struct ChatBubble: View {
                 ForEach(message.attachments.filter { !$0.isImage }) { attachment in
                     HStack(spacing: 6) {
                         Image(systemName: "doc.fill")
-                            .font(.caption)
+                            .weeFont(.caption)
                         Text(attachment.filename)
-                            .font(.caption)
+                            .weeFont(.caption)
                     }
                     .foregroundStyle(WeeTheme.textSecondary)
                     .padding(6)
@@ -1028,7 +1071,7 @@ private struct ContextBoundaryBanner: View {
             HStack(spacing: 8) {
                 Rectangle().fill(WeeTheme.danger.opacity(0.35)).frame(height: 1)
                 Label("Context reset — the assistant can no longer see messages above this line", systemImage: "exclamationmark.triangle.fill")
-                    .font(.caption2.weight(.semibold))
+                    .weeFont(.caption2, weight: .semibold)
                     .foregroundStyle(WeeTheme.danger)
                     .lineLimit(1)
                     .fixedSize()
@@ -1036,7 +1079,7 @@ private struct ContextBoundaryBanner: View {
             }
             if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 Text(text)
-                    .font(.caption2)
+                    .weeFont(.caption2)
                     .foregroundStyle(WeeTheme.textMuted)
                     .multilineTextAlignment(.center)
             }
