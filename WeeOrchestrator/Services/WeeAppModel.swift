@@ -678,13 +678,39 @@ final class WeeAppModel {
         }
 
         let scriptURL = stagingDirectory.appendingPathComponent("install-update.sh")
-        let script = """
+        let script = Self.appReplacementScript
+        try script.data(using: .utf8)?.write(to: scriptURL, options: .atomic)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: scriptURL.path)
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = [
+            scriptURL.path,
+            target.path,
+            source.path,
+            String(ProcessInfo.processInfo.processIdentifier)
+        ]
+        try process.run()
+    }
+
+    /// The app being updated must be gone before its bundle is moved.  Opening
+    /// a replacement while its predecessor is still alive just activates the
+    /// old process, which leaves the updater UI permanently on "Installing…".
+    static let appReplacementScript = """
         #!/bin/sh
         set -eu
         target="$1"
         source="$2"
+        old_pid="$3"
         backup="${target}.previous"
-        sleep 1
+        attempts=0
+        while /bin/kill -0 "$old_pid" 2>/dev/null; do
+          if [ "$attempts" -ge 30 ]; then
+            exit 1
+          fi
+          attempts=$((attempts + 1))
+          sleep 1
+        done
         rm -rf "$backup"
         if [ -d "$target" ]; then mv "$target" "$backup"; fi
         if ! /usr/bin/ditto "$source" "$target"; then
@@ -694,14 +720,6 @@ final class WeeAppModel {
         /usr/bin/open "$target"
         rm -rf "$backup"
         """
-        try script.data(using: .utf8)?.write(to: scriptURL, options: .atomic)
-        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: scriptURL.path)
-
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/sh")
-        process.arguments = [scriptURL.path, target.path, source.path]
-        try process.run()
-    }
 
     private func waitForLocalAPIReadiness() async {
         for _ in 0..<12 {

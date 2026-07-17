@@ -37,6 +37,7 @@
 		A10028 /* BackgroundTaskAutoRefreshTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10030; };
 		A10029 /* RemoteSSHDeploymentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10031; };
 		A10030 /* UserAvatarImageTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10032; };
+		A10031 /* AppUpdateInstallationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10033; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -72,6 +73,7 @@
 		B10030 /* BackgroundTaskAutoRefreshTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundTaskAutoRefreshTests.swift; sourceTree = "<group>"; };
 		B10031 /* RemoteSSHDeploymentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteSSHDeploymentTests.swift; sourceTree = "<group>"; };
 		B10032 /* UserAvatarImageTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserAvatarImageTests.swift; sourceTree = "<group>"; };
+		B10033 /* AppUpdateInstallationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppUpdateInstallationTests.swift; sourceTree = "<group>"; };
 		P10001 /* WeeOrchestrator.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = WeeOrchestrator.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		P10002 /* WeeOrchestratorTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = WeeOrchestratorTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -186,6 +188,7 @@
 				B10030 /* BackgroundTaskAutoRefreshTests.swift */,
 				B10031 /* RemoteSSHDeploymentTests.swift */,
 				B10032 /* UserAvatarImageTests.swift */,
+				B10033 /* AppUpdateInstallationTests.swift */,
 			);
 			path = WeeOrchestratorTests;
 			sourceTree = "<group>";
@@ -326,6 +329,7 @@
 				A10028,
 				A10029,
 				A10030,
+				A10031,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
