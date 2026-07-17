@@ -139,14 +139,20 @@ struct ChatView: View {
             }
 
             HStack(alignment: .bottom, spacing: 10) {
-                Button {
-                    isShowingFilePicker = true
-                } label: {
-                    Image(systemName: "paperclip")
-                        .frame(width: 20, height: 20)
+                VStack(spacing: 6) {
+                    if let usage = model.sessionContextUsage {
+                        ContextUsageRing(usage: usage)
+                    }
+
+                    Button {
+                        isShowingFilePicker = true
+                    } label: {
+                        Image(systemName: "paperclip")
+                            .frame(width: 20, height: 20)
+                    }
+                    .buttonStyle(WeeGhostButtonStyle())
+                    .help("Attach file")
                 }
-                .buttonStyle(WeeGhostButtonStyle())
-                .help("Attach file")
 
                 Button {
                     Task {
@@ -474,9 +480,6 @@ private struct HeaderPanel: View {
                 runtimeMenu
                 modelMenu
                 fullAccessButton
-                if let usage = model.sessionContextUsage {
-                    ContextUsageRing(usage: usage)
-                }
             }
 
             Spacer(minLength: 0)
