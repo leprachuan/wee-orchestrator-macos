@@ -667,6 +667,7 @@ private struct NativeBrowserPanel: View {
             .background(WeeTheme.surface)
 
             NativeWebView(webView: controller.webView)
+                .id(controller.sessionKey)
                 .overlay(alignment: .bottomLeading) {
                     if let error = controller.lastError {
                         Text(error)
