@@ -39,6 +39,8 @@
 		A10030 /* UserAvatarImageTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10032; };
 		A10031 /* AppUpdateInstallationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10033; };
 		A10032 /* WeeModelCatalogTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10034; };
+		A10040 /* WeeCLIInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10040; };
+		A10041 /* WeeCLIInstallerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10041; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -76,6 +78,8 @@
 		B10032 /* UserAvatarImageTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserAvatarImageTests.swift; sourceTree = "<group>"; };
 		B10033 /* AppUpdateInstallationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppUpdateInstallationTests.swift; sourceTree = "<group>"; };
 		B10034 /* WeeModelCatalogTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WeeModelCatalogTests.swift; sourceTree = "<group>"; };
+		B10040 /* WeeCLIInstaller.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WeeCLIInstaller.swift; sourceTree = "<group>"; };
+		B10041 /* WeeCLIInstallerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WeeCLIInstallerTests.swift; sourceTree = "<group>"; };
 		P10001 /* WeeOrchestrator.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = WeeOrchestrator.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		P10002 /* WeeOrchestratorTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = WeeOrchestratorTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -140,6 +144,7 @@
 				B10017 /* HistorySessionMerge.swift */,
 				B10020 /* OllamaRegistryClient.swift */,
 				B10022 /* SessionResetDetector.swift */,
+				B10040 /* WeeCLIInstaller.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -192,6 +197,7 @@
 				B10032 /* UserAvatarImageTests.swift */,
 				B10033 /* AppUpdateInstallationTests.swift */,
 				B10034 /* WeeModelCatalogTests.swift */,
+				B10041 /* WeeCLIInstallerTests.swift */,
 			);
 			path = WeeOrchestratorTests;
 			sourceTree = "<group>";
@@ -313,6 +319,7 @@
 				A10017,
 				A10018,
 				A10020,
+				A10040,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -334,6 +341,7 @@
 				A10030,
 				A10031,
 				A10032,
+				A10041,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
