@@ -35,6 +35,10 @@
 
 ## Local models and Wee runtime
 
+- Each app launch installs or repairs `~/.local/bin/wee` and adds that
+  directory to the user's zsh/bash login PATH. The launcher follows the Local
+  API Source checkout and its managed Python environment, so app upgrades and
+  source-location changes keep the terminal command current without `sudo`.
 - A Local Models destination manages Ollama installation, startup, downloads,
   deletion, and selected on-device models.
 - Recommendations are memory-aware and restrict the curated choices to models
@@ -54,4 +58,3 @@
   tokens, or local shared-key values in source or release configuration.
 - A source and built-app audit accompanies this release; see the API release
   notes for the associated runtime contract.
-

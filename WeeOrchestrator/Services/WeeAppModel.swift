@@ -255,6 +255,7 @@ final class WeeAppModel {
     var remoteAgents: [AgentSummary] = []
     var isLocalServiceRunning = false
     var localServiceStatus = "Stopped"
+    var weeCLIInstallationStatus = "Will install when Wee opens"
     var localServiceLog = ""
     var isLocalSourceWorking = false
     var localSourceStatus = "Not installed"
@@ -501,6 +502,7 @@ final class WeeAppModel {
     var currentChatQueueCount: Int { currentQueuedChatMessages.count }
 
     func bootstrap() async {
+        installWeeCLI()
         await requestNotificationPermission()
         if localModelConfiguration.autoStartRunner { await startOllama() }
         if localServiceConfiguration.autoStart {
@@ -515,6 +517,18 @@ final class WeeAppModel {
         }
         startHourlyUpdateCheckLoopIfNeeded()
         startBackgroundTaskAutoRefreshLoopIfNeeded()
+    }
+
+    func installWeeCLI() {
+        do {
+            let installation = try WeeCLIInstaller.install(
+                workingDirectory: localServiceConfiguration.workingDirectory,
+                checkoutDirectory: localServiceConfiguration.checkoutDirectory
+            )
+            weeCLIInstallationStatus = "Available at \(installation.launcherURL.path)"
+        } catch {
+            weeCLIInstallationStatus = "CLI install failed: \(error.localizedDescription)"
+        }
     }
 
     /// Issue #20: background task status previously only updated on a
