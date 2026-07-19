@@ -336,15 +336,28 @@ struct ChatBrowserWorkspace: View {
                 }
             }
         }
-        .overlay(alignment: .topTrailing) {
+        .overlay(alignment: .trailing) {
             if !browserVisible {
                 Button {
                     browserVisible = true
                 } label: {
-                    Label("Browser", systemImage: "globe")
+                    Image(systemName: "globe")
+                        .weeFont(size: 16, weight: .semibold)
+                        .foregroundStyle(WeeTheme.accent)
+                        .frame(width: 38, height: 48)
+                        .background(
+                            WeeTheme.surfaceRaised,
+                            in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        )
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .stroke(WeeTheme.glassStroke)
+                        }
                 }
-                .buttonStyle(WeeGhostButtonStyle())
-                .padding(14)
+                .buttonStyle(.plain)
+                .help("Show session browser")
+                .accessibilityLabel("Show Browser")
+                .padding(.trailing, 8)
             }
         }
         .task(id: sessionKey) {
