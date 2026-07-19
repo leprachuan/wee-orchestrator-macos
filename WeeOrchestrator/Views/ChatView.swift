@@ -481,8 +481,8 @@ final class BrowserSessionController: NSObject, WKNavigationDelegate {
             try await client.registerNativeBrowser(sessionID: sessionID, clientID: clientID)
             bridgeStatus = "Wee connected"
         } catch {
-            bridgeStatus = "Bridge unavailable"
-            lastError = error.localizedDescription
+            bridgeStatus = Self.bridgeStatus(for: error)
+            lastError = bridgeStatus == "Reconnecting…" ? error.localizedDescription : nil
         }
 
         while !Task.isCancelled {
@@ -508,12 +508,20 @@ final class BrowserSessionController: NSObject, WKNavigationDelegate {
             } catch is CancellationError {
                 break
             } catch {
-                bridgeStatus = "Reconnecting…"
-                lastError = error.localizedDescription
+                bridgeStatus = Self.bridgeStatus(for: error)
+                lastError = bridgeStatus == "Reconnecting…" ? error.localizedDescription : nil
                 try? await Task.sleep(for: .seconds(2))
                 try? await client.registerNativeBrowser(sessionID: sessionID, clientID: clientID)
             }
         }
+    }
+
+    static func bridgeStatus(for error: Error) -> String {
+        if case WeeAPIError.httpStatus(let status, _) = error {
+            if status == 404 { return "Server update required" }
+            if status == 401 || status == 403 { return "Sign in required" }
+        }
+        return "Reconnecting…"
     }
 
     private func execute(_ command: BrowserCommand) async -> (value: String?, error: String?) {

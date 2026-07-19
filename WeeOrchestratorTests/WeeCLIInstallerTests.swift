@@ -73,6 +73,17 @@ final class WeeCLIInstallerTests: XCTestCase {
 
 @MainActor
 final class BrowserSessionStoreTests: XCTestCase {
+    func testBrowserBridgeExplainsBackendVersionAndAuthenticationErrors() {
+        XCTAssertEqual(
+            BrowserSessionController.bridgeStatus(for: WeeAPIError.httpStatus(404, "Not Found")),
+            "Server update required"
+        )
+        XCTAssertEqual(
+            BrowserSessionController.bridgeStatus(for: WeeAPIError.httpStatus(401, "Unauthorized")),
+            "Sign in required"
+        )
+    }
+
     func testControllersAreStableAndScopedByEnvironmentAndSession() {
         let store = BrowserSessionStore()
         let client = WeeAPIClient(configuration: .defaults)
