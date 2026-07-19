@@ -186,7 +186,7 @@ private struct AgentEditorSheet: View {
     @State private var showDeleteConfirmation = false
     @State private var isLoaded = false
 
-    private let runtimeFallbacks = ["copilot", "copilot-sdk", "claude", "claude-sdk", "gemini", "opencode", "codex", "devin"]
+    private let runtimeFallbacks = ["wee", "copilot", "copilot-sdk", "claude", "claude-sdk", "gemini", "opencode", "codex", "devin"]
 
     var body: some View {
         VStack(spacing: 0) {

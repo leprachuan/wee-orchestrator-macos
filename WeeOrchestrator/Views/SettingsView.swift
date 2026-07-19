@@ -33,7 +33,7 @@ struct SettingsView: View {
     @State private var localCatalogModelText = ""
     @State private var showAvatarPicker = false
 
-    private let runtimeFallbacks = ["copilot", "copilot-sdk", "claude", "claude-sdk", "gemini", "opencode", "codex", "devin"]
+    private let runtimeFallbacks = ["wee", "copilot", "copilot-sdk", "claude", "claude-sdk", "gemini", "opencode", "codex", "devin"]
 
     var body: some View {
         VStack(spacing: 8) {
