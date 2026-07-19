@@ -503,6 +503,7 @@ final class WeeAppModel {
 
     func bootstrap() async {
         installWeeCLI()
+        await updateManagedWeeCLI()
         await requestNotificationPermission()
         if localModelConfiguration.autoStartRunner { await startOllama() }
         if localServiceConfiguration.autoStart {
@@ -528,6 +529,20 @@ final class WeeAppModel {
             weeCLIInstallationStatus = "Available at \(installation.launcherURL.path)"
         } catch {
             weeCLIInstallationStatus = "CLI install failed: \(error.localizedDescription)"
+        }
+    }
+
+    func updateManagedWeeCLI() async {
+        weeCLIInstallationStatus = "Updating managed Wee CLI…"
+        do {
+            let checkout = try await Task.detached(priority: .utility) {
+                try WeeCLIInstaller.updateManagedRuntime()
+            }.value
+            installWeeCLI()
+            weeCLIInstallationStatus = "Current CLI installed from \(checkout.path)"
+        } catch {
+            installWeeCLI()
+            weeCLIInstallationStatus = "CLI update failed; launcher retained: \(error.localizedDescription)"
         }
     }
 
