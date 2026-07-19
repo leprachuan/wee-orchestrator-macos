@@ -286,9 +286,11 @@ struct SettingsView: View {
                     .foregroundStyle(WeeTheme.textSecondary)
                     .lineLimit(1)
                 Spacer()
-                Button("Repair Shell Command") {
-                    model.saveConfiguration()
-                    model.installWeeCLI()
+                Button("Update / Repair CLI") {
+                    Task {
+                        model.saveConfiguration()
+                        await model.updateManagedWeeCLI()
+                    }
                 }
                 .buttonStyle(WeeGhostButtonStyle())
             }

@@ -23,6 +23,12 @@ final class WeeCLIInstallerTests: XCTestCase {
 
         XCTAssertTrue(FileManager.default.isExecutableFile(atPath: installation.launcherURL.path))
         let launcher = try String(contentsOf: installation.launcherURL, encoding: .utf8)
+        let managed = WeeCLIInstaller.managedCheckoutURL(homeDirectory: temporaryHome).path
+        XCTAssertTrue(launcher.contains(managed))
+        XCTAssertLessThan(
+            launcher.range(of: managed)!.lowerBound,
+            launcher.range(of: temporaryHome.appendingPathComponent("Developer/Current Wee").path)!.lowerBound
+        )
         XCTAssertTrue(launcher.contains(temporaryHome.appendingPathComponent("Developer/Current Wee").path))
         XCTAssertTrue(launcher.contains("exec \"$python\" \"$source_dir/wee_cli.py\" \"$@\""))
 
