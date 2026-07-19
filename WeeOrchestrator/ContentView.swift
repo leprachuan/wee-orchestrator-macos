@@ -56,6 +56,7 @@ struct ContentView: View {
     /// default to Local, matching the issue's stated default.
     @State private var windowEnvironment: WeeEnvironment = .local
     @State private var thisWindow: NSWindow?
+    @State private var browserStore = BrowserSessionStore()
 
     var body: some View {
         HStack(spacing: 0) {
@@ -70,7 +71,7 @@ struct ContentView: View {
         .background(WindowAccessor(window: $thisWindow))
         .background(WeeTheme.background)
         .preferredColorScheme(.dark)
-        .frame(minWidth: 960, minHeight: 640)
+        .frame(minWidth: 1180, minHeight: 680)
         .task {
             await model.bootstrap()
             if model.activeEnvironment != windowEnvironment {
@@ -290,12 +291,12 @@ struct ContentView: View {
 
     @ViewBuilder private var sectionView: some View {
         switch selectedSection {
-        case .chat: ChatView(model: model)
+        case .chat: ChatBrowserWorkspace(model: model, store: browserStore)
         case .kanban:
             if model.kanbanEnabled {
                 KanbanView(model: model)
             } else {
-                ChatView(model: model)
+                ChatBrowserWorkspace(model: model, store: browserStore)
             }
         case .backgroundTasks: TasksView(model: model, mode: .background)
         case .scheduledTasks: TasksView(model: model, mode: .scheduled)

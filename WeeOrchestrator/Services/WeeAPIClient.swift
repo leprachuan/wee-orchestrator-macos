@@ -279,6 +279,35 @@ struct WeeAPIClient {
         return try await request("POST", path: "/api/v1/sessions/create", body: body)
     }
 
+    func registerNativeBrowser(sessionID: String, clientID: String) async throws {
+        let _: BrowserRegistrationResponse = try await request(
+            "POST",
+            path: "/api/v1/browser/sessions/\(sessionID)/register",
+            body: BrowserRegistrationRequest(clientID: clientID)
+        )
+    }
+
+    func pollNativeBrowserCommand(
+        sessionID: String,
+        clientID: String
+    ) async throws -> BrowserCommandEnvelope {
+        try await request(
+            "GET",
+            path: "/api/v1/browser/sessions/\(sessionID)/commands?client_id=\(clientID)&timeout=25"
+        )
+    }
+
+    func submitNativeBrowserResult(
+        sessionID: String,
+        result: BrowserCommandResultRequest
+    ) async throws {
+        let _: BrowserResultAcceptedResponse = try await request(
+            "POST",
+            path: "/api/v1/browser/sessions/\(sessionID)/results",
+            body: result
+        )
+    }
+
     func sessionStatus(sessionID: String) async throws -> SessionStatusResponse {
         try await request("GET", path: "/api/v1/sessions/\(sessionID)/status")
     }

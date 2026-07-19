@@ -33,6 +33,19 @@
 - The local service is stopped when the app quits, avoiding orphan API
   processes on the local port.
 
+## Session browser
+
+- Chat includes a native `WKWebView` browser beside the conversation, with an
+  address bar, history controls, loading state, and a collapsible layout.
+- Browser state is keyed by environment and Wee session. Switching chats swaps
+  to that chat's page, history, and isolated cookie store; returning restores
+  the same browser rather than sharing another session's page.
+- The app registers each session browser through the authenticated Wee API and
+  long-polls only that session's command queue. Wee can navigate, snapshot,
+  click, type, evaluate JavaScript, reload, and move through history.
+- When no native macOS browser is connected, the API uses a separate
+  Playwright context per session when Playwright and Chromium are installed.
+
 ## Local models and Wee runtime
 
 - Each app launch installs or repairs `~/.local/bin/wee` and adds that
