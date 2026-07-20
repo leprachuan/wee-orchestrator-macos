@@ -1362,3 +1362,52 @@ struct StreamEvent: Decodable {
         case isError = "is_error"
     }
 }
+
+struct BrowserRegistrationRequest: Encodable {
+    let clientID: String
+
+    enum CodingKeys: String, CodingKey { case clientID = "client_id" }
+}
+
+struct BrowserRegistrationResponse: Decodable {
+    let registered: Bool
+    let sessionID: String
+
+    enum CodingKeys: String, CodingKey {
+        case registered
+        case sessionID = "session_id"
+    }
+}
+
+struct BrowserCommandEnvelope: Decodable {
+    let command: BrowserCommand?
+}
+
+struct BrowserCommand: Decodable, Identifiable {
+    let id: String
+    let action: String
+    let url: String?
+    let selector: String?
+    let text: String?
+    let script: String?
+    let submit: Bool?
+}
+
+struct BrowserCommandResultRequest: Encodable {
+    let clientID: String
+    let commandID: String
+    let result: String?
+    let error: String?
+    let url: String?
+    let title: String?
+
+    enum CodingKeys: String, CodingKey {
+        case result, error, url, title
+        case clientID = "client_id"
+        case commandID = "command_id"
+    }
+}
+
+struct BrowserResultAcceptedResponse: Decodable {
+    let accepted: Bool
+}

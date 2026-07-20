@@ -70,3 +70,58 @@ final class WeeCLIInstallerTests: XCTestCase {
         XCTAssertTrue(launcher.contains("'/Users/example/Wee'\\''s Runtime'"))
     }
 }
+
+@MainActor
+final class BrowserSessionStoreTests: XCTestCase {
+    func testBrowserBridgeExplainsBackendVersionAndAuthenticationErrors() {
+        XCTAssertEqual(
+            BrowserSessionController.bridgeStatus(for: WeeAPIError.httpStatus(404, "Not Found")),
+            "Server update required"
+        )
+        XCTAssertEqual(
+            BrowserSessionController.bridgeStatus(for: WeeAPIError.httpStatus(401, "Unauthorized")),
+            "Sign in required"
+        )
+    }
+
+    func testControllersAreStableAndScopedByEnvironmentAndSession() {
+        let store = BrowserSessionStore()
+        let client = WeeAPIClient(configuration: .defaults)
+
+        let first = store.controller(
+            environment: .remote,
+            sessionID: "session-a",
+            client: client
+        )
+        let same = store.controller(
+            environment: .remote,
+            sessionID: "session-a",
+            client: client
+        )
+        let otherSession = store.controller(
+            environment: .remote,
+            sessionID: "session-b",
+            client: client
+        )
+        let localSession = store.controller(
+            environment: .local,
+            sessionID: "session-a",
+            client: client
+        )
+
+        XCTAssertTrue(first === same)
+        XCTAssertFalse(first === otherSession)
+        XCTAssertFalse(first === localSession)
+    }
+
+    func testBrowserCommandDecodesOptionalActionFields() throws {
+        let data = Data(##"{"id":"command-1","action":"type","selector":"#q","text":"wee","submit":true}"##.utf8)
+        let command = try JSONDecoder().decode(BrowserCommand.self, from: data)
+
+        XCTAssertEqual(command.id, "command-1")
+        XCTAssertEqual(command.action, "type")
+        XCTAssertEqual(command.selector, "#q")
+        XCTAssertEqual(command.text, "wee")
+        XCTAssertEqual(command.submit, true)
+    }
+}

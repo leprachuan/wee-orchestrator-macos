@@ -3,6 +3,7 @@ import AppKit
 import UniformTypeIdentifiers
 import AVFoundation
 import Observation
+import WebKit
 
 struct ChatView: View {
     @Bindable var model: WeeAppModel
@@ -306,6 +307,401 @@ struct ChatView: View {
         }
         return "application/octet-stream"
     }
+}
+
+// MARK: - Session-scoped native browser
+
+struct ChatBrowserWorkspace: View {
+    @Bindable var model: WeeAppModel
+    let store: BrowserSessionStore
+    @AppStorage("wee.browser.visible") private var browserVisible = true
+    @State private var controller: BrowserSessionController?
+
+    private var sessionKey: String {
+        "\(model.activeEnvironment.rawValue):\(model.currentSessionID ?? "none")"
+    }
+
+    var body: some View {
+        HSplitView {
+            ChatView(model: model)
+                .frame(minWidth: 520)
+
+            if browserVisible {
+                if let controller {
+                    NativeBrowserPanel(controller: controller, isVisible: $browserVisible)
+                        .frame(minWidth: 380, idealWidth: 620)
+                } else {
+                    browserPlaceholder
+                        .frame(minWidth: 380, idealWidth: 620)
+                }
+            }
+        }
+        .overlay(alignment: .trailing) {
+            if !browserVisible {
+                Button {
+                    browserVisible = true
+                } label: {
+                    Image(systemName: "globe")
+                        .weeFont(size: 16, weight: .semibold)
+                        .foregroundStyle(WeeTheme.accent)
+                        .frame(width: 38, height: 48)
+                        .background(
+                            WeeTheme.surfaceRaised,
+                            in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        )
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .stroke(WeeTheme.glassStroke)
+                        }
+                }
+                .buttonStyle(.plain)
+                .help("Show session browser")
+                .accessibilityLabel("Show Browser")
+                .padding(.trailing, 8)
+            }
+        }
+        .task(id: sessionKey) {
+            guard let sessionID = model.currentSessionID else {
+                controller = nil
+                return
+            }
+            let selected = store.controller(
+                environment: model.activeEnvironment,
+                sessionID: sessionID,
+                client: model.client
+            )
+            controller = selected
+            selected.connect()
+        }
+    }
+
+    private var browserPlaceholder: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "globe")
+                .weeFont(size: 30)
+                .foregroundStyle(WeeTheme.accent)
+            Text("Session Browser")
+                .weeFont(.headline, weight: .bold)
+                .foregroundStyle(WeeTheme.textPrimary)
+            Text("Send a message to create this chat session, then its private browser will appear here.")
+                .weeFont(.caption)
+                .foregroundStyle(WeeTheme.textSecondary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 280)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(WeeTheme.background)
+    }
+}
+
+@MainActor
+@Observable
+final class BrowserSessionStore {
+    private var controllers: [String: BrowserSessionController] = [:]
+
+    func controller(
+        environment: WeeEnvironment,
+        sessionID: String,
+        client: WeeAPIClient
+    ) -> BrowserSessionController {
+        let key = "\(environment.rawValue):\(sessionID)"
+        if let existing = controllers[key] { return existing }
+        let controller = BrowserSessionController(
+            sessionKey: key,
+            sessionID: sessionID,
+            client: client
+        )
+        controllers[key] = controller
+        return controller
+    }
+}
+
+@MainActor
+@Observable
+final class BrowserSessionController: NSObject, WKNavigationDelegate {
+    let sessionKey: String
+    let sessionID: String
+    let clientID = UUID().uuidString
+    let webView: WKWebView
+    var address = ""
+    var title = "New Tab"
+    var isLoading = false
+    var bridgeStatus = "Connecting…"
+    var lastError: String?
+
+    private let client: WeeAPIClient
+    @ObservationIgnored private var pollingTask: Task<Void, Never>?
+
+    init(sessionKey: String, sessionID: String, client: WeeAPIClient) {
+        self.sessionKey = sessionKey
+        self.sessionID = sessionID
+        self.client = client
+        let configuration = WKWebViewConfiguration()
+        configuration.websiteDataStore = .nonPersistent()
+        configuration.defaultWebpagePreferences.allowsContentJavaScript = true
+        self.webView = WKWebView(frame: .zero, configuration: configuration)
+        super.init()
+        webView.navigationDelegate = self
+        webView.allowsMagnification = true
+    }
+
+    deinit { pollingTask?.cancel() }
+
+    func connect() {
+        guard pollingTask == nil else { return }
+        pollingTask = Task { [weak self] in
+            await self?.pollCommands()
+        }
+    }
+
+    func navigate() {
+        var value = address.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty else { return }
+        if !value.contains("://") { value = "https://" + value }
+        guard let url = URL(string: value) else {
+            lastError = "Invalid URL"
+            return
+        }
+        webView.load(URLRequest(url: url))
+    }
+
+    func goBack() { webView.goBack() }
+    func goForward() { webView.goForward() }
+    func reload() { webView.reload() }
+
+    func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+        isLoading = true
+        lastError = nil
+    }
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        isLoading = false
+        address = webView.url?.absoluteString ?? address
+        title = webView.title?.isEmpty == false ? webView.title! : "Browser"
+    }
+
+    func webView(
+        _ webView: WKWebView,
+        didFailProvisionalNavigation navigation: WKNavigation!,
+        withError error: Error
+    ) {
+        isLoading = false
+        lastError = error.localizedDescription
+    }
+
+    private func pollCommands() async {
+        do {
+            try await client.registerNativeBrowser(sessionID: sessionID, clientID: clientID)
+            bridgeStatus = "Wee connected"
+        } catch {
+            bridgeStatus = Self.bridgeStatus(for: error)
+            lastError = bridgeStatus == "Reconnecting…" ? error.localizedDescription : nil
+        }
+
+        while !Task.isCancelled {
+            do {
+                let envelope = try await client.pollNativeBrowserCommand(
+                    sessionID: sessionID,
+                    clientID: clientID
+                )
+                bridgeStatus = "Wee connected"
+                guard let command = envelope.command else { continue }
+                let result = await execute(command)
+                try await client.submitNativeBrowserResult(
+                    sessionID: sessionID,
+                    result: BrowserCommandResultRequest(
+                        clientID: clientID,
+                        commandID: command.id,
+                        result: result.value,
+                        error: result.error,
+                        url: webView.url?.absoluteString,
+                        title: webView.title
+                    )
+                )
+            } catch is CancellationError {
+                break
+            } catch {
+                bridgeStatus = Self.bridgeStatus(for: error)
+                lastError = bridgeStatus == "Reconnecting…" ? error.localizedDescription : nil
+                try? await Task.sleep(for: .seconds(2))
+                try? await client.registerNativeBrowser(sessionID: sessionID, clientID: clientID)
+            }
+        }
+    }
+
+    static func bridgeStatus(for error: Error) -> String {
+        if case WeeAPIError.httpStatus(let status, _) = error {
+            if status == 404 { return "Server update required" }
+            if status == 401 || status == 403 { return "Sign in required" }
+        }
+        return "Reconnecting…"
+    }
+
+    private func execute(_ command: BrowserCommand) async -> (value: String?, error: String?) {
+        do {
+            switch command.action.lowercased() {
+            case "navigate":
+                guard let target = command.url, !target.isEmpty else {
+                    throw BrowserControlError("navigate requires url")
+                }
+                address = target
+                navigate()
+                try await Task.sleep(for: .milliseconds(900))
+            case "click":
+                let selector = javascriptLiteral(command.selector ?? "")
+                let text = javascriptLiteral(command.text ?? "")
+                let script = """
+                (() => {
+                  const selector = \(selector), text = \(text);
+                  let el = selector ? document.querySelector(selector) : null;
+                  if (!el && text) el = [...document.querySelectorAll('a,button,input,[role="button"]')].find(e => (e.innerText || e.value || '').includes(text));
+                  if (!el) throw new Error('Element not found');
+                  el.click();
+                  return true;
+                })()
+                """
+                _ = try await evaluate(script)
+                try await Task.sleep(for: .milliseconds(500))
+            case "type":
+                guard let selector = command.selector, !selector.isEmpty else {
+                    throw BrowserControlError("type requires selector")
+                }
+                let script = """
+                (() => {
+                  const el = document.querySelector(\(javascriptLiteral(selector)));
+                  if (!el) throw new Error('Element not found');
+                  el.focus(); el.value = \(javascriptLiteral(command.text ?? ""));
+                  el.dispatchEvent(new Event('input', {bubbles:true}));
+                  el.dispatchEvent(new Event('change', {bubbles:true}));
+                  \((command.submit ?? false) ? "el.dispatchEvent(new KeyboardEvent('keydown', {key:'Enter', code:'Enter', bubbles:true})); if (el.form) el.form.requestSubmit();" : "")
+                  return true;
+                })()
+                """
+                _ = try await evaluate(script)
+            case "evaluate":
+                guard let script = command.script, !script.isEmpty else {
+                    throw BrowserControlError("evaluate requires script")
+                }
+                let evaluated = try await evaluate(script)
+                return (String(describing: evaluated ?? "null"), nil)
+            case "back": goBack(); try await Task.sleep(for: .milliseconds(500))
+            case "forward": goForward(); try await Task.sleep(for: .milliseconds(500))
+            case "reload": reload(); try await Task.sleep(for: .milliseconds(700))
+            case "snapshot": break
+            default: throw BrowserControlError("Unknown browser action: \(command.action)")
+            }
+            return (try await snapshot(), nil)
+        } catch {
+            return (nil, error.localizedDescription)
+        }
+    }
+
+    private func snapshot() async throws -> String {
+        let script = """
+        JSON.stringify({
+          url: location.href,
+          title: document.title,
+          text: (document.body?.innerText || '').slice(0, 12000),
+          links: [...document.querySelectorAll('a')].slice(0, 50).map(a => ({text:(a.innerText || '').trim(), href:a.href}))
+        })
+        """
+        return String(describing: try await evaluate(script) ?? "{}")
+    }
+
+    private func evaluate(_ script: String) async throws -> Any? {
+        try await withCheckedThrowingContinuation { continuation in
+            webView.evaluateJavaScript(script) { value, error in
+                if let error { continuation.resume(throwing: error) }
+                else { continuation.resume(returning: value) }
+            }
+        }
+    }
+
+    private func javascriptLiteral(_ value: String) -> String {
+        let data = try? JSONEncoder().encode(value)
+        return data.flatMap { String(data: $0, encoding: .utf8) } ?? "\"\""
+    }
+}
+
+private struct BrowserControlError: LocalizedError {
+    let message: String
+    init(_ message: String) { self.message = message }
+    var errorDescription: String? { message }
+}
+
+private struct NativeBrowserPanel: View {
+    @Bindable var controller: BrowserSessionController
+    @Binding var isVisible: Bool
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 7) {
+                Button(action: controller.goBack) { Image(systemName: "chevron.left") }
+                    .disabled(!controller.webView.canGoBack)
+                Button(action: controller.goForward) { Image(systemName: "chevron.right") }
+                    .disabled(!controller.webView.canGoForward)
+                Button(action: controller.reload) {
+                    Image(systemName: controller.isLoading ? "xmark" : "arrow.clockwise")
+                }
+
+                TextField("Search or enter website", text: $controller.address)
+                    .textFieldStyle(.plain)
+                    .onSubmit { controller.navigate() }
+                    .padding(.horizontal, 10)
+                    .frame(height: 30)
+                    .background(WeeTheme.surfaceRaised, in: RoundedRectangle(cornerRadius: 7))
+                    .overlay(RoundedRectangle(cornerRadius: 7).stroke(WeeTheme.glassStroke))
+
+                Button { isVisible = false } label: { Image(systemName: "sidebar.trailing") }
+                    .help("Hide browser")
+            }
+            .buttonStyle(.borderless)
+            .foregroundStyle(WeeTheme.textSecondary)
+            .padding(8)
+            .background(WeeTheme.sidebar)
+
+            HStack {
+                Image(systemName: "circle.fill")
+                    .weeFont(size: 6)
+                    .foregroundStyle(controller.bridgeStatus == "Wee connected" ? WeeTheme.emerald : WeeTheme.gold)
+                Text(controller.title)
+                    .weeFont(.caption, weight: .semibold)
+                    .lineLimit(1)
+                Spacer()
+                Text(controller.bridgeStatus)
+                    .weeFont(.caption2)
+                    .foregroundStyle(WeeTheme.textMuted)
+                Text(String(controller.sessionID.prefix(8)))
+                    .weeFont(.caption2, design: .monospaced)
+                    .foregroundStyle(WeeTheme.textMuted)
+            }
+            .padding(.horizontal, 10)
+            .frame(height: 28)
+            .background(WeeTheme.surface)
+
+            NativeWebView(webView: controller.webView)
+                .id(controller.sessionKey)
+                .overlay(alignment: .bottomLeading) {
+                    if let error = controller.lastError {
+                        Text(error)
+                            .weeFont(.caption2)
+                            .foregroundStyle(WeeTheme.danger)
+                            .padding(7)
+                            .background(WeeTheme.surfaceRaised.opacity(0.94), in: RoundedRectangle(cornerRadius: 6))
+                            .padding(8)
+                    }
+                }
+        }
+        .background(WeeTheme.background)
+        .overlay(alignment: .leading) { Rectangle().fill(WeeTheme.divider).frame(width: 1) }
+    }
+}
+
+private struct NativeWebView: NSViewRepresentable {
+    let webView: WKWebView
+
+    func makeNSView(context: Context) -> WKWebView { webView }
+    func updateNSView(_ nsView: WKWebView, context: Context) {}
 }
 
 private struct ChatComposerTextView: NSViewRepresentable {
