@@ -1284,6 +1284,7 @@ struct ChatMessage: Identifiable, Hashable {
     let role: Role
     var text: String
     let attachments: [ChatAttachment]
+    var toolActivities: [ChatToolActivity] = []
     let createdAt = Date()
     /// True when this message marks a point where the backend reset the
     /// session's conversation context (see `SessionResetDetector`) — the
@@ -1302,6 +1303,17 @@ struct ChatMessage: Identifiable, Hashable {
         text = historyMessage.content
         attachments = []
         isContextBoundary = SessionResetDetector.indicatesReset(historyMessage.content)
+    }
+}
+
+struct ChatToolActivity: Identifiable, Hashable {
+    let id: String
+    var name: String
+    var status: String
+    var summary: String?
+
+    var isRunning: Bool {
+        status == "running" || status == "detected"
     }
 }
 
@@ -1330,6 +1342,7 @@ struct TextToSpeechRequest: Encodable {
 }
 
 struct StreamEvent: Decodable {
+    let id: String?
     let type: String
     let event: String?
     let text: String?
@@ -1346,6 +1359,7 @@ struct StreamEvent: Decodable {
     let isError: Bool?
 
     enum CodingKeys: String, CodingKey {
+        case id
         case type
         case event
         case text

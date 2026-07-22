@@ -2126,7 +2126,7 @@ final class WeeAppModel {
                 switch event.type {
                 case "chunk":
                     if let text = event.text {
-                        rawStreamText += text
+                        rawStreamText = appendReadableStreamChunk(text, to: rawStreamText)
                         let cleaned = preferredFinalStreamText(accumulated: rawStreamText, doneResponse: nil)
                         if !cleaned.isEmpty {
                             updateStreamTranscript(streamKey, messageID: streamMessageID) { message in
@@ -2136,11 +2136,12 @@ final class WeeAppModel {
                     }
                 case "tool_call":
                     lastActivityText = streamActivityText(from: event)
-                    if let message = streamTranscripts.messages(for: streamKey, serverMessages: [] as [ChatMessage]).first(where: { $0.id == streamMessageID }),
-                       message.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-                       !lastActivityText.isEmpty {
-                        updateStreamTranscript(streamKey, messageID: streamMessageID) { message in
-                            message.text = lastActivityText
+                    let activity = toolActivity(from: event)
+                    updateStreamTranscript(streamKey, messageID: streamMessageID) { message in
+                        if let index = message.toolActivities.firstIndex(where: { $0.id == activity.id }) {
+                            message.toolActivities[index] = activity
+                        } else {
+                            message.toolActivities.append(activity)
                         }
                     }
                 case "done":
@@ -3032,6 +3033,41 @@ final class WeeAppModel {
         default:
             return "Running \(label)..."
         }
+    }
+
+    private func toolActivity(from event: StreamEvent) -> ChatToolActivity {
+        let name = event.name?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let label = name?.isEmpty == false ? name! : "tool"
+        let status = event.status ?? event.event ?? "running"
+        let rawSummary = (event.result ?? event.output ?? event.input ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let summary = rawSummary.isEmpty
+            ? nil
+            : String(rawSummary.prefix(500))
+        return ChatToolActivity(
+            id: event.id ?? "\(label)-\(messageActivityID(event))",
+            name: label,
+            status: status,
+            summary: summary
+        )
+    }
+
+    private func messageActivityID(_ event: StreamEvent) -> String {
+        "\(event.name ?? "tool")-\(event.status ?? event.event ?? "running")"
+    }
+
+    private func appendReadableStreamChunk(_ chunk: String, to accumulated: String) -> String {
+        guard !accumulated.isEmpty,
+              !chunk.isEmpty,
+              let previous = accumulated.last,
+              let next = chunk.first,
+              !previous.isWhitespace,
+              !next.isWhitespace,
+              ".!?:".contains(previous),
+              next.isUppercase else {
+            return accumulated + chunk
+        }
+        return accumulated + "\n\n" + chunk
     }
 
     private func preferredFinalStreamText(accumulated: String, doneResponse: String?) -> String {

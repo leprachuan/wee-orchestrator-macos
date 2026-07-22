@@ -1395,6 +1395,10 @@ private struct ChatBubble: View {
                     .background(WeeTheme.sunken, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
                 }
 
+                if !message.toolActivities.isEmpty {
+                    ToolActivityTimeline(activities: message.toolActivities)
+                }
+
                 if !message.text.isEmpty {
                     MarkdownText(message.text)
                 }
@@ -1431,6 +1435,43 @@ private struct ChatBubble: View {
         case .assistant: Color.white.opacity(0.07)
         case .system: WeeTheme.sunken
         }
+    }
+}
+
+private struct ToolActivityTimeline: View {
+    let activities: [ChatToolActivity]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("ACTIVITY")
+                .weeFont(.caption2, weight: .bold)
+                .tracking(0.7)
+                .foregroundStyle(WeeTheme.textMuted)
+
+            ForEach(activities) { activity in
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 6) {
+                        Image(systemName: activity.isRunning ? "circle.dotted" : "checkmark.circle.fill")
+                            .foregroundStyle(activity.isRunning ? WeeTheme.gold : WeeTheme.emerald)
+                        Text(activity.isRunning ? "Running \(activity.name)" : "Completed \(activity.name)")
+                            .weeFont(.caption, weight: .semibold)
+                            .foregroundStyle(WeeTheme.textPrimary)
+                        Spacer()
+                    }
+                    if let summary = activity.summary, !summary.isEmpty {
+                        Text(summary)
+                            .weeFont(.caption2, design: .monospaced)
+                            .foregroundStyle(WeeTheme.textSecondary)
+                            .lineLimit(4)
+                            .textSelection(.enabled)
+                    }
+                }
+                .padding(8)
+                .background(WeeTheme.sunken, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+            }
+        }
+        .padding(8)
+        .background(WeeTheme.surfaceRaised, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 }
 
