@@ -22,4 +22,19 @@ final class ChatStreamTranscriptStoreTests: XCTestCase {
         store.finishStream(for: activeKey)
         XCTAssertFalse(store.isStreaming(activeKey))
     }
+
+    func test_transcriptCacheKeepsOnlyTheMostRecentMessages() {
+        var store = ChatStreamTranscriptStore()
+        let key = ChatTranscriptKey(environment: .local, sessionID: "long-session")
+        let messages = (0...ChatStreamTranscriptStore.maximumMessages).map {
+            ChatMessage(role: .user, text: "message-\($0)")
+        }
+
+        store.beginStream(for: key, messages: messages)
+        let cached = store.messages(for: key, serverMessages: [])
+
+        XCTAssertEqual(cached.count, ChatStreamTranscriptStore.maximumMessages)
+        XCTAssertEqual(cached.first?.text, "message-1")
+        XCTAssertEqual(cached.last?.text, "message-\(ChatStreamTranscriptStore.maximumMessages)")
+    }
 }

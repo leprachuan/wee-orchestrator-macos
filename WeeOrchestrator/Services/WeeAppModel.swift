@@ -92,23 +92,25 @@ struct ChatMessageQueueStore {
 }
 
 struct ChatStreamTranscriptStore {
+    static let maximumMessages = 50
+
     private var transcripts: [ChatTranscriptKey: [ChatMessage]] = [:]
     private var activeStreams: Set<ChatTranscriptKey> = []
 
     mutating func beginStream(for key: ChatTranscriptKey, messages: [ChatMessage]) {
-        transcripts[key] = messages
+        transcripts[key] = bounded(messages)
         activeStreams.insert(key)
     }
 
     mutating func retainTranscript(for key: ChatTranscriptKey, messages: [ChatMessage]) {
-        transcripts[key] = messages
+        transcripts[key] = bounded(messages)
     }
 
     mutating func updateMessage(id: UUID, for key: ChatTranscriptKey, update: (inout ChatMessage) -> Void) {
         guard var messages = transcripts[key],
               let index = messages.firstIndex(where: { $0.id == id }) else { return }
         update(&messages[index])
-        transcripts[key] = messages
+        transcripts[key] = bounded(messages)
     }
 
     mutating func finishStream(for key: ChatTranscriptKey) {
@@ -120,14 +122,18 @@ struct ChatStreamTranscriptStore {
     }
 
     func messages(for key: ChatTranscriptKey, serverMessages: [ChatMessage]) -> [ChatMessage] {
-        guard let cached = transcripts[key] else { return serverMessages }
+        guard let cached = transcripts[key] else { return bounded(serverMessages) }
         // While streaming, server history can legitimately lag behind the
         // current assistant response. Keep the local transcript authoritative
         // until the stream completes and the server has caught up.
         if activeStreams.contains(key) || serverMessages.count < cached.count {
             return cached
         }
-        return serverMessages
+        return bounded(serverMessages)
+    }
+
+    private func bounded(_ messages: [ChatMessage]) -> [ChatMessage] {
+        Array(messages.suffix(Self.maximumMessages))
     }
 }
 
@@ -289,6 +295,7 @@ final class WeeAppModel {
     var kanbanStatusMessage: String?
     var selectedTask: BackgroundTaskDetail?
     var historySessions: [HistorySessionSummary] = []
+    var chatHistoryTotal = 0
     var chatMessages: [ChatMessage] = [
         ChatMessage(role: .system, text: "Wee macOS client ready.")
     ]
@@ -500,6 +507,7 @@ final class WeeAppModel {
     }
 
     var currentChatQueueCount: Int { currentQueuedChatMessages.count }
+    var isShowingRecentChatWindow: Bool { chatHistoryTotal > chatMessages.count }
 
     func bootstrap() async {
         installWeeCLI()
@@ -2401,6 +2409,7 @@ final class WeeAppModel {
             try await applySessionPermissionModeIfNeeded(sessionID: session.sessionID)
             saveConfiguration()
             chatMessages = [ChatMessage(role: .system, text: "New chat ready.")]
+            chatHistoryTotal = 0
             await loadHistorySessions()
         } catch {
             let message = handleAuthErrorIfNeeded(error) ?? error.localizedDescription
@@ -2464,7 +2473,10 @@ final class WeeAppModel {
                 return
             }
 
-            let response = try await client.historyMessages(sessionID: session.sessionID)
+            let response = try await client.historyMessages(
+                sessionID: session.sessionID,
+                limit: ChatStreamTranscriptStore.maximumMessages
+            )
             currentSessionID = session.sessionID
             if let agent = session.agent, !agent.isEmpty {
                 selectedAgent = agent
@@ -2472,6 +2484,7 @@ final class WeeAppModel {
             }
             let serverMessages = response.messages.map(ChatMessage.init(historyMessage:))
             chatMessages = streamTranscripts.messages(for: transcriptKey, serverMessages: serverMessages)
+            chatHistoryTotal = response.total ?? serverMessages.count
             if chatMessages.isEmpty {
                 chatMessages = [ChatMessage(role: .system, text: "This chat has no messages yet.")]
             }

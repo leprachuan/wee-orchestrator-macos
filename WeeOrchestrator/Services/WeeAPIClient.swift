@@ -335,8 +335,12 @@ struct WeeAPIClient {
         return response.sessions
     }
 
-    func historyMessages(sessionID: String, limit: Int = 100) async throws -> HistoryMessagesResponse {
-        try await request("GET", path: "/api/v1/history/sessions/\(sessionID)/messages?limit=\(limit)")
+    func historyMessages(sessionID: String, limit: Int = 50, offset: Int? = nil) async throws -> HistoryMessagesResponse {
+        var path = "/api/v1/history/sessions/\(sessionID)/messages?limit=\(limit)"
+        if let offset {
+            path += "&offset=\(offset)"
+        }
+        return try await request("GET", path: path)
     }
 
     func stream(

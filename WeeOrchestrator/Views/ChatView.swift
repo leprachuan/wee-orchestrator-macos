@@ -75,6 +75,12 @@ struct ChatView: View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 12) {
+                    if model.isShowingRecentChatWindow {
+                        Text("Showing the most recent \(model.chatMessages.count) messages")
+                            .font(.caption)
+                            .foregroundStyle(WeeTheme.textMuted)
+                            .frame(maxWidth: .infinity, alignment: .center)
+                    }
                     ForEach(model.chatMessages) { message in
                         if message.isContextBoundary {
                             ContextBoundaryBanner(text: message.text)
