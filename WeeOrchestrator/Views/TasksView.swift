@@ -1077,7 +1077,9 @@ private struct TaskDetailView: View {
     @State private var isLive = false
 
     private var displayedStatus: String { liveStatus ?? detail.status }
-    private var displayedOutput: [String] { liveOutputLines ?? detail.recentOutput ?? [] }
+    private var displayedOutput: [String] {
+        Array((liveOutputLines ?? detail.recentOutput ?? []).suffix(100))
+    }
 
     var body: some View {
         ZStack {
@@ -1171,12 +1173,17 @@ private struct TaskDetailView: View {
                     .foregroundStyle(WeeTheme.textMuted)
                     .padding(12)
             } else {
-                Text(displayedOutput.joined(separator: "\n"))
-                    .font(.caption.monospaced())
-                    .foregroundStyle(WeeTheme.textSecondary)
-                    .textSelection(.enabled)
-                    .padding(12)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                LazyVStack(alignment: .leading, spacing: 4) {
+                    ForEach(Array(displayedOutput.enumerated()), id: \.offset) { item in
+                        Text(item.element)
+                            .font(.caption.monospaced())
+                            .foregroundStyle(WeeTheme.textSecondary)
+                            .textSelection(.enabled)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+                .padding(12)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

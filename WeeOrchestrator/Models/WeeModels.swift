@@ -1049,17 +1049,17 @@ struct BackgroundTaskDetail: Decodable, Identifiable {
     }
 }
 
-/// Issue #24: powers a lightweight live-log poll while the task detail modal
-/// is open. The backend's /logs endpoint returns the full (unclipped)
-/// output_lines, unlike the main detail endpoint's last-50 slice.
+/// Powers a bounded live-log poll while the task detail modal is open.
 struct BackgroundTaskLogs: Decodable {
     let status: String
     let outputLines: [String]
+    let truncated: Bool?
     let error: String?
 
     enum CodingKeys: String, CodingKey {
         case status
         case outputLines = "output_lines"
+        case truncated
         case error
     }
 }

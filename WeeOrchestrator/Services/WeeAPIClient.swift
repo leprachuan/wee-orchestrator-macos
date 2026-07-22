@@ -251,8 +251,11 @@ struct WeeAPIClient {
         try await request("GET", path: "/api/v1/background-tasks/\(id)")
     }
 
-    func backgroundTaskLogs(id: String) async throws -> BackgroundTaskLogs {
-        try await request("GET", path: "/api/v1/background-tasks/\(id)/logs")
+    func backgroundTaskLogs(id: String, tail: Int = 100, lineLimit: Int = 4_000) async throws -> BackgroundTaskLogs {
+        try await request(
+            "GET",
+            path: "/api/v1/background-tasks/\(id)/logs?tail=\(tail)&line_limit=\(lineLimit)"
+        )
     }
 
     func createBackgroundTask(
