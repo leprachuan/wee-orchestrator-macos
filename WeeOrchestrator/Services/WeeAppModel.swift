@@ -261,6 +261,9 @@ final class WeeAppModel {
     var remoteAgents: [AgentSummary] = []
     var isLocalServiceRunning = false
     var localServiceStatus = "Stopped"
+    /// When enabled, quitting the client deliberately leaves its locally
+    /// managed API process alive for background work (issue #39).
+    var keepLocalAPIRunningAfterAppQuits = false
     var weeCLIInstallationStatus = "Will install when Wee opens"
     var localServiceLog = ""
     var isLocalSourceWorking = false
@@ -374,6 +377,7 @@ final class WeeAppModel {
             repositoryURL: defaults.string(forKey: "wee.localService.repositoryURL") ?? LocalAPIServiceConfiguration.defaults.repositoryURL,
             checkoutDirectory: defaults.string(forKey: "wee.localService.checkoutDirectory") ?? LocalAPIServiceConfiguration.defaults.checkoutDirectory
         )
+        keepLocalAPIRunningAfterAppQuits = defaults.object(forKey: "wee.localService.keepRunningAfterQuit") as? Bool ?? false
         localModelConfiguration = LocalModelConfiguration(
             selectedModel: defaults.string(forKey: "wee.localModels.selected") ?? LocalModelConfiguration.defaults.selectedModel,
             autoStartRunner: defaults.object(forKey: "wee.localModels.autoStart") as? Bool ?? LocalModelConfiguration.defaults.autoStartRunner
@@ -1738,6 +1742,21 @@ final class WeeAppModel {
         } catch {
             localServiceStatus = "Launch failed: \(error.localizedDescription)"
         }
+    }
+
+    func setKeepLocalAPIRunningAfterAppQuits(_ enabled: Bool) {
+        keepLocalAPIRunningAfterAppQuits = enabled
+        defaults.set(enabled, forKey: "wee.localService.keepRunningAfterQuit")
+    }
+
+    /// Called only by the app lifecycle. Manual Stop and Restart continue to
+    /// terminate the service even when the keep-running preference is enabled.
+    func stopLocalAPIForApplicationTermination() {
+        guard !keepLocalAPIRunningAfterAppQuits else {
+            localServiceStatus = "Continuing after Wee closes"
+            return
+        }
+        stopLocalAPI()
     }
 
     func stopLocalAPI() {
