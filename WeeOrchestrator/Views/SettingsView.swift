@@ -280,6 +280,16 @@ struct SettingsView: View {
             Toggle("Start local API when Wee opens", isOn: $model.localServiceConfiguration.autoStart)
                 .tint(WeeTheme.accent)
 
+            Toggle("Keep API running after Wee closes", isOn: Binding(
+                get: { model.keepLocalAPIRunningAfterAppQuits },
+                set: { model.setKeepLocalAPIRunningAfterAppQuits($0) }
+            ))
+            .tint(WeeTheme.accent)
+
+            Text("When enabled, Quit closes the client but leaves this locally managed API available for background tasks. Use Stop to terminate it explicitly.")
+                .weeFont(.caption)
+                .foregroundStyle(WeeTheme.textMuted)
+
             HStack {
                 Label(model.weeCLIInstallationStatus, systemImage: "terminal")
                     .weeFont(.caption)
