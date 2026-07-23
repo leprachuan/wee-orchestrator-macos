@@ -70,6 +70,11 @@ struct ContentView: View {
         .preferredColorScheme(.dark)
         .frame(minWidth: 1180, minHeight: 680)
         .task {
+            // The unit-test bundle is hosted by the app executable. Avoid
+            // starting managed services, installing the CLI, or making API
+            // requests while XCTest is loading that bundle; those startup
+            // tasks can keep the host alive before test discovery completes.
+            guard ProcessInfo.processInfo.environment["XCTestBundlePath"] == nil else { return }
             await model.bootstrap()
             if model.activeEnvironment != windowEnvironment {
                 await model.switchEnvironment(to: windowEnvironment)

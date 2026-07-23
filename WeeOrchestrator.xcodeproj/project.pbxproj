@@ -41,6 +41,7 @@
 		A10032 /* WeeModelCatalogTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10034; };
 		A10040 /* WeeCLIInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10040; };
 		A10041 /* WeeCLIInstallerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10041; };
+		A10042 /* ChatSessionOrganizationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10042; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -80,6 +81,7 @@
 		B10034 /* WeeModelCatalogTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WeeModelCatalogTests.swift; sourceTree = "<group>"; };
 		B10040 /* WeeCLIInstaller.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WeeCLIInstaller.swift; sourceTree = "<group>"; };
 		B10041 /* WeeCLIInstallerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WeeCLIInstallerTests.swift; sourceTree = "<group>"; };
+		B10042 /* ChatSessionOrganizationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatSessionOrganizationTests.swift; sourceTree = "<group>"; };
 		P10001 /* WeeOrchestrator.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = WeeOrchestrator.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		P10002 /* WeeOrchestratorTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = WeeOrchestratorTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -198,6 +200,7 @@
 				B10033 /* AppUpdateInstallationTests.swift */,
 				B10034 /* WeeModelCatalogTests.swift */,
 				B10041 /* WeeCLIInstallerTests.swift */,
+				B10042 /* ChatSessionOrganizationTests.swift */,
 			);
 			path = WeeOrchestratorTests;
 			sourceTree = "<group>";
@@ -342,6 +345,7 @@
 				A10031,
 				A10032,
 				A10041,
+				A10042,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
