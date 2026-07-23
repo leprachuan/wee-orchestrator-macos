@@ -361,6 +361,11 @@ final class WeeAppModel {
     @ObservationIgnored private var localAPIProcess: Process?
     @ObservationIgnored private var localLogPipe: Pipe?
     @ObservationIgnored private var ollamaProcess: Process?
+    /// Keep the replacement helper alive until the app has handed control
+    /// back to macOS.  Without this strong reference, Process can be released
+    /// immediately after launch and the installer never gets a chance to
+    /// replace the bundle.
+    @ObservationIgnored private var appReplacementProcess: Process?
     @ObservationIgnored private var streamTranscripts = ChatStreamTranscriptStore()
     @ObservationIgnored private var chatPrefetchTask: Task<Void, Never>?
     @ObservationIgnored private var queuedChatMessages = ChatMessageQueueStore()
@@ -764,7 +769,12 @@ final class WeeAppModel {
 
             try scheduleAppReplacement(source: replacementAppURL, target: Bundle.main.bundleURL, stagingDirectory: stagingDirectory)
             appUpdateStatus = "Installing Wee Orchestrator \(update.version)…"
-            NSApp.terminate(nil)
+            // Let the status change render before asking AppKit to terminate.
+            // The detached helper waits for this process to exit before it
+            // touches the application bundle.
+            DispatchQueue.main.async {
+                NSApp.terminate(nil)
+            }
         } catch {
             isInstallingAppUpdate = false
             appUpdateStatus = "Update failed: \(error.localizedDescription)"
@@ -806,19 +816,33 @@ final class WeeAppModel {
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: scriptURL.path)
 
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        // nohup makes the helper independent of the app's process group. This
+        // matters during normal AppKit termination, where an unretained child
+        // could otherwise be torn down along with the app.
+        process.executableURL = URL(fileURLWithPath: Self.appReplacementLauncher)
         process.arguments = [
+            "/bin/sh",
             scriptURL.path,
             target.path,
             source.path,
             String(ProcessInfo.processInfo.processIdentifier)
         ]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        process.terminationHandler = { [weak self] _ in
+            Task { @MainActor in
+                self?.appReplacementProcess = nil
+            }
+        }
         try process.run()
+        appReplacementProcess = process
     }
 
     /// The app being updated must be gone before its bundle is moved.  Opening
     /// a replacement while its predecessor is still alive just activates the
     /// old process, which leaves the updater UI permanently on "Installing…".
+    static let appReplacementLauncher = "/usr/bin/nohup"
+
     static let appReplacementScript = """
         #!/bin/sh
         set -eu

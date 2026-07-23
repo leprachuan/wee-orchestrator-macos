@@ -14,4 +14,9 @@ final class AppUpdateInstallationTests: XCTestCase {
         let replaceRange = try! XCTUnwrap(script.range(of: "mv \"$target\" \"$backup\""))
         XCTAssertLessThan(waitRange.lowerBound, replaceRange.lowerBound)
     }
+
+    @MainActor
+    func testReplacementUsesDetachedNoHupLauncher() {
+        XCTAssertEqual(WeeAppModel.appReplacementLauncher, "/usr/bin/nohup")
+    }
 }
