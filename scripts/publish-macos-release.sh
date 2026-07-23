@@ -15,7 +15,10 @@ NOTES_PATH="${4:-}"
 
 MACOS_REPOSITORY="${MACOS_RELEASE_REPOSITORY:-leprachuan/wee-orchestrator-macos}"
 CORE_REPOSITORY="${CORE_RELEASE_REPOSITORY:-leprachuan/Wee-Orchestrator}"
-MACOS_TARGET="${MACOS_RELEASE_TARGET:-HEAD}"
+# GitHub accepts a remote branch or commit SHA as a release target, but not
+# the literal string "HEAD".  Default to the currently checked-out branch so
+# publishing from a feature/release branch works without an override.
+MACOS_TARGET="${MACOS_RELEASE_TARGET:-$(git branch --show-current)}"
 CORE_TARGET="${CORE_RELEASE_TARGET:-main}"
 TAG="macos-v${VERSION}"
 TITLE="Wee Orchestrator for macOS v${VERSION}"
