@@ -111,6 +111,11 @@ struct ContentView: View {
                 AppUpdateModal(model: model, update: update)
             }
         }
+        .alert("Wee Orchestrator", isPresented: $model.shouldPresentAppUpdateCheckResult) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text(model.appUpdateStatus ?? "No update information is available.")
+        }
         .interactiveDismissDisabled(model.isInstallingAppUpdate)
     }
 

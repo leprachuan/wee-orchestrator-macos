@@ -348,6 +348,9 @@ final class WeeAppModel {
     var appUpdateStatus: String?
     var isCheckingForAppUpdate = false
     var isInstallingAppUpdate = false
+    /// A manual update check with no installable release still needs visible
+    /// feedback. ContentView presents this status in an alert.
+    var shouldPresentAppUpdateCheckResult = false
 
     private let defaults = UserDefaults.standard
     private var previousTaskStatuses: [String: String] = [:]
@@ -687,8 +690,14 @@ final class WeeAppModel {
 
     func checkForAppUpdate(showResult: Bool = false) async {
         guard !isCheckingForAppUpdate else { return }
+        if showResult {
+            shouldPresentAppUpdateCheckResult = false
+        }
         guard let currentVersion = currentAppVersion else {
-            if showResult { appUpdateStatus = "Unable to read this app's version." }
+            if showResult {
+                appUpdateStatus = "Unable to read this app's version."
+                shouldPresentAppUpdateCheckResult = true
+            }
             return
         }
 
@@ -710,10 +719,12 @@ final class WeeAppModel {
                 appUpdateStatus = "Wee Orchestrator \(availableAppUpdate.version) is ready to install."
             } else if showResult {
                 appUpdateStatus = "You're up to date (v\(currentVersion))."
+                shouldPresentAppUpdateCheckResult = true
             }
         } catch {
             if showResult {
                 appUpdateStatus = "Unable to check for updates: \(error.localizedDescription)"
+                shouldPresentAppUpdateCheckResult = true
             }
         }
     }
