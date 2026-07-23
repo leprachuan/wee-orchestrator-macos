@@ -37,4 +37,24 @@ final class ChatStreamTranscriptStoreTests: XCTestCase {
         XCTAssertEqual(cached.first?.text, "message-1")
         XCTAssertEqual(cached.last?.text, "message-\(ChatStreamTranscriptStore.maximumMessages)")
     }
+
+    func test_streamEventReadsNestedToolPayloads() throws {
+        let data = """
+        {
+          "type": "tool_call",
+          "status": "running",
+          "data": {
+            "tool_name": "shell",
+            "arguments": { "command": "vm_stat" },
+            "result": { "status": "ok" }
+          }
+        }
+        """.data(using: .utf8)!
+
+        let event = try JSONDecoder().decode(StreamEvent.self, from: data)
+
+        XCTAssertEqual(event.toolName, "shell")
+        XCTAssertEqual(event.toolInput, #"{"command":"vm_stat"}"#)
+        XCTAssertEqual(event.toolOutput, #"{"status":"ok"}"#)
+    }
 }

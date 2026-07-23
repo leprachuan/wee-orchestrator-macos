@@ -1311,6 +1311,12 @@ struct ChatToolActivity: Identifiable, Hashable {
     var name: String
     var status: String
     var summary: String?
+    /// The structured request and response received from the tool-call SSE
+    /// events. Kept separately so a completion event does not hide the input
+    /// that was shown by the earlier running event.
+    var input: String?
+    var output: String?
+    var isError: Bool
 
     var isRunning: Bool {
         status == "running" || status == "detected"
@@ -1341,6 +1347,52 @@ struct TextToSpeechRequest: Encodable {
     let voice: String?
 }
 
+/// A JSON value that preserves runtime-specific tool payloads without making
+/// the whole stream event undecodable when a provider sends an object instead
+/// of a string.
+indirect enum StreamJSONValue: Codable, Hashable {
+    case string(String)
+    case number(Double)
+    case bool(Bool)
+    case array([StreamJSONValue])
+    case object([String: StreamJSONValue])
+    case null
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        if container.decodeNil() { self = .null }
+        else if let value = try? container.decode(Bool.self) { self = .bool(value) }
+        else if let value = try? container.decode(Double.self) { self = .number(value) }
+        else if let value = try? container.decode(String.self) { self = .string(value) }
+        else if let value = try? container.decode([StreamJSONValue].self) { self = .array(value) }
+        else { self = .object(try container.decode([String: StreamJSONValue].self)) }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        switch self {
+        case .string(let value): try container.encode(value)
+        case .number(let value): try container.encode(value)
+        case .bool(let value): try container.encode(value)
+        case .array(let value): try container.encode(value)
+        case .object(let value): try container.encode(value)
+        case .null: try container.encodeNil()
+        }
+    }
+
+    var displayText: String? {
+        if case .null = self { return nil }
+        if case .string(let text) = self { return text }
+        guard let data = try? JSONEncoder().encode(self) else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+
+    var objectValue: [String: StreamJSONValue]? {
+        guard case .object(let value) = self else { return nil }
+        return value
+    }
+}
+
 struct StreamEvent: Decodable {
     let id: String?
     let type: String
@@ -1357,6 +1409,9 @@ struct StreamEvent: Decodable {
     let status: String?
     let result: String?
     let isError: Bool?
+    /// Copilot SDK and some provider bridges place tool metadata inside a
+    /// `data` envelope instead of at the top level.
+    let data: StreamJSONValue?
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -1374,6 +1429,30 @@ struct StreamEvent: Decodable {
         case status
         case result
         case isError = "is_error"
+        case data
+    }
+
+    private func nestedText(for keys: [String]) -> String? {
+        guard let values = data?.objectValue else { return nil }
+        for key in keys {
+            if let text = values[key]?.displayText?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !text.isEmpty {
+                return text
+            }
+        }
+        return nil
+    }
+
+    var toolName: String? {
+        name ?? nestedText(for: ["name", "tool_name", "toolName", "function_name"])
+    }
+
+    var toolInput: String? {
+        input ?? nestedText(for: ["input", "arguments", "args", "command", "partial_json"])
+    }
+
+    var toolOutput: String? {
+        result ?? output ?? nestedText(for: ["result", "output", "content", "message", "error"])
     }
 }
 

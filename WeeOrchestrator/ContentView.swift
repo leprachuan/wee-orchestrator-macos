@@ -80,6 +80,15 @@ struct ContentView: View {
                 selectedSection = .chat
             }
         }
+        .onChange(of: windowEnvironment) { _, environment in
+            // On-device model management is meaningful only while this window
+            // targets the Local API. If the user switches to Remote while it
+            // is open, return to Chat instead of leaving a hidden local-only
+            // screen selected.
+            if environment == .remote, selectedSection == .localModels {
+                selectedSection = .chat
+            }
+        }
         .onChange(of: model.activeEnvironment) { _, newValue in
             // Only adopt the change if it happened while this window was the
             // one the user was driving — otherwise another window switching
@@ -145,7 +154,13 @@ struct ContentView: View {
     }
 
     private var visibleSections: [AppSection] {
-        AppSection.allCases.filter { $0 != .kanban || model.kanbanEnabled }
+        AppSection.allCases.filter { section in
+            if section == .kanban, !model.kanbanEnabled { return false }
+            // Local Models controls Ollama and the locally managed API on this
+            // Mac; it must not appear while the window is targeting Remote.
+            if section == .localModels, windowEnvironment == .remote { return false }
+            return true
+        }
     }
 
     private var workspaceRail: some View {

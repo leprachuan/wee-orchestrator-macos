@@ -1449,29 +1449,81 @@ private struct ToolActivityTimeline: View {
                 .foregroundStyle(WeeTheme.textMuted)
 
             ForEach(activities) { activity in
-                VStack(alignment: .leading, spacing: 3) {
-                    HStack(spacing: 6) {
-                        Image(systemName: activity.isRunning ? "circle.dotted" : "checkmark.circle.fill")
-                            .foregroundStyle(activity.isRunning ? WeeTheme.gold : WeeTheme.emerald)
-                        Text(activity.isRunning ? "Running \(activity.name)" : "Completed \(activity.name)")
-                            .weeFont(.caption, weight: .semibold)
-                            .foregroundStyle(WeeTheme.textPrimary)
-                        Spacer()
-                    }
-                    if let summary = activity.summary, !summary.isEmpty {
-                        Text(summary)
-                            .weeFont(.caption2, design: .monospaced)
-                            .foregroundStyle(WeeTheme.textSecondary)
-                            .lineLimit(4)
-                            .textSelection(.enabled)
-                    }
-                }
-                .padding(8)
-                .background(WeeTheme.sunken, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                ToolActivityRow(activity: activity)
             }
         }
         .padding(8)
         .background(WeeTheme.surfaceRaised, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+    }
+}
+
+private struct ToolActivityRow: View {
+    let activity: ChatToolActivity
+    @State private var isExpanded = false
+
+    private var hasDetails: Bool {
+        activity.input?.isEmpty == false || activity.output?.isEmpty == false
+    }
+
+    var body: some View {
+        DisclosureGroup(isExpanded: $isExpanded) {
+            VStack(alignment: .leading, spacing: 8) {
+                if let input = activity.input, !input.isEmpty {
+                    toolDetail(title: "INPUT", text: input)
+                }
+                if let output = activity.output, !output.isEmpty {
+                    toolDetail(title: activity.isError ? "ERROR" : "RESULT", text: output)
+                }
+                if !hasDetails {
+                    Text("Tool details were not included in this stream event.")
+                        .weeFont(.caption2)
+                        .foregroundStyle(WeeTheme.textMuted)
+                }
+            }
+            .padding(.top, 6)
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: statusSymbol)
+                    .foregroundStyle(statusColor)
+                Text(statusText)
+                    .weeFont(.caption, weight: .semibold)
+                    .foregroundStyle(WeeTheme.textPrimary)
+                Spacer()
+            }
+        }
+        .tint(WeeTheme.textSecondary)
+        .padding(8)
+        .background(WeeTheme.sunken, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+    }
+
+    @ViewBuilder
+    private func toolDetail(title: String, text: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .weeFont(.caption2, weight: .bold)
+                .tracking(0.6)
+                .foregroundStyle(WeeTheme.textMuted)
+            Text(text)
+                .weeFont(.caption2, design: .monospaced)
+                .foregroundStyle(WeeTheme.textSecondary)
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(7)
+                .background(Color.black.opacity(0.16), in: RoundedRectangle(cornerRadius: 5, style: .continuous))
+        }
+    }
+
+    private var statusText: String {
+        if activity.isRunning { return "Running \(activity.name)" }
+        return activity.isError ? "Failed \(activity.name)" : "Completed \(activity.name)"
+    }
+
+    private var statusSymbol: String {
+        activity.isRunning ? "circle.dotted" : (activity.isError ? "xmark.circle.fill" : "checkmark.circle.fill")
+    }
+
+    private var statusColor: Color {
+        activity.isRunning ? WeeTheme.gold : (activity.isError ? WeeTheme.danger : WeeTheme.emerald)
     }
 }
 

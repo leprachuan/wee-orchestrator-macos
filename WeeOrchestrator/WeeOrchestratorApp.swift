@@ -2,6 +2,7 @@ import SwiftUI
 
 /// Testability seam for issue #7 — lets tests verify applicationWillTerminate
 /// calls stopLocalAPI() without spinning up a real WeeAppModel/subprocess.
+@MainActor
 protocol LocalServiceStoppable: AnyObject {
     func stopLocalAPIForApplicationTermination()
 }

@@ -2158,7 +2158,22 @@ final class WeeAppModel {
                     let activity = toolActivity(from: event)
                     updateStreamTranscript(streamKey, messageID: streamMessageID) { message in
                         if let index = message.toolActivities.firstIndex(where: { $0.id == activity.id }) {
-                            message.toolActivities[index] = activity
+                            message.toolActivities[index] = mergedToolActivity(
+                                message.toolActivities[index],
+                                with: activity
+                            )
+                        } else if !activity.isRunning,
+                                  let index = message.toolActivities.lastIndex(where: {
+                                      $0.name == activity.name && $0.isRunning
+                                  }) {
+                            // Some runtimes do not provide an event id. Match
+                            // their completion event to the most recent same-
+                            // named running call so one row expands to show
+                            // both its request and result.
+                            message.toolActivities[index] = mergedToolActivity(
+                                message.toolActivities[index],
+                                with: activity
+                            )
                         } else {
                             message.toolActivities.append(activity)
                         }
@@ -3031,7 +3046,7 @@ final class WeeAppModel {
 
     private func streamActivityText(from event: StreamEvent) -> String {
         guard event.type == "tool_call" else { return "" }
-        let trimmedName = event.name?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedName = event.toolName?.trimmingCharacters(in: .whitespacesAndNewlines)
         let label = trimmedName?.isEmpty == false ? trimmedName! : "tool"
 
         switch event.status ?? event.event {
@@ -3039,12 +3054,12 @@ final class WeeAppModel {
             return "Running \(label)..."
         case "complete", "completed":
             if event.isError == true,
-               let output = (event.result ?? event.output)?.trimmingCharacters(in: .whitespacesAndNewlines),
+               let output = event.toolOutput?.trimmingCharacters(in: .whitespacesAndNewlines),
                !output.isEmpty {
                 return "\(label) failed: \(output)"
             }
             if label == "search",
-               let result = event.result?.trimmingCharacters(in: .whitespacesAndNewlines),
+               let result = event.toolOutput?.trimmingCharacters(in: .whitespacesAndNewlines),
                !result.isEmpty {
                 return "Search completed. Preparing answer…\n\n\(result)"
             }
@@ -3055,10 +3070,12 @@ final class WeeAppModel {
     }
 
     private func toolActivity(from event: StreamEvent) -> ChatToolActivity {
-        let name = event.name?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let name = event.toolName?.trimmingCharacters(in: .whitespacesAndNewlines)
         let label = name?.isEmpty == false ? name! : "tool"
         let status = event.status ?? event.event ?? "running"
-        let rawSummary = (event.result ?? event.output ?? event.input ?? "")
+        let input = event.toolInput?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let output = event.toolOutput?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let rawSummary = (output ?? input ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let summary = rawSummary.isEmpty
             ? nil
@@ -3067,12 +3084,30 @@ final class WeeAppModel {
             id: event.id ?? "\(label)-\(messageActivityID(event))",
             name: label,
             status: status,
-            summary: summary
+            summary: summary,
+            input: input?.isEmpty == false ? input : nil,
+            output: output?.isEmpty == false ? output : nil,
+            isError: event.isError == true
+        )
+    }
+
+    private func mergedToolActivity(
+        _ existing: ChatToolActivity,
+        with update: ChatToolActivity
+    ) -> ChatToolActivity {
+        ChatToolActivity(
+            id: existing.id,
+            name: update.name,
+            status: update.status,
+            summary: update.summary ?? existing.summary,
+            input: update.input ?? existing.input,
+            output: update.output ?? existing.output,
+            isError: update.isError || existing.isError
         )
     }
 
     private func messageActivityID(_ event: StreamEvent) -> String {
-        "\(event.name ?? "tool")-\(event.status ?? event.event ?? "running")"
+        "\(event.toolName ?? "tool")-\(event.status ?? event.event ?? "running")"
     }
 
     private func appendReadableStreamChunk(_ chunk: String, to accumulated: String) -> String {

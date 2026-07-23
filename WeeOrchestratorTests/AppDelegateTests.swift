@@ -11,6 +11,7 @@ final class AppDelegateTests: XCTestCase {
     /// (`agent_manager.py --api`) running as an orphan because nothing called
     /// `stopLocalAPI()` on quit — there was no NSApplicationDelegate at all.
     /// This locks in that `applicationWillTerminate` actually stops it.
+    @MainActor
     func test_applicationWillTerminate_delegatesToTheLifecycleStopHook() {
         let spy = StopLocalAPISpy()
         let delegate = AppDelegate()
@@ -21,6 +22,7 @@ final class AppDelegateTests: XCTestCase {
         XCTAssertEqual(spy.terminationCallCount, 1)
     }
 
+    @MainActor
     func test_issue_7_applicationWillTerminate_toleratesNilModel() {
         let delegate = AppDelegate()
         delegate.model = nil
