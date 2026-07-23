@@ -1,7 +1,7 @@
 import SwiftUI
 
 enum AppSection: String, CaseIterable, Identifiable {
-    case chat, kanban, backgroundTasks, scheduledTasks, agents, localModels, remoteSettings, localSettings
+    case chat, kanban, backgroundTasks, scheduledTasks, agents, localModels, settings
     var id: String { rawValue }
 
     var title: String {
@@ -12,8 +12,7 @@ enum AppSection: String, CaseIterable, Identifiable {
         case .scheduledTasks: "Scheduled Tasks"
         case .agents: "Agents"
         case .localModels: "Local Models"
-        case .remoteSettings: "Remote Settings"
-        case .localSettings: "Local Settings"
+        case .settings: "Settings"
         }
     }
 
@@ -25,8 +24,7 @@ enum AppSection: String, CaseIterable, Identifiable {
         case .scheduledTasks: "AUTOMATE"
         case .agents: "TEAM"
         case .localModels: "ON DEVICE"
-        case .remoteSettings: "REMOTE"
-        case .localSettings: "LOCAL"
+        case .settings: "CONFIGURE"
         }
     }
 
@@ -38,8 +36,7 @@ enum AppSection: String, CaseIterable, Identifiable {
         case .scheduledTasks: "calendar.badge.clock"
         case .agents: "person.2.fill"
         case .localModels: "cpu"
-        case .remoteSettings: "network"
-        case .localSettings: "desktopcomputer"
+        case .settings: "gearshape.fill"
         }
     }
 }
@@ -302,8 +299,10 @@ struct ContentView: View {
         case .scheduledTasks: TasksView(model: model, mode: .scheduled)
         case .agents: AgentsView(model: model)
         case .localModels: LocalModelsView(model: model)
-        case .remoteSettings: SettingsView(model: model, environment: .remote)
-        case .localSettings: SettingsView(model: model, environment: .local)
+        // Settings follows the same window-scoped Local/Remote selector as every
+        // other screen. This prevents configuring a different target than the
+        // one selected in the workspace rail (issue #40).
+        case .settings: SettingsView(model: model, environment: windowEnvironment)
         }
     }
 
