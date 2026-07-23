@@ -1133,14 +1133,17 @@ private enum RecentChatsRailLayout {
 private struct RecentChatsRail: View {
     @Bindable var model: WeeAppModel
     var layout: RecentChatsRailLayout = .horizontal
+    @State private var sessionToRename: HistorySessionSummary?
+    @State private var renameDraft = ""
 
     var body: some View {
-        switch layout {
+        Group {
+            switch layout {
             case .horizontal:
-                if !model.historySessions.isEmpty {
+                if !model.visibleHistorySessions.isEmpty {
                 ScrollView(.horizontal) {
                     HStack(spacing: 10) {
-                        ForEach(model.historySessions.prefix(12)) { session in
+                        ForEach(model.visibleHistorySessions.prefix(12)) { session in
                             sessionButton(session, width: 200)
                         }
                     }
@@ -1159,7 +1162,7 @@ private struct RecentChatsRail: View {
                             .tracking(1)
                             .foregroundStyle(WeeTheme.textMuted)
                         Spacer()
-                        Text("\(model.historySessions.count)")
+                        Text("\(model.visibleHistorySessions.count)")
                             .weeFont(.caption2).monospacedDigit()
                             .foregroundStyle(WeeTheme.textMuted)
                     }
@@ -1167,7 +1170,7 @@ private struct RecentChatsRail: View {
                     .padding(.top, 10)
 
                     ScrollView {
-                        if model.historySessions.isEmpty {
+                        if model.visibleHistorySessions.isEmpty {
                             VStack(spacing: 8) {
                                 Image(systemName: "bubble.left")
                                     .foregroundStyle(WeeTheme.textMuted)
@@ -1180,7 +1183,7 @@ private struct RecentChatsRail: View {
                             .padding(18)
                         } else {
                             LazyVStack(spacing: 6) {
-                                ForEach(model.historySessions.prefix(24)) { session in
+                                ForEach(model.visibleHistorySessions.prefix(24)) { session in
                                     sessionButton(session)
                                 }
                             }
@@ -1191,6 +1194,22 @@ private struct RecentChatsRail: View {
                     .scrollIndicators(.hidden)
                 }
                 .glassPanel()
+            }
+        }
+        .alert("Rename Chat", isPresented: Binding(
+            get: { sessionToRename != nil },
+            set: { if !$0 { sessionToRename = nil } }
+        )) {
+            TextField("Chat name", text: $renameDraft)
+            Button("Save") {
+                if let sessionToRename {
+                    model.renameHistorySession(sessionToRename, to: renameDraft)
+                }
+                sessionToRename = nil
+            }
+            Button("Cancel", role: .cancel) { sessionToRename = nil }
+        } message: {
+            Text("Use a name that helps you find this conversation later.")
         }
     }
 
@@ -1200,7 +1219,7 @@ private struct RecentChatsRail: View {
         } label: {
             VStack(alignment: .leading, spacing: 5) {
                 HStack(spacing: 6) {
-                    Text(session.displayTitle)
+                    Text(model.title(for: session))
                         .weeFont(.caption, weight: .semibold)
                         .lineLimit(1)
                     if model.isSessionStreaming(session.sessionID) {
@@ -1215,10 +1234,15 @@ private struct RecentChatsRail: View {
                             .foregroundStyle(WeeTheme.accent)
                     }
                 }
-                Text(session.agent ?? "agent")
-                    .weeFont(.caption2, weight: .medium)
-                    .foregroundStyle(WeeTheme.gold)
-                    .lineLimit(1)
+                HStack(spacing: 5) {
+                    Circle()
+                        .fill(ChatAgentColor.color(for: session.agent))
+                        .frame(width: 7, height: 7)
+                    Text(session.agent ?? "agent")
+                        .weeFont(.caption2, weight: .medium)
+                        .foregroundStyle(ChatAgentColor.color(for: session.agent))
+                        .lineLimit(1)
+                }
                 Text(session.displayPreview)
                     .weeFont(.caption2)
                     .foregroundStyle(WeeTheme.textSecondary)
@@ -1231,6 +1255,19 @@ private struct RecentChatsRail: View {
             .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(session.sessionID == model.currentSessionID ? WeeTheme.accent.opacity(0.34) : WeeTheme.glassStroke))
         }
         .buttonStyle(.plain)
+        .contextMenu {
+            Button {
+                renameDraft = model.title(for: session)
+                sessionToRename = session
+            } label: {
+                Label("Rename", systemImage: "pencil")
+            }
+            Button {
+                model.archiveHistorySession(session)
+            } label: {
+                Label("Archive", systemImage: "archivebox")
+            }
+        }
     }
 }
 
@@ -1261,7 +1298,7 @@ private struct SessionHistorySheet: View {
                 }
 
                 Section("Previous Chats") {
-                    ForEach(model.historySessions) { session in
+                    ForEach(model.visibleHistorySessions) { session in
                         Button {
                             isPresented = false
                             Task { await model.selectHistorySession(session) }
@@ -1273,6 +1310,22 @@ private struct SessionHistorySheet: View {
                             )
                         }
                         .buttonStyle(.plain)
+                    }
+                }
+
+                if !model.archivedHistorySessions.isEmpty {
+                    Section("Archived Chats") {
+                        ForEach(model.archivedHistorySessions) { session in
+                            HStack {
+                                Text(model.title(for: session))
+                                    .lineLimit(1)
+                                Spacer()
+                                Button("Restore") {
+                                    model.restoreHistorySession(session)
+                                }
+                                .buttonStyle(.borderless)
+                            }
+                        }
                     }
                 }
             }

@@ -343,6 +343,7 @@ final class WeeAppModel {
     /// state (e.g. the recent chats rail) refresh even when that session
     /// isn't the one currently visible.
     private var streamingRevision = 0
+    private var chatSessionOrganizations: [String: ChatSessionOrganization] = [:]
 
     var configuration: APIConfiguration {
         get { activeEnvironment == .local ? localConfiguration : remoteConfiguration }
@@ -398,6 +399,7 @@ final class WeeAppModel {
         remoteSSHRepositoryURL = defaults.string(forKey: "wee.remoteSSH.repositoryURL") ?? remoteSSHRepositoryURL
         remoteSSHCheckoutDirectory = defaults.string(forKey: "wee.remoteSSH.checkoutDirectory") ?? remoteSSHCheckoutDirectory
         userAvatarImagePath = defaults.string(forKey: "wee.userAvatarImagePath") ?? ""
+        chatSessionOrganizations = Self.loadChatSessionOrganizations(from: defaults)
     }
 
     var client: WeeAPIClient {
@@ -428,6 +430,28 @@ final class WeeAppModel {
 
     private var textSizeIndex: Int {
         Self.textSizeSteps.firstIndex(of: appTextSize) ?? Self.defaultTextSizeIndex
+    }
+
+    private static let chatSessionOrganizationsDefaultsKey = "wee.chatSessionOrganizations.v1"
+
+    private var chatSessionOrganization: ChatSessionOrganization {
+        chatSessionOrganizations[activeEnvironment.rawValue] ?? ChatSessionOrganization()
+    }
+
+    private func updateChatSessionOrganization(_ update: (inout ChatSessionOrganization) -> Void) {
+        var organization = chatSessionOrganization
+        update(&organization)
+        chatSessionOrganizations[activeEnvironment.rawValue] = organization
+        guard let data = try? JSONEncoder().encode(chatSessionOrganizations) else { return }
+        defaults.set(data, forKey: Self.chatSessionOrganizationsDefaultsKey)
+    }
+
+    private static func loadChatSessionOrganizations(from defaults: UserDefaults) -> [String: ChatSessionOrganization] {
+        guard let data = defaults.data(forKey: chatSessionOrganizationsDefaultsKey),
+              let organizations = try? JSONDecoder().decode([String: ChatSessionOrganization].self, from: data) else {
+            return [:]
+        }
+        return organizations
     }
 
     var canIncreaseTextSize: Bool { textSizeIndex < Self.textSizeSteps.count - 1 }
@@ -512,6 +536,32 @@ final class WeeAppModel {
 
     var currentChatQueueCount: Int { currentQueuedChatMessages.count }
     var isShowingRecentChatWindow: Bool { chatHistoryTotal > chatMessages.count }
+
+    var visibleHistorySessions: [HistorySessionSummary] {
+        let organization = chatSessionOrganization
+        return historySessions.filter { !organization.isArchived($0.sessionID) }
+    }
+
+    var archivedHistorySessions: [HistorySessionSummary] {
+        let organization = chatSessionOrganization
+        return historySessions.filter { organization.isArchived($0.sessionID) }
+    }
+
+    func title(for session: HistorySessionSummary) -> String {
+        chatSessionOrganization.title(for: session)
+    }
+
+    func archiveHistorySession(_ session: HistorySessionSummary) {
+        updateChatSessionOrganization { $0.archive(session.sessionID) }
+    }
+
+    func restoreHistorySession(_ session: HistorySessionSummary) {
+        updateChatSessionOrganization { $0.restore(session.sessionID) }
+    }
+
+    func renameHistorySession(_ session: HistorySessionSummary, to title: String) {
+        updateChatSessionOrganization { $0.rename(session.sessionID, to: title) }
+    }
 
     func bootstrap() async {
         installWeeCLI()

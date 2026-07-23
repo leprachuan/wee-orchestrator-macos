@@ -22,6 +22,30 @@ enum WeeTheme {
     static let sunken = Color.black.opacity(0.24)
 }
 
+/// A stable, high-contrast color assignment for agent labels in chat lists.
+/// It deliberately uses a deterministic byte hash rather than Swift's seeded
+/// `Hasher`, so an agent keeps its color across app launches.
+enum ChatAgentColor {
+    private static let palette: [Color] = [
+        WeeTheme.emerald,
+        WeeTheme.gold,
+        Color(red: 0.47, green: 0.70, blue: 1.0),
+        Color(red: 0.88, green: 0.48, blue: 0.94),
+        Color(red: 1.0, green: 0.51, blue: 0.36),
+        Color(red: 0.32, green: 0.84, blue: 0.83)
+    ]
+
+    static func index(for agent: String?) -> Int {
+        let normalized = (agent ?? "agent").lowercased().utf8
+        let hash = normalized.reduce(UInt64(5_381)) { ($0 &* 33) &+ UInt64($1) }
+        return Int(hash % UInt64(palette.count))
+    }
+
+    static func color(for agent: String?) -> Color {
+        palette[index(for: agent)]
+    }
+}
+
 /// Fixed-point fonts do not respond to SwiftUI's Dynamic Type environment on
 /// macOS. Use this scale for the app's compact desktop typography so the
 /// Appearance text-size control has a visible, consistent effect.

@@ -1236,6 +1236,41 @@ struct HistorySessionSummary: Decodable, Identifiable, Hashable {
     }
 }
 
+/// Per-device organization metadata for server-backed chat sessions. Keeping
+/// this client-side lets a person curate their recent-chat panel without
+/// changing or deleting the underlying server history.
+struct ChatSessionOrganization: Codable, Equatable {
+    var archivedSessionIDs: Set<String> = []
+    var customTitles: [String: String] = [:]
+
+    func isArchived(_ sessionID: String) -> Bool {
+        archivedSessionIDs.contains(sessionID)
+    }
+
+    func title(for session: HistorySessionSummary) -> String {
+        let customTitle = customTitles[session.sessionID]?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return customTitle.isEmpty ? session.displayTitle : customTitle
+    }
+
+    mutating func archive(_ sessionID: String) {
+        archivedSessionIDs.insert(sessionID)
+    }
+
+    mutating func restore(_ sessionID: String) {
+        archivedSessionIDs.remove(sessionID)
+    }
+
+    mutating func rename(_ sessionID: String, to title: String) {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            customTitles.removeValue(forKey: sessionID)
+        } else {
+            customTitles[sessionID] = trimmed
+        }
+    }
+}
+
 struct HistoryMessagesResponse: Decodable {
     let sessionID: String
     let messages: [HistoryMessage]
