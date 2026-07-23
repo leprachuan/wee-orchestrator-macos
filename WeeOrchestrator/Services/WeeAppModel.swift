@@ -93,17 +93,24 @@ struct ChatMessageQueueStore {
 
 struct ChatStreamTranscriptStore {
     static let maximumMessages = 50
+    static let maximumCachedSessions = 12
 
     private var transcripts: [ChatTranscriptKey: [ChatMessage]] = [:]
     private var activeStreams: Set<ChatTranscriptKey> = []
+    /// Recency is kept separately from the transcript dictionary so recently
+    /// viewed completed chats can be restored instantly without unbounded
+    /// in-memory growth.
+    private var recency: [ChatTranscriptKey] = []
 
     mutating func beginStream(for key: ChatTranscriptKey, messages: [ChatMessage]) {
         transcripts[key] = bounded(messages)
         activeStreams.insert(key)
+        touch(key)
     }
 
     mutating func retainTranscript(for key: ChatTranscriptKey, messages: [ChatMessage]) {
         transcripts[key] = bounded(messages)
+        touch(key)
     }
 
     mutating func updateMessage(id: UUID, for key: ChatTranscriptKey, update: (inout ChatMessage) -> Void) {
@@ -111,6 +118,7 @@ struct ChatStreamTranscriptStore {
               let index = messages.firstIndex(where: { $0.id == id }) else { return }
         update(&messages[index])
         transcripts[key] = bounded(messages)
+        touch(key)
     }
 
     mutating func finishStream(for key: ChatTranscriptKey) {
@@ -119,6 +127,16 @@ struct ChatStreamTranscriptStore {
 
     func isStreaming(_ key: ChatTranscriptKey) -> Bool {
         activeStreams.contains(key)
+    }
+
+    mutating func cachedMessages(for key: ChatTranscriptKey) -> [ChatMessage]? {
+        guard let messages = transcripts[key] else { return nil }
+        touch(key)
+        return messages
+    }
+
+    func hasCachedMessages(for key: ChatTranscriptKey) -> Bool {
+        transcripts[key] != nil
     }
 
     func messages(for key: ChatTranscriptKey, serverMessages: [ChatMessage]) -> [ChatMessage] {
@@ -134,6 +152,19 @@ struct ChatStreamTranscriptStore {
 
     private func bounded(_ messages: [ChatMessage]) -> [ChatMessage] {
         Array(messages.suffix(Self.maximumMessages))
+    }
+
+    private mutating func touch(_ key: ChatTranscriptKey) {
+        recency.removeAll { $0 == key }
+        recency.append(key)
+        while recency.count > Self.maximumCachedSessions {
+            let oldest = recency.removeFirst()
+            guard !activeStreams.contains(oldest) else {
+                recency.append(oldest)
+                break
+            }
+            transcripts.removeValue(forKey: oldest)
+        }
     }
 }
 
@@ -331,6 +362,7 @@ final class WeeAppModel {
     @ObservationIgnored private var localLogPipe: Pipe?
     @ObservationIgnored private var ollamaProcess: Process?
     @ObservationIgnored private var streamTranscripts = ChatStreamTranscriptStore()
+    @ObservationIgnored private var chatPrefetchTask: Task<Void, Never>?
     @ObservationIgnored private var queuedChatMessages = ChatMessageQueueStore()
     @ObservationIgnored private var queueDispatchingKeys: Set<ChatTranscriptKey> = []
     @ObservationIgnored private var cancellationRequestedKeys: Set<ChatTranscriptKey> = []
@@ -2516,6 +2548,7 @@ final class WeeAppModel {
             activeSessionID: currentSessionID,
             activeAgent: selectedAgent
         )
+        scheduleRecentChatPrefetch(excluding: currentSessionID)
     }
 
     /// The API persists a newly created session immediately, but a streaming
@@ -2540,20 +2573,30 @@ final class WeeAppModel {
         guard hasAuthToken else { return }
 
         let transcriptKey = ChatTranscriptKey(environment: activeEnvironment, sessionID: session.sessionID)
-        isLoading = true
         errorMessage = nil
-        defer { isLoading = false }
+
+        // Move the selection immediately. A completed transcript may already
+        // be cached from a prior visit or idle prefetch, in which case the UI
+        // changes without waiting for the network.
+        currentSessionID = session.sessionID
+        if let agent = session.agent, !agent.isEmpty {
+            selectedAgent = agent
+            saveConfiguration()
+        }
+        if let cachedMessages = streamTranscripts.cachedMessages(for: transcriptKey) {
+            chatMessages = cachedMessages
+            chatHistoryTotal = cachedMessages.count
+        } else {
+            chatMessages = [ChatMessage(role: .system, text: "Loading conversation…")]
+            chatHistoryTotal = 0
+        }
+        scheduleRecentChatPrefetch(excluding: session.sessionID)
 
         do {
             // Do not replace an in-flight transcript with the API's older
             // persisted history. Its stream continues in the model even when
             // the user navigates to another view or thread.
             if streamTranscripts.isStreaming(transcriptKey) {
-                currentSessionID = session.sessionID
-                if let agent = session.agent, !agent.isEmpty {
-                    selectedAgent = agent
-                    saveConfiguration()
-                }
                 chatMessages = streamTranscripts.messages(for: transcriptKey, serverMessages: [])
                 return
             }
@@ -2562,22 +2605,27 @@ final class WeeAppModel {
                 sessionID: session.sessionID,
                 limit: ChatStreamTranscriptStore.maximumMessages
             )
-            currentSessionID = session.sessionID
-            if let agent = session.agent, !agent.isEmpty {
-                selectedAgent = agent
-                saveConfiguration()
-            }
             let serverMessages = response.messages.map(ChatMessage.init(historyMessage:))
+            streamTranscripts.retainTranscript(for: transcriptKey, messages: serverMessages)
+
+            // A newer click may have started while this request was in
+            // flight. Never let an older response overwrite that chat.
+            guard isViewingChat(transcriptKey) else { return }
             chatMessages = streamTranscripts.messages(for: transcriptKey, serverMessages: serverMessages)
             chatHistoryTotal = response.total ?? serverMessages.count
             if chatMessages.isEmpty {
                 chatMessages = [ChatMessage(role: .system, text: "This chat has no messages yet.")]
             }
-            await refreshSessionStatus(sessionID: session.sessionID)
+            Task { [weak self] in
+                await self?.refreshSessionStatus(sessionID: session.sessionID, onlyIfViewing: transcriptKey)
+            }
         } catch {
+            guard isViewingChat(transcriptKey) else { return }
             let message = handleAuthErrorIfNeeded(error) ?? error.localizedDescription
             errorMessage = message
-            chatMessages.append(ChatMessage(role: .system, text: message))
+            if streamTranscripts.cachedMessages(for: transcriptKey) == nil {
+                chatMessages = [ChatMessage(role: .system, text: message)]
+            }
         }
     }
 
@@ -2995,15 +3043,48 @@ final class WeeAppModel {
         saveConfiguration()
     }
 
-    private func refreshSessionStatus(sessionID: String) async {
+    private func refreshSessionStatus(sessionID: String, onlyIfViewing expectedKey: ChatTranscriptKey? = nil) async {
         do {
             let status = try await client.sessionStatus(sessionID: sessionID)
+            guard expectedKey == nil || isViewingChat(expectedKey!) else { return }
             if let agent = status.agent, !agent.isEmpty { selectedAgent = agent }
             if let runtime = status.runtime, !runtime.isEmpty { selectedRuntime = runtime }
             if let model = status.model, !model.isEmpty { selectedModel = model }
             sessionContextUsage = status.contextUsage
             saveConfiguration()
         } catch {}
+    }
+
+    private func scheduleRecentChatPrefetch(excluding sessionID: String?) {
+        chatPrefetchTask?.cancel()
+        let environment = activeEnvironment
+        let sessions = historySessions
+            .filter { $0.sessionID != sessionID }
+            .prefix(3)
+            .map { $0 }
+
+        guard !sessions.isEmpty else { return }
+        chatPrefetchTask = Task { [weak self] in
+            // Let the interaction settle first; prefetching must never compete
+            // with the user’s selected conversation.
+            try? await Task.sleep(for: .milliseconds(350))
+            guard !Task.isCancelled, let self else { return }
+
+            for session in sessions {
+                guard !Task.isCancelled, self.activeEnvironment == environment else { return }
+                let key = ChatTranscriptKey(environment: environment, sessionID: session.sessionID)
+                guard !self.streamTranscripts.hasCachedMessages(for: key) else { continue }
+                guard let response = try? await self.client(for: environment).historyMessages(
+                    sessionID: session.sessionID,
+                    limit: ChatStreamTranscriptStore.maximumMessages
+                ) else { continue }
+                guard !Task.isCancelled, self.activeEnvironment == environment else { return }
+                self.streamTranscripts.retainTranscript(
+                    for: key,
+                    messages: response.messages.map(ChatMessage.init(historyMessage:))
+                )
+            }
+        }
     }
 
     private func applySessionPermissionModeIfNeeded(sessionID: String) async throws {

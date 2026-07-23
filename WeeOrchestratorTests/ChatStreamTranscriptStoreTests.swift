@@ -38,6 +38,30 @@ final class ChatStreamTranscriptStoreTests: XCTestCase {
         XCTAssertEqual(cached.last?.text, "message-\(ChatStreamTranscriptStore.maximumMessages)")
     }
 
+    func test_completedTranscriptCanBeRestoredFromCache() {
+        var store = ChatStreamTranscriptStore()
+        let key = ChatTranscriptKey(environment: .remote, sessionID: "completed-session")
+        let messages = [ChatMessage(role: .user, text: "Question"), ChatMessage(role: .assistant, text: "Answer")]
+
+        store.retainTranscript(for: key, messages: messages)
+
+        XCTAssertEqual(store.cachedMessages(for: key)?.map(\.text), ["Question", "Answer"])
+    }
+
+    func test_cacheEvictsLeastRecentlyUsedCompletedSession() {
+        var store = ChatStreamTranscriptStore()
+        let keys = (0...ChatStreamTranscriptStore.maximumCachedSessions).map {
+            ChatTranscriptKey(environment: .local, sessionID: "session-\($0)")
+        }
+
+        for key in keys {
+            store.retainTranscript(for: key, messages: [ChatMessage(role: .user, text: key.sessionID)])
+        }
+
+        XCTAssertNil(store.cachedMessages(for: keys[0]))
+        XCTAssertEqual(store.cachedMessages(for: keys.last!)?.first?.text, "session-\(ChatStreamTranscriptStore.maximumCachedSessions)")
+    }
+
     func test_streamEventReadsNestedToolPayloads() throws {
         let data = """
         {

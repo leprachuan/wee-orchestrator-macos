@@ -340,7 +340,10 @@ struct WeeAPIClient {
         if let offset {
             path += "&offset=\(offset)"
         }
-        return try await request("GET", path: path)
+        // A conversation switch should fail promptly and retain the cached
+        // transcript rather than holding the UI behind the generic 45s API
+        // timeout intended for long-running operations.
+        return try await request("GET", path: path, timeout: 8)
     }
 
     func stream(
@@ -476,11 +479,11 @@ struct WeeAPIClient {
         return data
     }
 
-    private func request<T: Decodable>(_ method: String, path: String) async throws -> T {
-        try await request(method, path: path, body: Optional<String>.none)
+    private func request<T: Decodable>(_ method: String, path: String, timeout: TimeInterval = 45) async throws -> T {
+        try await request(method, path: path, body: Optional<String>.none, timeout: timeout)
     }
 
-    private func request<T: Decodable, B: Encodable>(_ method: String, path: String, body: B?) async throws -> T {
+    private func request<T: Decodable, B: Encodable>(_ method: String, path: String, body: B?, timeout: TimeInterval = 45) async throws -> T {
         guard let baseURL else { throw WeeAPIError.invalidBaseURL }
 
         guard let url = makeURL(baseURL: baseURL, path: path) else {
@@ -488,7 +491,7 @@ struct WeeAPIClient {
         }
         var request = URLRequest(url: url)
         request.httpMethod = method
-        request.timeoutInterval = 45
+        request.timeoutInterval = timeout
         request.setValue("application/json", forHTTPHeaderField: "Accept")
 
         let token = normalizedToken(configuration.token)
