@@ -19,4 +19,12 @@ final class AppUpdateInstallationTests: XCTestCase {
     func testReplacementUsesDetachedNoHupLauncher() {
         XCTAssertEqual(WeeAppModel.appReplacementLauncher, "/usr/bin/nohup")
     }
+
+    @MainActor
+    func testKeepRunningAPIIsPreservedAcrossApplicationTermination() {
+        let model = WeeAppModel()
+        model.keepLocalAPIRunningAfterAppQuits = true
+
+        XCTAssertFalse(model.shouldStopLocalAPIForApplicationTermination)
+    }
 }

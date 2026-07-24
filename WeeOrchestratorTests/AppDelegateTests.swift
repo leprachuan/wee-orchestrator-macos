@@ -30,4 +30,20 @@ final class AppDelegateTests: XCTestCase {
         // Should not crash when no model has been wired up yet.
         delegate.applicationWillTerminate(Notification(name: NSApplication.willTerminateNotification))
     }
+
+    @MainActor
+    func test_updateTerminationIsAcceptedImmediatelySoReplacementCanRun() {
+        let delegate = AppDelegate()
+
+        XCTAssertEqual(delegate.applicationShouldTerminate(NSApp), .terminateNow)
+    }
+
+    @MainActor
+    func test_regularTerminationIsAcceptedByTheAppLifecycle() {
+        let spy = StopLocalAPISpy()
+        let delegate = AppDelegate()
+        delegate.model = spy
+
+        XCTAssertEqual(delegate.applicationShouldTerminate(NSApp), .terminateNow)
+    }
 }

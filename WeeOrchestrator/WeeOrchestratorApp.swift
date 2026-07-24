@@ -15,6 +15,13 @@ extension WeeAppModel: LocalServiceStoppable {}
 final class AppDelegate: NSObject, NSApplicationDelegate {
     weak var model: LocalServiceStoppable?
 
+    /// An app replacement can only move the running bundle after this process
+    /// exits.  Returning `.terminateNow` prevents an open sheet or window
+    /// delegate from leaving the updater parked at "Installing…" forever.
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        .terminateNow
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
         model?.stopLocalAPIForApplicationTermination()
     }
