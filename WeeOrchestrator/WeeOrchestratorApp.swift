@@ -2,8 +2,9 @@ import SwiftUI
 
 /// Testability seam for issue #7 — lets tests verify applicationWillTerminate
 /// calls stopLocalAPI() without spinning up a real WeeAppModel/subprocess.
+@MainActor
 protocol LocalServiceStoppable: AnyObject {
-    func stopLocalAPI()
+    func stopLocalAPIForApplicationTermination()
 }
 
 extension WeeAppModel: LocalServiceStoppable {}
@@ -14,8 +15,15 @@ extension WeeAppModel: LocalServiceStoppable {}
 final class AppDelegate: NSObject, NSApplicationDelegate {
     weak var model: LocalServiceStoppable?
 
+    /// An app replacement can only move the running bundle after this process
+    /// exits.  Returning `.terminateNow` prevents an open sheet or window
+    /// delegate from leaving the updater parked at "Installing…" forever.
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        .terminateNow
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
-        model?.stopLocalAPI()
+        model?.stopLocalAPIForApplicationTermination()
     }
 }
 

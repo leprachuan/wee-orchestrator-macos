@@ -75,6 +75,12 @@ struct ChatView: View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 12) {
+                    if model.isShowingRecentChatWindow {
+                        Text("Showing the most recent \(model.chatMessages.count) messages")
+                            .weeFont(.caption)
+                            .foregroundStyle(WeeTheme.textMuted)
+                            .frame(maxWidth: .infinity, alignment: .center)
+                    }
                     ForEach(model.chatMessages) { message in
                         if message.isContextBoundary {
                             ContextBoundaryBanner(text: message.text)
@@ -1127,14 +1133,22 @@ private enum RecentChatsRailLayout {
 private struct RecentChatsRail: View {
     @Bindable var model: WeeAppModel
     var layout: RecentChatsRailLayout = .horizontal
+    @State private var sessionToRename: HistorySessionSummary?
+    @State private var renameDraft = ""
+    @State private var expandedAgentGroupIDs: Set<String> = []
+    @State private var expandedAllSessionsGroupIDs: Set<String> = []
+    @State private var didSetInitialAgentGroupExpansion = false
+
+    private static let collapsedSessionLimit = 5
 
     var body: some View {
-        switch layout {
+        Group {
+            switch layout {
             case .horizontal:
-                if !model.historySessions.isEmpty {
+                if !model.visibleHistorySessions.isEmpty {
                 ScrollView(.horizontal) {
                     HStack(spacing: 10) {
-                        ForEach(model.historySessions.prefix(12)) { session in
+                        ForEach(model.visibleHistorySessions.prefix(12)) { session in
                             sessionButton(session, width: 200)
                         }
                     }
@@ -1148,12 +1162,12 @@ private struct RecentChatsRail: View {
             case .vertical:
                 VStack(alignment: .leading, spacing: 10) {
                     HStack {
-                        Text("RECENT CHATS")
+                        Text("CHATS BY AGENT")
                             .weeFont(size: 9, weight: .bold)
                             .tracking(1)
                             .foregroundStyle(WeeTheme.textMuted)
                         Spacer()
-                        Text("\(model.historySessions.count)")
+                        Text("\(model.visibleHistorySessions.count)")
                             .weeFont(.caption2).monospacedDigit()
                             .foregroundStyle(WeeTheme.textMuted)
                     }
@@ -1161,7 +1175,7 @@ private struct RecentChatsRail: View {
                     .padding(.top, 10)
 
                     ScrollView {
-                        if model.historySessions.isEmpty {
+                        if model.visibleHistorySessions.isEmpty {
                             VStack(spacing: 8) {
                                 Image(systemName: "bubble.left")
                                     .foregroundStyle(WeeTheme.textMuted)
@@ -1173,9 +1187,9 @@ private struct RecentChatsRail: View {
                             .frame(maxWidth: .infinity)
                             .padding(18)
                         } else {
-                            LazyVStack(spacing: 6) {
-                                ForEach(model.historySessions.prefix(24)) { session in
-                                    sessionButton(session)
+                            LazyVStack(alignment: .leading, spacing: 2) {
+                                ForEach(agentGroups) { group in
+                                    agentFolder(group)
                                 }
                             }
                             .padding(.horizontal, 7)
@@ -1185,6 +1199,24 @@ private struct RecentChatsRail: View {
                     .scrollIndicators(.hidden)
                 }
                 .glassPanel()
+                .onAppear { setInitialAgentGroupExpansionIfNeeded() }
+                .onChange(of: model.currentSessionID) { _, _ in expandCurrentSessionAgentGroup() }
+            }
+        }
+        .alert("Rename Chat", isPresented: Binding(
+            get: { sessionToRename != nil },
+            set: { if !$0 { sessionToRename = nil } }
+        )) {
+            TextField("Chat name", text: $renameDraft)
+            Button("Save") {
+                if let sessionToRename {
+                    model.renameHistorySession(sessionToRename, to: renameDraft)
+                }
+                sessionToRename = nil
+            }
+            Button("Cancel", role: .cancel) { sessionToRename = nil }
+        } message: {
+            Text("Use a name that helps you find this conversation later.")
         }
     }
 
@@ -1194,7 +1226,7 @@ private struct RecentChatsRail: View {
         } label: {
             VStack(alignment: .leading, spacing: 5) {
                 HStack(spacing: 6) {
-                    Text(session.displayTitle)
+                    Text(model.title(for: session))
                         .weeFont(.caption, weight: .semibold)
                         .lineLimit(1)
                     if model.isSessionStreaming(session.sessionID) {
@@ -1209,10 +1241,15 @@ private struct RecentChatsRail: View {
                             .foregroundStyle(WeeTheme.accent)
                     }
                 }
-                Text(session.agent ?? "agent")
-                    .weeFont(.caption2, weight: .medium)
-                    .foregroundStyle(WeeTheme.gold)
-                    .lineLimit(1)
+                HStack(spacing: 5) {
+                    Circle()
+                        .fill(ChatAgentColor.color(for: session.agent))
+                        .frame(width: 7, height: 7)
+                    Text(session.agent ?? "agent")
+                        .weeFont(.caption2, weight: .medium)
+                        .foregroundStyle(ChatAgentColor.color(for: session.agent))
+                        .lineLimit(1)
+                }
                 Text(session.displayPreview)
                     .weeFont(.caption2)
                     .foregroundStyle(WeeTheme.textSecondary)
@@ -1225,6 +1262,155 @@ private struct RecentChatsRail: View {
             .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(session.sessionID == model.currentSessionID ? WeeTheme.accent.opacity(0.34) : WeeTheme.glassStroke))
         }
         .buttonStyle(.plain)
+        .contextMenu {
+            Button {
+                renameDraft = model.title(for: session)
+                sessionToRename = session
+            } label: {
+                Label("Rename", systemImage: "pencil")
+            }
+            Button {
+                model.archiveHistorySession(session)
+            } label: {
+                Label("Archive", systemImage: "archivebox")
+            }
+        }
+    }
+
+    // MARK: - Per-agent folders
+
+    private struct AgentSessionGroup: Identifiable {
+        let id: String
+        let sessions: [HistorySessionSummary]
+    }
+
+    /// Sessions grouped into one folder per agent. Folders follow the
+    /// configured agent order from `model.agents` (so the tree matches the
+    /// order agents appear elsewhere in the app); agents no longer present in
+    /// that configuration are appended alphabetically, and sessions with no
+    /// recorded agent land in a trailing "Unassigned" folder.
+    private var agentGroups: [AgentSessionGroup] {
+        var buckets: [String: [HistorySessionSummary]] = [:]
+        var seenOrder: [String] = []
+        for session in model.visibleHistorySessions {
+            let raw = session.agent?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let key = raw.isEmpty ? "Unassigned" : raw
+            if buckets[key] == nil {
+                buckets[key] = []
+                seenOrder.append(key)
+            }
+            buckets[key]?.append(session)
+        }
+
+        let configuredOrder = model.agents.map(\.name)
+        let ordered = seenOrder
+            .filter { $0 != "Unassigned" }
+            .sorted { a, b in
+                let indexA = configuredOrder.firstIndex(of: a)
+                let indexB = configuredOrder.firstIndex(of: b)
+                switch (indexA, indexB) {
+                case let (.some(x), .some(y)): return x < y
+                case (.some, .none): return true
+                case (.none, .some): return false
+                default: return a.localizedCaseInsensitiveCompare(b) == .orderedAscending
+                }
+            }
+
+        var keys = ordered
+        if seenOrder.contains("Unassigned") { keys.append("Unassigned") }
+
+        return keys.map { AgentSessionGroup(id: $0, sessions: buckets[$0] ?? []) }
+    }
+
+    private func setInitialAgentGroupExpansionIfNeeded() {
+        guard !didSetInitialAgentGroupExpansion else { return }
+        didSetInitialAgentGroupExpansion = true
+        expandCurrentSessionAgentGroup()
+        if expandedAgentGroupIDs.isEmpty, let first = agentGroups.first {
+            expandedAgentGroupIDs.insert(first.id)
+        }
+    }
+
+    private func expandCurrentSessionAgentGroup() {
+        guard let currentSessionID = model.currentSessionID,
+              let session = model.visibleHistorySessions.first(where: { $0.sessionID == currentSessionID }) else { return }
+        let raw = session.agent?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        expandedAgentGroupIDs.insert(raw.isEmpty ? "Unassigned" : raw)
+    }
+
+    @ViewBuilder
+    private func agentFolder(_ group: AgentSessionGroup) -> some View {
+        let isExpanded = expandedAgentGroupIDs.contains(group.id)
+        let showAllSessions = expandedAllSessionsGroupIDs.contains(group.id)
+        let visibleSessions = showAllSessions ? group.sessions : Array(group.sessions.prefix(Self.collapsedSessionLimit))
+        let hiddenCount = group.sessions.count - visibleSessions.count
+
+        VStack(alignment: .leading, spacing: 3) {
+            Button {
+                withAnimation(.snappy) {
+                    if isExpanded {
+                        expandedAgentGroupIDs.remove(group.id)
+                    } else {
+                        expandedAgentGroupIDs.insert(group.id)
+                    }
+                }
+            } label: {
+                HStack(spacing: 7) {
+                    Image(systemName: "chevron.right")
+                        .weeFont(size: 8, weight: .bold)
+                        .foregroundStyle(WeeTheme.textMuted)
+                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                        .frame(width: 10)
+
+                    Image(systemName: isExpanded ? "folder.fill" : "folder")
+                        .weeFont(size: 11)
+                        .foregroundStyle(ChatAgentColor.color(for: group.id))
+
+                    Text(group.id)
+                        .weeFont(.caption, weight: .semibold)
+                        .foregroundStyle(WeeTheme.textPrimary)
+                        .lineLimit(1)
+
+                    Spacer(minLength: 4)
+
+                    Text("\(group.sessions.count)")
+                        .weeFont(size: 9, weight: .semibold).monospacedDigit()
+                        .foregroundStyle(WeeTheme.textMuted)
+                }
+                .padding(.vertical, 5)
+                .padding(.horizontal, 3)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            if isExpanded {
+                VStack(spacing: 6) {
+                    ForEach(visibleSessions) { session in
+                        sessionButton(session)
+                    }
+
+                    if group.sessions.count > Self.collapsedSessionLimit {
+                        Button {
+                            withAnimation(.snappy) {
+                                if showAllSessions {
+                                    expandedAllSessionsGroupIDs.remove(group.id)
+                                } else {
+                                    expandedAllSessionsGroupIDs.insert(group.id)
+                                }
+                            }
+                        } label: {
+                            Text(showAllSessions ? "Show less" : "Show \(hiddenCount) more")
+                                .weeFont(.caption2, weight: .semibold)
+                                .foregroundStyle(WeeTheme.accent)
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.top, 1)
+                    }
+                }
+                .padding(.leading, 17)
+                .padding(.bottom, 4)
+            }
+        }
     }
 }
 
@@ -1255,7 +1441,7 @@ private struct SessionHistorySheet: View {
                 }
 
                 Section("Previous Chats") {
-                    ForEach(model.historySessions) { session in
+                    ForEach(model.visibleHistorySessions) { session in
                         Button {
                             isPresented = false
                             Task { await model.selectHistorySession(session) }
@@ -1267,6 +1453,22 @@ private struct SessionHistorySheet: View {
                             )
                         }
                         .buttonStyle(.plain)
+                    }
+                }
+
+                if !model.archivedHistorySessions.isEmpty {
+                    Section("Archived Chats") {
+                        ForEach(model.archivedHistorySessions) { session in
+                            HStack {
+                                Text(model.title(for: session))
+                                    .lineLimit(1)
+                                Spacer()
+                                Button("Restore") {
+                                    model.restoreHistorySession(session)
+                                }
+                                .buttonStyle(.borderless)
+                            }
+                        }
                     }
                 }
             }
@@ -1389,6 +1591,10 @@ private struct ChatBubble: View {
                     .background(WeeTheme.sunken, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
                 }
 
+                if !message.toolActivities.isEmpty {
+                    ToolActivityTimeline(activities: message.toolActivities)
+                }
+
                 if !message.text.isEmpty {
                     MarkdownText(message.text)
                 }
@@ -1425,6 +1631,95 @@ private struct ChatBubble: View {
         case .assistant: Color.white.opacity(0.07)
         case .system: WeeTheme.sunken
         }
+    }
+}
+
+private struct ToolActivityTimeline: View {
+    let activities: [ChatToolActivity]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("ACTIVITY")
+                .weeFont(.caption2, weight: .bold)
+                .tracking(0.7)
+                .foregroundStyle(WeeTheme.textMuted)
+
+            ForEach(activities) { activity in
+                ToolActivityRow(activity: activity)
+            }
+        }
+        .padding(8)
+        .background(WeeTheme.surfaceRaised, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+    }
+}
+
+private struct ToolActivityRow: View {
+    let activity: ChatToolActivity
+    @State private var isExpanded = false
+
+    private var hasDetails: Bool {
+        activity.input?.isEmpty == false || activity.output?.isEmpty == false
+    }
+
+    var body: some View {
+        DisclosureGroup(isExpanded: $isExpanded) {
+            VStack(alignment: .leading, spacing: 8) {
+                if let input = activity.input, !input.isEmpty {
+                    toolDetail(title: "INPUT", text: input)
+                }
+                if let output = activity.output, !output.isEmpty {
+                    toolDetail(title: activity.isError ? "ERROR" : "RESULT", text: output)
+                }
+                if !hasDetails {
+                    Text("Tool details were not included in this stream event.")
+                        .weeFont(.caption2)
+                        .foregroundStyle(WeeTheme.textMuted)
+                }
+            }
+            .padding(.top, 6)
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: statusSymbol)
+                    .foregroundStyle(statusColor)
+                Text(statusText)
+                    .weeFont(.caption, weight: .semibold)
+                    .foregroundStyle(WeeTheme.textPrimary)
+                Spacer()
+            }
+        }
+        .tint(WeeTheme.textSecondary)
+        .padding(8)
+        .background(WeeTheme.sunken, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+    }
+
+    @ViewBuilder
+    private func toolDetail(title: String, text: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .weeFont(.caption2, weight: .bold)
+                .tracking(0.6)
+                .foregroundStyle(WeeTheme.textMuted)
+            Text(text)
+                .weeFont(.caption2, design: .monospaced)
+                .foregroundStyle(WeeTheme.textSecondary)
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(7)
+                .background(Color.black.opacity(0.16), in: RoundedRectangle(cornerRadius: 5, style: .continuous))
+        }
+    }
+
+    private var statusText: String {
+        if activity.isRunning { return "Running \(activity.name)" }
+        return activity.isError ? "Failed \(activity.name)" : "Completed \(activity.name)"
+    }
+
+    private var statusSymbol: String {
+        activity.isRunning ? "circle.dotted" : (activity.isError ? "xmark.circle.fill" : "checkmark.circle.fill")
+    }
+
+    private var statusColor: Color {
+        activity.isRunning ? WeeTheme.gold : (activity.isError ? WeeTheme.danger : WeeTheme.emerald)
     }
 }
 

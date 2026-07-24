@@ -14,4 +14,17 @@ final class AppUpdateInstallationTests: XCTestCase {
         let replaceRange = try! XCTUnwrap(script.range(of: "mv \"$target\" \"$backup\""))
         XCTAssertLessThan(waitRange.lowerBound, replaceRange.lowerBound)
     }
+
+    @MainActor
+    func testReplacementUsesDetachedNoHupLauncher() {
+        XCTAssertEqual(WeeAppModel.appReplacementLauncher, "/usr/bin/nohup")
+    }
+
+    @MainActor
+    func testKeepRunningAPIIsPreservedAcrossApplicationTermination() {
+        let model = WeeAppModel()
+        model.keepLocalAPIRunningAfterAppQuits = true
+
+        XCTAssertFalse(model.shouldStopLocalAPIForApplicationTermination)
+    }
 }

@@ -1,7 +1,7 @@
 import SwiftUI
 
 enum AppSection: String, CaseIterable, Identifiable {
-    case chat, kanban, backgroundTasks, scheduledTasks, agents, localModels, remoteSettings, localSettings
+    case chat, kanban, backgroundTasks, scheduledTasks, agents, localModels, settings
     var id: String { rawValue }
 
     var title: String {
@@ -12,8 +12,7 @@ enum AppSection: String, CaseIterable, Identifiable {
         case .scheduledTasks: "Scheduled Tasks"
         case .agents: "Agents"
         case .localModels: "Local Models"
-        case .remoteSettings: "Remote Settings"
-        case .localSettings: "Local Settings"
+        case .settings: "Settings"
         }
     }
 
@@ -25,8 +24,7 @@ enum AppSection: String, CaseIterable, Identifiable {
         case .scheduledTasks: "AUTOMATE"
         case .agents: "TEAM"
         case .localModels: "ON DEVICE"
-        case .remoteSettings: "REMOTE"
-        case .localSettings: "LOCAL"
+        case .settings: "CONFIGURE"
         }
     }
 
@@ -38,8 +36,7 @@ enum AppSection: String, CaseIterable, Identifiable {
         case .scheduledTasks: "calendar.badge.clock"
         case .agents: "person.2.fill"
         case .localModels: "cpu"
-        case .remoteSettings: "network"
-        case .localSettings: "desktopcomputer"
+        case .settings: "gearshape.fill"
         }
     }
 }
@@ -73,6 +70,11 @@ struct ContentView: View {
         .preferredColorScheme(.dark)
         .frame(minWidth: 1180, minHeight: 680)
         .task {
+            // The unit-test bundle is hosted by the app executable. Avoid
+            // starting managed services, installing the CLI, or making API
+            // requests while XCTest is loading that bundle; those startup
+            // tasks can keep the host alive before test discovery completes.
+            guard ProcessInfo.processInfo.environment["XCTestBundlePath"] == nil else { return }
             await model.bootstrap()
             if model.activeEnvironment != windowEnvironment {
                 await model.switchEnvironment(to: windowEnvironment)
@@ -80,6 +82,15 @@ struct ContentView: View {
         }
         .onChange(of: model.kanbanEnabled) { _, enabled in
             if !enabled, selectedSection == .kanban {
+                selectedSection = .chat
+            }
+        }
+        .onChange(of: windowEnvironment) { _, environment in
+            // On-device model management is meaningful only while this window
+            // targets the Local API. If the user switches to Remote while it
+            // is open, return to Chat instead of leaving a hidden local-only
+            // screen selected.
+            if environment == .remote, selectedSection == .localModels {
                 selectedSection = .chat
             }
         }
@@ -99,6 +110,11 @@ struct ContentView: View {
             if let update = model.availableAppUpdate {
                 AppUpdateModal(model: model, update: update)
             }
+        }
+        .alert("Wee Orchestrator", isPresented: $model.shouldPresentAppUpdateCheckResult) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text(model.appUpdateStatus ?? "No update information is available.")
         }
         .interactiveDismissDisabled(model.isInstallingAppUpdate)
     }
@@ -148,7 +164,13 @@ struct ContentView: View {
     }
 
     private var visibleSections: [AppSection] {
-        AppSection.allCases.filter { $0 != .kanban || model.kanbanEnabled }
+        AppSection.allCases.filter { section in
+            if section == .kanban, !model.kanbanEnabled { return false }
+            // Local Models controls Ollama and the locally managed API on this
+            // Mac; it must not appear while the window is targeting Remote.
+            if section == .localModels, windowEnvironment == .remote { return false }
+            return true
+        }
     }
 
     private var workspaceRail: some View {
@@ -302,8 +324,10 @@ struct ContentView: View {
         case .scheduledTasks: TasksView(model: model, mode: .scheduled)
         case .agents: AgentsView(model: model)
         case .localModels: LocalModelsView(model: model)
-        case .remoteSettings: SettingsView(model: model, environment: .remote)
-        case .localSettings: SettingsView(model: model, environment: .local)
+        // Settings follows the same window-scoped Local/Remote selector as every
+        // other screen. This prevents configuring a different target than the
+        // one selected in the workspace rail (issue #40).
+        case .settings: SettingsView(model: model, environment: windowEnvironment)
         }
     }
 

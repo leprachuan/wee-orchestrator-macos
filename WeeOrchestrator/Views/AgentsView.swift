@@ -62,7 +62,7 @@ struct AgentsView: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Label("\(environment.title) Agents", systemImage: environment.symbol)
-                    .font(.headline.weight(.semibold))
+                    .weeFont(.headline, weight: .semibold)
                     .foregroundStyle(model.activeEnvironment == environment ? WeeTheme.accent : WeeTheme.textPrimary)
                 StatusPill(text: "\(sourceAgents.count)", color: model.activeEnvironment == environment ? WeeTheme.accent : WeeTheme.textSecondary)
                 if model.activeEnvironment == environment {
@@ -82,7 +82,7 @@ struct AgentsView: View {
 
             if sourceAgents.isEmpty {
                 Text(environment == .local ? "Start or connect to the local API to load local agents." : "Configure the remote API in Settings to load remote agents.")
-                    .font(.subheadline)
+                    .weeFont(.subheadline)
                     .foregroundStyle(WeeTheme.textSecondary)
                     .padding(14)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -132,12 +132,12 @@ private struct AgentCard: View {
                     ZStack {
                         RoundedRectangle(cornerRadius: 6).fill(isSelected ? WeeTheme.accent.opacity(0.16) : WeeTheme.surfaceHover)
                         Text(String(agent.name.prefix(1)).uppercased())
-                            .font(.caption.weight(.bold))
+                            .weeFont(.caption, weight: .bold)
                             .foregroundStyle(isSelected ? WeeTheme.accent : WeeTheme.textSecondary)
                     }
                     .frame(width: 27, height: 27)
                     Text(agent.name)
-                        .font(.headline.weight(.semibold))
+                        .weeFont(.headline, weight: .semibold)
                         .foregroundStyle(isSelected ? WeeTheme.accent : WeeTheme.textPrimary)
                 }
                 Spacer()
@@ -152,7 +152,7 @@ private struct AgentCard: View {
             }
 
             Text(agent.description)
-                .font(.subheadline)
+                .weeFont(.subheadline)
                 .foregroundStyle(WeeTheme.textSecondary)
                 .lineLimit(2)
 
@@ -192,7 +192,7 @@ private struct AgentEditorSheet: View {
         VStack(spacing: 0) {
             HStack {
                 Text(agentName == nil ? "New Agent" : "Edit Agent")
-                    .font(.title3.weight(.bold))
+                    .weeFont(.title3, weight: .bold)
                     .foregroundStyle(WeeTheme.textPrimary)
                 Spacer()
                 Button("Done") {
@@ -351,13 +351,13 @@ private struct AgentEditorSheet: View {
 
             if draftAgent != originalAgent {
                 Text("Unsaved agent changes")
-                    .font(.caption.weight(.semibold))
+                    .weeFont(.caption, weight: .semibold)
                     .foregroundStyle(WeeTheme.gold)
             }
 
             if let status {
                 Text(status)
-                    .font(.caption)
+                    .weeFont(.caption)
                     .foregroundStyle(statusIsError ? WeeTheme.danger : WeeTheme.accent)
             }
         }
@@ -586,7 +586,7 @@ private struct AgentEditorSection<Content: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Label(title, systemImage: systemImage)
-                .font(.headline.weight(.semibold))
+                .weeFont(.headline, weight: .semibold)
                 .foregroundStyle(WeeTheme.textPrimary)
 
             content
@@ -603,7 +603,7 @@ private struct AgentEditorFieldRow<Content: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
             Text(title)
-                .font(.caption.weight(.semibold))
+                .weeFont(.caption, weight: .semibold)
                 .foregroundStyle(WeeTheme.textMuted)
                 .textCase(.uppercase)
 
@@ -624,12 +624,12 @@ private struct AgentEditorTextAreaRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
             Text(title)
-                .font(.caption.weight(.semibold))
+                .weeFont(.caption, weight: .semibold)
                 .foregroundStyle(WeeTheme.textMuted)
                 .textCase(.uppercase)
 
             TextEditor(text: $text)
-                .font(.footnote)
+                .weeFont(.footnote)
                 .scrollContentBackground(.hidden)
                 .foregroundStyle(WeeTheme.textPrimary)
                 .frame(minHeight: minHeight)

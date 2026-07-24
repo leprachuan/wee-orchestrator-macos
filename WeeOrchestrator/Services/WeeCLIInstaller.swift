@@ -110,7 +110,15 @@ enum WeeCLIInstaller {
                 throw CLIUpdateError("Managed CLI checkout has local changes; update was not applied")
             }
             _ = try run("/usr/bin/git", ["-C", checkout.path, "fetch", "--depth", "1", "origin", "main"])
-            _ = try run("/usr/bin/git", ["-C", checkout.path, "merge", "--ff-only", "FETCH_HEAD"])
+            // Reset (not merge --ff-only) to FETCH_HEAD: this is a shallow
+            // (--depth 1) clone, and a shallow fetch's truncated history can
+            // land on a commit `merge` sees as having no common ancestor with
+            // the existing shallow graft point ("refusing to merge unrelated
+            // histories") even though it's a perfectly normal forward move on
+            // origin/main. Safe here because the dirty-check above already
+            // guarantees no uncommitted work in this app-owned, disposable
+            // checkout — there's nothing a hard reset could lose.
+            _ = try run("/usr/bin/git", ["-C", checkout.path, "reset", "--hard", "FETCH_HEAD"])
         } else {
             if fileManager.fileExists(atPath: checkout.path) {
                 let contents = try fileManager.contentsOfDirectory(atPath: checkout.path)

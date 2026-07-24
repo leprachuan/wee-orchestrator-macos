@@ -92,23 +92,33 @@ struct ChatMessageQueueStore {
 }
 
 struct ChatStreamTranscriptStore {
+    static let maximumMessages = 50
+    static let maximumCachedSessions = 12
+
     private var transcripts: [ChatTranscriptKey: [ChatMessage]] = [:]
     private var activeStreams: Set<ChatTranscriptKey> = []
+    /// Recency is kept separately from the transcript dictionary so recently
+    /// viewed completed chats can be restored instantly without unbounded
+    /// in-memory growth.
+    private var recency: [ChatTranscriptKey] = []
 
     mutating func beginStream(for key: ChatTranscriptKey, messages: [ChatMessage]) {
-        transcripts[key] = messages
+        transcripts[key] = bounded(messages)
         activeStreams.insert(key)
+        touch(key)
     }
 
     mutating func retainTranscript(for key: ChatTranscriptKey, messages: [ChatMessage]) {
-        transcripts[key] = messages
+        transcripts[key] = bounded(messages)
+        touch(key)
     }
 
     mutating func updateMessage(id: UUID, for key: ChatTranscriptKey, update: (inout ChatMessage) -> Void) {
         guard var messages = transcripts[key],
               let index = messages.firstIndex(where: { $0.id == id }) else { return }
         update(&messages[index])
-        transcripts[key] = messages
+        transcripts[key] = bounded(messages)
+        touch(key)
     }
 
     mutating func finishStream(for key: ChatTranscriptKey) {
@@ -119,15 +129,42 @@ struct ChatStreamTranscriptStore {
         activeStreams.contains(key)
     }
 
+    mutating func cachedMessages(for key: ChatTranscriptKey) -> [ChatMessage]? {
+        guard let messages = transcripts[key] else { return nil }
+        touch(key)
+        return messages
+    }
+
+    func hasCachedMessages(for key: ChatTranscriptKey) -> Bool {
+        transcripts[key] != nil
+    }
+
     func messages(for key: ChatTranscriptKey, serverMessages: [ChatMessage]) -> [ChatMessage] {
-        guard let cached = transcripts[key] else { return serverMessages }
+        guard let cached = transcripts[key] else { return bounded(serverMessages) }
         // While streaming, server history can legitimately lag behind the
         // current assistant response. Keep the local transcript authoritative
         // until the stream completes and the server has caught up.
         if activeStreams.contains(key) || serverMessages.count < cached.count {
             return cached
         }
-        return serverMessages
+        return bounded(serverMessages)
+    }
+
+    private func bounded(_ messages: [ChatMessage]) -> [ChatMessage] {
+        Array(messages.suffix(Self.maximumMessages))
+    }
+
+    private mutating func touch(_ key: ChatTranscriptKey) {
+        recency.removeAll { $0 == key }
+        recency.append(key)
+        while recency.count > Self.maximumCachedSessions {
+            let oldest = recency.removeFirst()
+            guard !activeStreams.contains(oldest) else {
+                recency.append(oldest)
+                break
+            }
+            transcripts.removeValue(forKey: oldest)
+        }
     }
 }
 
@@ -255,6 +292,9 @@ final class WeeAppModel {
     var remoteAgents: [AgentSummary] = []
     var isLocalServiceRunning = false
     var localServiceStatus = "Stopped"
+    /// When enabled, quitting the client deliberately leaves its locally
+    /// managed API process alive for background work (issue #39).
+    var keepLocalAPIRunningAfterAppQuits = false
     var weeCLIInstallationStatus = "Will install when Wee opens"
     var localServiceLog = ""
     var isLocalSourceWorking = false
@@ -289,6 +329,7 @@ final class WeeAppModel {
     var kanbanStatusMessage: String?
     var selectedTask: BackgroundTaskDetail?
     var historySessions: [HistorySessionSummary] = []
+    var chatHistoryTotal = 0
     var chatMessages: [ChatMessage] = [
         ChatMessage(role: .system, text: "Wee macOS client ready.")
     ]
@@ -307,6 +348,9 @@ final class WeeAppModel {
     var appUpdateStatus: String?
     var isCheckingForAppUpdate = false
     var isInstallingAppUpdate = false
+    /// A manual update check with no installable release still needs visible
+    /// feedback. ContentView presents this status in an alert.
+    var shouldPresentAppUpdateCheckResult = false
 
     private let defaults = UserDefaults.standard
     private var previousTaskStatuses: [String: String] = [:]
@@ -320,7 +364,13 @@ final class WeeAppModel {
     @ObservationIgnored private var localAPIProcess: Process?
     @ObservationIgnored private var localLogPipe: Pipe?
     @ObservationIgnored private var ollamaProcess: Process?
+    /// Keep the replacement helper alive until the app has handed control
+    /// back to macOS.  Without this strong reference, Process can be released
+    /// immediately after launch and the installer never gets a chance to
+    /// replace the bundle.
+    @ObservationIgnored private var appReplacementProcess: Process?
     @ObservationIgnored private var streamTranscripts = ChatStreamTranscriptStore()
+    @ObservationIgnored private var chatPrefetchTask: Task<Void, Never>?
     @ObservationIgnored private var queuedChatMessages = ChatMessageQueueStore()
     @ObservationIgnored private var queueDispatchingKeys: Set<ChatTranscriptKey> = []
     @ObservationIgnored private var cancellationRequestedKeys: Set<ChatTranscriptKey> = []
@@ -333,6 +383,7 @@ final class WeeAppModel {
     /// state (e.g. the recent chats rail) refresh even when that session
     /// isn't the one currently visible.
     private var streamingRevision = 0
+    private var chatSessionOrganizations: [String: ChatSessionOrganization] = [:]
 
     var configuration: APIConfiguration {
         get { activeEnvironment == .local ? localConfiguration : remoteConfiguration }
@@ -367,6 +418,7 @@ final class WeeAppModel {
             repositoryURL: defaults.string(forKey: "wee.localService.repositoryURL") ?? LocalAPIServiceConfiguration.defaults.repositoryURL,
             checkoutDirectory: defaults.string(forKey: "wee.localService.checkoutDirectory") ?? LocalAPIServiceConfiguration.defaults.checkoutDirectory
         )
+        keepLocalAPIRunningAfterAppQuits = defaults.object(forKey: "wee.localService.keepRunningAfterQuit") as? Bool ?? false
         localModelConfiguration = LocalModelConfiguration(
             selectedModel: defaults.string(forKey: "wee.localModels.selected") ?? LocalModelConfiguration.defaults.selectedModel,
             autoStartRunner: defaults.object(forKey: "wee.localModels.autoStart") as? Bool ?? LocalModelConfiguration.defaults.autoStartRunner
@@ -387,6 +439,7 @@ final class WeeAppModel {
         remoteSSHRepositoryURL = defaults.string(forKey: "wee.remoteSSH.repositoryURL") ?? remoteSSHRepositoryURL
         remoteSSHCheckoutDirectory = defaults.string(forKey: "wee.remoteSSH.checkoutDirectory") ?? remoteSSHCheckoutDirectory
         userAvatarImagePath = defaults.string(forKey: "wee.userAvatarImagePath") ?? ""
+        chatSessionOrganizations = Self.loadChatSessionOrganizations(from: defaults)
     }
 
     var client: WeeAPIClient {
@@ -417,6 +470,28 @@ final class WeeAppModel {
 
     private var textSizeIndex: Int {
         Self.textSizeSteps.firstIndex(of: appTextSize) ?? Self.defaultTextSizeIndex
+    }
+
+    private static let chatSessionOrganizationsDefaultsKey = "wee.chatSessionOrganizations.v1"
+
+    private var chatSessionOrganization: ChatSessionOrganization {
+        chatSessionOrganizations[activeEnvironment.rawValue] ?? ChatSessionOrganization()
+    }
+
+    private func updateChatSessionOrganization(_ update: (inout ChatSessionOrganization) -> Void) {
+        var organization = chatSessionOrganization
+        update(&organization)
+        chatSessionOrganizations[activeEnvironment.rawValue] = organization
+        guard let data = try? JSONEncoder().encode(chatSessionOrganizations) else { return }
+        defaults.set(data, forKey: Self.chatSessionOrganizationsDefaultsKey)
+    }
+
+    private static func loadChatSessionOrganizations(from defaults: UserDefaults) -> [String: ChatSessionOrganization] {
+        guard let data = defaults.data(forKey: chatSessionOrganizationsDefaultsKey),
+              let organizations = try? JSONDecoder().decode([String: ChatSessionOrganization].self, from: data) else {
+            return [:]
+        }
+        return organizations
     }
 
     var canIncreaseTextSize: Bool { textSizeIndex < Self.textSizeSteps.count - 1 }
@@ -500,6 +575,33 @@ final class WeeAppModel {
     }
 
     var currentChatQueueCount: Int { currentQueuedChatMessages.count }
+    var isShowingRecentChatWindow: Bool { chatHistoryTotal > chatMessages.count }
+
+    var visibleHistorySessions: [HistorySessionSummary] {
+        let organization = chatSessionOrganization
+        return historySessions.filter { !organization.isArchived($0.sessionID) }
+    }
+
+    var archivedHistorySessions: [HistorySessionSummary] {
+        let organization = chatSessionOrganization
+        return historySessions.filter { organization.isArchived($0.sessionID) }
+    }
+
+    func title(for session: HistorySessionSummary) -> String {
+        chatSessionOrganization.title(for: session)
+    }
+
+    func archiveHistorySession(_ session: HistorySessionSummary) {
+        updateChatSessionOrganization { $0.archive(session.sessionID) }
+    }
+
+    func restoreHistorySession(_ session: HistorySessionSummary) {
+        updateChatSessionOrganization { $0.restore(session.sessionID) }
+    }
+
+    func renameHistorySession(_ session: HistorySessionSummary, to title: String) {
+        updateChatSessionOrganization { $0.rename(session.sessionID, to: title) }
+    }
 
     func bootstrap() async {
         installWeeCLI()
@@ -588,8 +690,14 @@ final class WeeAppModel {
 
     func checkForAppUpdate(showResult: Bool = false) async {
         guard !isCheckingForAppUpdate else { return }
+        if showResult {
+            shouldPresentAppUpdateCheckResult = false
+        }
         guard let currentVersion = currentAppVersion else {
-            if showResult { appUpdateStatus = "Unable to read this app's version." }
+            if showResult {
+                appUpdateStatus = "Unable to read this app's version."
+                shouldPresentAppUpdateCheckResult = true
+            }
             return
         }
 
@@ -611,10 +719,12 @@ final class WeeAppModel {
                 appUpdateStatus = "Wee Orchestrator \(availableAppUpdate.version) is ready to install."
             } else if showResult {
                 appUpdateStatus = "You're up to date (v\(currentVersion))."
+                shouldPresentAppUpdateCheckResult = true
             }
         } catch {
             if showResult {
                 appUpdateStatus = "Unable to check for updates: \(error.localizedDescription)"
+                shouldPresentAppUpdateCheckResult = true
             }
         }
     }
@@ -670,7 +780,12 @@ final class WeeAppModel {
 
             try scheduleAppReplacement(source: replacementAppURL, target: Bundle.main.bundleURL, stagingDirectory: stagingDirectory)
             appUpdateStatus = "Installing Wee Orchestrator \(update.version)…"
-            NSApp.terminate(nil)
+            // Let the status change render before asking AppKit to terminate.
+            // The detached helper waits for this process to exit before it
+            // touches the application bundle.
+            DispatchQueue.main.async {
+                NSApp.terminate(nil)
+            }
         } catch {
             isInstallingAppUpdate = false
             appUpdateStatus = "Update failed: \(error.localizedDescription)"
@@ -712,19 +827,33 @@ final class WeeAppModel {
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: scriptURL.path)
 
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        // nohup makes the helper independent of the app's process group. This
+        // matters during normal AppKit termination, where an unretained child
+        // could otherwise be torn down along with the app.
+        process.executableURL = URL(fileURLWithPath: Self.appReplacementLauncher)
         process.arguments = [
+            "/bin/sh",
             scriptURL.path,
             target.path,
             source.path,
             String(ProcessInfo.processInfo.processIdentifier)
         ]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        process.terminationHandler = { [weak self] _ in
+            Task { @MainActor in
+                self?.appReplacementProcess = nil
+            }
+        }
         try process.run()
+        appReplacementProcess = process
     }
 
     /// The app being updated must be gone before its bundle is moved.  Opening
     /// a replacement while its predecessor is still alive just activates the
     /// old process, which leaves the updater UI permanently on "Installing…".
+    static let appReplacementLauncher = "/usr/bin/nohup"
+
     static let appReplacementScript = """
         #!/bin/sh
         set -eu
@@ -1336,6 +1465,47 @@ final class WeeAppModel {
             .appendingPathComponent("model-manifest.json")
     }
 
+    /// Issue #23: the Local API's `/models` endpoint does not reliably return
+    /// the copilot / copilot-sdk catalogs recorded in `model-manifest.json`, so
+    /// models a user configured in Local Settings never reached the picker.
+    /// Reading the manifest the app itself just wrote is a safe client-side
+    /// backstop: it can only ever *add* entries the user explicitly configured,
+    /// and it disappears on its own once the API reports them.
+    ///
+    /// Wee is excluded — its catalog is assembled dynamically from Ollama and
+    /// OpenRouter discovery and is deliberately absent from the manifest.
+    static func mergingLocalManifestModels(
+        _ apiModels: [ModelCatalogEntry],
+        manifestModels: [String],
+        runtime: String
+    ) -> [ModelCatalogEntry] {
+        let normalizedRuntime = runtime.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard normalizedRuntime != "wee" else { return apiModels }
+
+        var known = Set(apiModels.map(\.id))
+        var merged = apiModels
+        for candidate in manifestModels {
+            let modelID = candidate.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !modelID.isEmpty, !known.contains(modelID) else { continue }
+            known.insert(modelID)
+            merged.append(ModelCatalogEntry(id: modelID, label: modelID, group: "Local Settings"))
+        }
+        return merged
+    }
+
+    /// Non-mutating manifest read used by the model picker. `loadLocalModelManifest`
+    /// is the Settings-screen entry point and reports status text as a side
+    /// effect; refreshing the picker must not overwrite what Settings is showing.
+    private func localManifestModels(runtime: String) -> [String] {
+        let trimmedRuntime = runtime.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard trimmedRuntime != "wee" else { return [] }
+        guard let data = try? Data(contentsOf: localModelManifestURL()),
+              let document = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let runtimes = document["runtimes"] as? [String: Any],
+              let models = runtimes[trimmedRuntime] as? [String] else { return [] }
+        return models
+    }
+
     private func bootstrapLocalAPIEnvironment(at checkout: String) async -> Bool {
         let requirements = "\(checkout)/requirements.txt"
         let projectFile = "\(checkout)/pyproject.toml"
@@ -1732,6 +1902,28 @@ final class WeeAppModel {
         }
     }
 
+    func setKeepLocalAPIRunningAfterAppQuits(_ enabled: Bool) {
+        keepLocalAPIRunningAfterAppQuits = enabled
+        defaults.set(enabled, forKey: "wee.localService.keepRunningAfterQuit")
+    }
+
+    /// Kept separate from the updater state because an app replacement is
+    /// still a normal client termination: a separately managed API must stay
+    /// available for any background task it owns.
+    var shouldStopLocalAPIForApplicationTermination: Bool {
+        !keepLocalAPIRunningAfterAppQuits
+    }
+
+    /// Called only by the app lifecycle. Manual Stop and Restart continue to
+    /// terminate the service even when the keep-running preference is enabled.
+    func stopLocalAPIForApplicationTermination() {
+        guard shouldStopLocalAPIForApplicationTermination else {
+            localServiceStatus = "Continuing after Wee closes"
+            return
+        }
+        stopLocalAPI()
+    }
+
     func stopLocalAPI() {
         guard let process = localAPIProcess, process.isRunning else {
             isLocalServiceRunning = false
@@ -1754,15 +1946,37 @@ final class WeeAppModel {
     /// The Local API caches Ollama discovery for a minute, so restart the
     /// app-owned bridge, then retry until its rebuilt catalog reflects the
     /// change. This prevents a user from needing to refresh or restart Wee.
+    /// Issue #28: an Ollama tag reaches the Wee catalog either bare or
+    /// provider-qualified depending on how the bridge assembled it, so a
+    /// freshly pulled model must be matched both ways.
+    static func weeCatalogCandidateIDs(for modelName: String) -> Set<String> {
+        let trimmed = modelName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return [] }
+        return [trimmed, "ollama/\(trimmed)"]
+    }
+
+    /// Issue #28: refreshing the picker only makes sense while this window is
+    /// pointed at the Local API, authenticated, and actually showing the Wee
+    /// runtime's catalog. Any other combination would either fail or refresh a
+    /// catalog the user isn't looking at.
+    static func shouldRefreshWeeCatalog(environment: WeeEnvironment, hasAuthToken: Bool, runtime: String) -> Bool {
+        environment == .local
+            && hasAuthToken
+            && runtime.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "wee"
+    }
+
     private func refreshLocalWeeCatalog(afterModelChange modelName: String, shouldContainModel: Bool = true) async {
-        let normalizedRuntime = selectedRuntime.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        let candidateIDs = Set([modelName, "ollama/\(modelName)"])
+        let candidateIDs = Self.weeCatalogCandidateIDs(for: modelName)
 
         if isLocalServiceRunning {
             restartLocalAPI()
         }
 
-        guard activeEnvironment == .local, hasAuthToken, normalizedRuntime == "wee" else { return }
+        guard Self.shouldRefreshWeeCatalog(
+            environment: activeEnvironment,
+            hasAuthToken: hasAuthToken,
+            runtime: selectedRuntime
+        ) else { return }
 
         // Allow the replacement API process to bind its port before its first
         // catalog request. If the bridge is externally managed, this still
@@ -2118,7 +2332,7 @@ final class WeeAppModel {
                 switch event.type {
                 case "chunk":
                     if let text = event.text {
-                        rawStreamText += text
+                        rawStreamText = appendReadableStreamChunk(text, to: rawStreamText)
                         let cleaned = preferredFinalStreamText(accumulated: rawStreamText, doneResponse: nil)
                         if !cleaned.isEmpty {
                             updateStreamTranscript(streamKey, messageID: streamMessageID) { message in
@@ -2128,11 +2342,27 @@ final class WeeAppModel {
                     }
                 case "tool_call":
                     lastActivityText = streamActivityText(from: event)
-                    if let message = streamTranscripts.messages(for: streamKey, serverMessages: [] as [ChatMessage]).first(where: { $0.id == streamMessageID }),
-                       message.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-                       !lastActivityText.isEmpty {
-                        updateStreamTranscript(streamKey, messageID: streamMessageID) { message in
-                            message.text = lastActivityText
+                    let activity = toolActivity(from: event)
+                    updateStreamTranscript(streamKey, messageID: streamMessageID) { message in
+                        if let index = message.toolActivities.firstIndex(where: { $0.id == activity.id }) {
+                            message.toolActivities[index] = mergedToolActivity(
+                                message.toolActivities[index],
+                                with: activity
+                            )
+                        } else if !activity.isRunning,
+                                  let index = message.toolActivities.lastIndex(where: {
+                                      $0.name == activity.name && $0.isRunning
+                                  }) {
+                            // Some runtimes do not provide an event id. Match
+                            // their completion event to the most recent same-
+                            // named running call so one row expands to show
+                            // both its request and result.
+                            message.toolActivities[index] = mergedToolActivity(
+                                message.toolActivities[index],
+                                with: activity
+                            )
+                        } else {
+                            message.toolActivities.append(activity)
                         }
                     }
                 case "done":
@@ -2401,6 +2631,7 @@ final class WeeAppModel {
             try await applySessionPermissionModeIfNeeded(sessionID: session.sessionID)
             saveConfiguration()
             chatMessages = [ChatMessage(role: .system, text: "New chat ready.")]
+            chatHistoryTotal = 0
             await loadHistorySessions()
         } catch {
             let message = handleAuthErrorIfNeeded(error) ?? error.localizedDescription
@@ -2422,6 +2653,7 @@ final class WeeAppModel {
             activeSessionID: currentSessionID,
             activeAgent: selectedAgent
         )
+        scheduleRecentChatPrefetch(excluding: currentSessionID)
     }
 
     /// The API persists a newly created session immediately, but a streaming
@@ -2446,40 +2678,59 @@ final class WeeAppModel {
         guard hasAuthToken else { return }
 
         let transcriptKey = ChatTranscriptKey(environment: activeEnvironment, sessionID: session.sessionID)
-        isLoading = true
         errorMessage = nil
-        defer { isLoading = false }
+
+        // Move the selection immediately. A completed transcript may already
+        // be cached from a prior visit or idle prefetch, in which case the UI
+        // changes without waiting for the network.
+        currentSessionID = session.sessionID
+        if let agent = session.agent, !agent.isEmpty {
+            selectedAgent = agent
+            saveConfiguration()
+        }
+        if let cachedMessages = streamTranscripts.cachedMessages(for: transcriptKey) {
+            chatMessages = cachedMessages
+            chatHistoryTotal = cachedMessages.count
+        } else {
+            chatMessages = [ChatMessage(role: .system, text: "Loading conversation…")]
+            chatHistoryTotal = 0
+        }
+        scheduleRecentChatPrefetch(excluding: session.sessionID)
 
         do {
             // Do not replace an in-flight transcript with the API's older
             // persisted history. Its stream continues in the model even when
             // the user navigates to another view or thread.
             if streamTranscripts.isStreaming(transcriptKey) {
-                currentSessionID = session.sessionID
-                if let agent = session.agent, !agent.isEmpty {
-                    selectedAgent = agent
-                    saveConfiguration()
-                }
                 chatMessages = streamTranscripts.messages(for: transcriptKey, serverMessages: [])
                 return
             }
 
-            let response = try await client.historyMessages(sessionID: session.sessionID)
-            currentSessionID = session.sessionID
-            if let agent = session.agent, !agent.isEmpty {
-                selectedAgent = agent
-                saveConfiguration()
-            }
+            let response = try await client.historyMessages(
+                sessionID: session.sessionID,
+                limit: ChatStreamTranscriptStore.maximumMessages
+            )
             let serverMessages = response.messages.map(ChatMessage.init(historyMessage:))
+            streamTranscripts.retainTranscript(for: transcriptKey, messages: serverMessages)
+
+            // A newer click may have started while this request was in
+            // flight. Never let an older response overwrite that chat.
+            guard isViewingChat(transcriptKey) else { return }
             chatMessages = streamTranscripts.messages(for: transcriptKey, serverMessages: serverMessages)
+            chatHistoryTotal = response.total ?? serverMessages.count
             if chatMessages.isEmpty {
                 chatMessages = [ChatMessage(role: .system, text: "This chat has no messages yet.")]
             }
-            await refreshSessionStatus(sessionID: session.sessionID)
+            Task { [weak self] in
+                await self?.refreshSessionStatus(sessionID: session.sessionID, onlyIfViewing: transcriptKey)
+            }
         } catch {
+            guard isViewingChat(transcriptKey) else { return }
             let message = handleAuthErrorIfNeeded(error) ?? error.localizedDescription
             errorMessage = message
-            chatMessages.append(ChatMessage(role: .system, text: message))
+            if streamTranscripts.cachedMessages(for: transcriptKey) == nil {
+                chatMessages = [ChatMessage(role: .system, text: message)]
+            }
         }
     }
 
@@ -2887,25 +3138,70 @@ final class WeeAppModel {
             return
         }
 
+        var models: [ModelCatalogEntry]
         do {
-            availableModels = try await client.models(runtime: trimmed)
+            models = try await client.models(runtime: trimmed)
         } catch {
-            availableModels = []
+            models = []
         }
+
+        // Issue #23: fold in anything the user configured for this runtime in
+        // Local Settings that the API did not report back.
+        if activeEnvironment == .local {
+            models = Self.mergingLocalManifestModels(
+                models,
+                manifestModels: localManifestModels(runtime: trimmed),
+                runtime: trimmed
+            )
+        }
+        availableModels = models
 
         applySelectionDefaults(forceModelRefresh: true)
         saveConfiguration()
     }
 
-    private func refreshSessionStatus(sessionID: String) async {
+    private func refreshSessionStatus(sessionID: String, onlyIfViewing expectedKey: ChatTranscriptKey? = nil) async {
         do {
             let status = try await client.sessionStatus(sessionID: sessionID)
+            guard expectedKey == nil || isViewingChat(expectedKey!) else { return }
             if let agent = status.agent, !agent.isEmpty { selectedAgent = agent }
             if let runtime = status.runtime, !runtime.isEmpty { selectedRuntime = runtime }
             if let model = status.model, !model.isEmpty { selectedModel = model }
             sessionContextUsage = status.contextUsage
             saveConfiguration()
         } catch {}
+    }
+
+    private func scheduleRecentChatPrefetch(excluding sessionID: String?) {
+        chatPrefetchTask?.cancel()
+        let environment = activeEnvironment
+        let sessions = historySessions
+            .filter { $0.sessionID != sessionID }
+            .prefix(3)
+            .map { $0 }
+
+        guard !sessions.isEmpty else { return }
+        chatPrefetchTask = Task { [weak self] in
+            // Let the interaction settle first; prefetching must never compete
+            // with the user’s selected conversation.
+            try? await Task.sleep(for: .milliseconds(350))
+            guard !Task.isCancelled, let self else { return }
+
+            for session in sessions {
+                guard !Task.isCancelled, self.activeEnvironment == environment else { return }
+                let key = ChatTranscriptKey(environment: environment, sessionID: session.sessionID)
+                guard !self.streamTranscripts.hasCachedMessages(for: key) else { continue }
+                guard let response = try? await self.client(for: environment).historyMessages(
+                    sessionID: session.sessionID,
+                    limit: ChatStreamTranscriptStore.maximumMessages
+                ) else { continue }
+                guard !Task.isCancelled, self.activeEnvironment == environment else { return }
+                self.streamTranscripts.retainTranscript(
+                    for: key,
+                    messages: response.messages.map(ChatMessage.init(historyMessage:))
+                )
+            }
+        }
     }
 
     private func applySessionPermissionModeIfNeeded(sessionID: String) async throws {
@@ -2998,7 +3294,7 @@ final class WeeAppModel {
 
     private func streamActivityText(from event: StreamEvent) -> String {
         guard event.type == "tool_call" else { return "" }
-        let trimmedName = event.name?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedName = event.toolName?.trimmingCharacters(in: .whitespacesAndNewlines)
         let label = trimmedName?.isEmpty == false ? trimmedName! : "tool"
 
         switch event.status ?? event.event {
@@ -3006,12 +3302,12 @@ final class WeeAppModel {
             return "Running \(label)..."
         case "complete", "completed":
             if event.isError == true,
-               let output = (event.result ?? event.output)?.trimmingCharacters(in: .whitespacesAndNewlines),
+               let output = event.toolOutput?.trimmingCharacters(in: .whitespacesAndNewlines),
                !output.isEmpty {
                 return "\(label) failed: \(output)"
             }
             if label == "search",
-               let result = event.result?.trimmingCharacters(in: .whitespacesAndNewlines),
+               let result = event.toolOutput?.trimmingCharacters(in: .whitespacesAndNewlines),
                !result.isEmpty {
                 return "Search completed. Preparing answer…\n\n\(result)"
             }
@@ -3019,6 +3315,61 @@ final class WeeAppModel {
         default:
             return "Running \(label)..."
         }
+    }
+
+    private func toolActivity(from event: StreamEvent) -> ChatToolActivity {
+        let name = event.toolName?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let label = name?.isEmpty == false ? name! : "tool"
+        let status = event.status ?? event.event ?? "running"
+        let input = event.toolInput?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let output = event.toolOutput?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let rawSummary = (output ?? input ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let summary = rawSummary.isEmpty
+            ? nil
+            : String(rawSummary.prefix(500))
+        return ChatToolActivity(
+            id: event.id ?? "\(label)-\(messageActivityID(event))",
+            name: label,
+            status: status,
+            summary: summary,
+            input: input?.isEmpty == false ? input : nil,
+            output: output?.isEmpty == false ? output : nil,
+            isError: event.isError == true
+        )
+    }
+
+    private func mergedToolActivity(
+        _ existing: ChatToolActivity,
+        with update: ChatToolActivity
+    ) -> ChatToolActivity {
+        ChatToolActivity(
+            id: existing.id,
+            name: update.name,
+            status: update.status,
+            summary: update.summary ?? existing.summary,
+            input: update.input ?? existing.input,
+            output: update.output ?? existing.output,
+            isError: update.isError || existing.isError
+        )
+    }
+
+    private func messageActivityID(_ event: StreamEvent) -> String {
+        "\(event.toolName ?? "tool")-\(event.status ?? event.event ?? "running")"
+    }
+
+    private func appendReadableStreamChunk(_ chunk: String, to accumulated: String) -> String {
+        guard !accumulated.isEmpty,
+              !chunk.isEmpty,
+              let previous = accumulated.last,
+              let next = chunk.first,
+              !previous.isWhitespace,
+              !next.isWhitespace,
+              ".!?:".contains(previous),
+              next.isUppercase else {
+            return accumulated + chunk
+        }
+        return accumulated + "\n\n" + chunk
     }
 
     private func preferredFinalStreamText(accumulated: String, doneResponse: String?) -> String {
