@@ -189,7 +189,7 @@ struct PageHeader<Actions: View>: View {
                     .weeFont(size: 17, weight: .bold)
                     .foregroundStyle(WeeTheme.textPrimary)
                 Text(subtitle)
-                    .font(.caption)
+                    .weeFont(.caption)
                     .foregroundStyle(WeeTheme.textSecondary)
                     .lineLimit(1)
             }
@@ -244,7 +244,7 @@ struct RuntimeIconView: View {
 struct WeePrimaryButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.subheadline.weight(.semibold))
+            .weeFont(.subheadline, weight: .semibold)
             .foregroundStyle(Color(red: 0.015, green: 0.075, blue: 0.045))
             .padding(.horizontal, 12)
             .padding(.vertical, 7)
@@ -256,7 +256,7 @@ struct WeePrimaryButtonStyle: ButtonStyle {
 struct WeeGhostButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.subheadline.weight(.semibold))
+            .weeFont(.subheadline, weight: .semibold)
             .foregroundStyle(configuration.isPressed ? WeeTheme.textPrimary : WeeTheme.textSecondary)
             .padding(.horizontal, 11)
             .padding(.vertical, 7)

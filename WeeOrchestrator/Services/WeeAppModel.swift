@@ -1465,6 +1465,47 @@ final class WeeAppModel {
             .appendingPathComponent("model-manifest.json")
     }
 
+    /// Issue #23: the Local API's `/models` endpoint does not reliably return
+    /// the copilot / copilot-sdk catalogs recorded in `model-manifest.json`, so
+    /// models a user configured in Local Settings never reached the picker.
+    /// Reading the manifest the app itself just wrote is a safe client-side
+    /// backstop: it can only ever *add* entries the user explicitly configured,
+    /// and it disappears on its own once the API reports them.
+    ///
+    /// Wee is excluded — its catalog is assembled dynamically from Ollama and
+    /// OpenRouter discovery and is deliberately absent from the manifest.
+    static func mergingLocalManifestModels(
+        _ apiModels: [ModelCatalogEntry],
+        manifestModels: [String],
+        runtime: String
+    ) -> [ModelCatalogEntry] {
+        let normalizedRuntime = runtime.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard normalizedRuntime != "wee" else { return apiModels }
+
+        var known = Set(apiModels.map(\.id))
+        var merged = apiModels
+        for candidate in manifestModels {
+            let modelID = candidate.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !modelID.isEmpty, !known.contains(modelID) else { continue }
+            known.insert(modelID)
+            merged.append(ModelCatalogEntry(id: modelID, label: modelID, group: "Local Settings"))
+        }
+        return merged
+    }
+
+    /// Non-mutating manifest read used by the model picker. `loadLocalModelManifest`
+    /// is the Settings-screen entry point and reports status text as a side
+    /// effect; refreshing the picker must not overwrite what Settings is showing.
+    private func localManifestModels(runtime: String) -> [String] {
+        let trimmedRuntime = runtime.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard trimmedRuntime != "wee" else { return [] }
+        guard let data = try? Data(contentsOf: localModelManifestURL()),
+              let document = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let runtimes = document["runtimes"] as? [String: Any],
+              let models = runtimes[trimmedRuntime] as? [String] else { return [] }
+        return models
+    }
+
     private func bootstrapLocalAPIEnvironment(at checkout: String) async -> Bool {
         let requirements = "\(checkout)/requirements.txt"
         let projectFile = "\(checkout)/pyproject.toml"
@@ -1866,10 +1907,17 @@ final class WeeAppModel {
         defaults.set(enabled, forKey: "wee.localService.keepRunningAfterQuit")
     }
 
+    /// Kept separate from the updater state because an app replacement is
+    /// still a normal client termination: a separately managed API must stay
+    /// available for any background task it owns.
+    var shouldStopLocalAPIForApplicationTermination: Bool {
+        !keepLocalAPIRunningAfterAppQuits
+    }
+
     /// Called only by the app lifecycle. Manual Stop and Restart continue to
     /// terminate the service even when the keep-running preference is enabled.
     func stopLocalAPIForApplicationTermination() {
-        guard !keepLocalAPIRunningAfterAppQuits else {
+        guard shouldStopLocalAPIForApplicationTermination else {
             localServiceStatus = "Continuing after Wee closes"
             return
         }
@@ -1898,15 +1946,37 @@ final class WeeAppModel {
     /// The Local API caches Ollama discovery for a minute, so restart the
     /// app-owned bridge, then retry until its rebuilt catalog reflects the
     /// change. This prevents a user from needing to refresh or restart Wee.
+    /// Issue #28: an Ollama tag reaches the Wee catalog either bare or
+    /// provider-qualified depending on how the bridge assembled it, so a
+    /// freshly pulled model must be matched both ways.
+    static func weeCatalogCandidateIDs(for modelName: String) -> Set<String> {
+        let trimmed = modelName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return [] }
+        return [trimmed, "ollama/\(trimmed)"]
+    }
+
+    /// Issue #28: refreshing the picker only makes sense while this window is
+    /// pointed at the Local API, authenticated, and actually showing the Wee
+    /// runtime's catalog. Any other combination would either fail or refresh a
+    /// catalog the user isn't looking at.
+    static func shouldRefreshWeeCatalog(environment: WeeEnvironment, hasAuthToken: Bool, runtime: String) -> Bool {
+        environment == .local
+            && hasAuthToken
+            && runtime.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "wee"
+    }
+
     private func refreshLocalWeeCatalog(afterModelChange modelName: String, shouldContainModel: Bool = true) async {
-        let normalizedRuntime = selectedRuntime.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        let candidateIDs = Set([modelName, "ollama/\(modelName)"])
+        let candidateIDs = Self.weeCatalogCandidateIDs(for: modelName)
 
         if isLocalServiceRunning {
             restartLocalAPI()
         }
 
-        guard activeEnvironment == .local, hasAuthToken, normalizedRuntime == "wee" else { return }
+        guard Self.shouldRefreshWeeCatalog(
+            environment: activeEnvironment,
+            hasAuthToken: hasAuthToken,
+            runtime: selectedRuntime
+        ) else { return }
 
         // Allow the replacement API process to bind its port before its first
         // catalog request. If the bridge is externally managed, this still
@@ -3068,11 +3138,23 @@ final class WeeAppModel {
             return
         }
 
+        var models: [ModelCatalogEntry]
         do {
-            availableModels = try await client.models(runtime: trimmed)
+            models = try await client.models(runtime: trimmed)
         } catch {
-            availableModels = []
+            models = []
         }
+
+        // Issue #23: fold in anything the user configured for this runtime in
+        // Local Settings that the API did not report back.
+        if activeEnvironment == .local {
+            models = Self.mergingLocalManifestModels(
+                models,
+                manifestModels: localManifestModels(runtime: trimmed),
+                runtime: trimmed
+            )
+        }
+        availableModels = models
 
         applySelectionDefaults(forceModelRefresh: true)
         saveConfiguration()

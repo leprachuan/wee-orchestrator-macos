@@ -42,6 +42,9 @@
 		A10040 /* WeeCLIInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10040; };
 		A10041 /* WeeCLIInstallerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10041; };
 		A10042 /* ChatSessionOrganizationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10042; };
+		A10043 /* LocalManifestModelMergeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10043; };
+		A10044 /* WeeCatalogRefreshTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10044; };
+		A10045 /* ScalableTypographyCoverageTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10045; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -82,6 +85,9 @@
 		B10040 /* WeeCLIInstaller.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WeeCLIInstaller.swift; sourceTree = "<group>"; };
 		B10041 /* WeeCLIInstallerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WeeCLIInstallerTests.swift; sourceTree = "<group>"; };
 		B10042 /* ChatSessionOrganizationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatSessionOrganizationTests.swift; sourceTree = "<group>"; };
+		B10043 /* LocalManifestModelMergeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalManifestModelMergeTests.swift; sourceTree = "<group>"; };
+		B10044 /* WeeCatalogRefreshTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WeeCatalogRefreshTests.swift; sourceTree = "<group>"; };
+		B10045 /* ScalableTypographyCoverageTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScalableTypographyCoverageTests.swift; sourceTree = "<group>"; };
 		P10001 /* WeeOrchestrator.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = WeeOrchestrator.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		P10002 /* WeeOrchestratorTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = WeeOrchestratorTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -201,6 +207,9 @@
 				B10034 /* WeeModelCatalogTests.swift */,
 				B10041 /* WeeCLIInstallerTests.swift */,
 				B10042 /* ChatSessionOrganizationTests.swift */,
+				B10043 /* LocalManifestModelMergeTests.swift */,
+				B10044 /* WeeCatalogRefreshTests.swift */,
+				B10045 /* ScalableTypographyCoverageTests.swift */,
 			);
 			path = WeeOrchestratorTests;
 			sourceTree = "<group>";
@@ -346,6 +355,9 @@
 				A10032,
 				A10041,
 				A10042,
+				A10043,
+				A10044,
+				A10045,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

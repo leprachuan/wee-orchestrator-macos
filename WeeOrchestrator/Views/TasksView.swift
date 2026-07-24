@@ -56,9 +56,12 @@ struct TasksView: View {
             ScrollView {
                 VStack(spacing: 8) {
                     if mode == .background {
-                        backgroundComposer
+                        // Issue #4: previous/running work is what people come to
+                        // this tab to check, so the list leads and the "start a
+                        // new task" composer follows it.
                         backgroundTasksSection
                             .frame(maxWidth: .infinity, alignment: .top)
+                        backgroundComposer
                     } else {
                         scheduledJobsSection
                             .frame(maxWidth: .infinity, alignment: .top)
@@ -303,7 +306,7 @@ private struct ModernScheduledJobEditorSheet: View {
                     ForEach(EditorTab.allCases, id: \.rawValue) { tab in
                         Button(action: { selectedTab = tab }) {
                             Text(tab.rawValue)
-                                .font(.subheadline.weight(.semibold))
+                                .weeFont(.subheadline, weight: .semibold)
                                 .foregroundStyle(selectedTab == tab ? WeeTheme.accent : WeeTheme.textSecondary)
                                 .padding(.vertical, 8)
                                 .padding(.horizontal, 12)
@@ -405,7 +408,7 @@ private struct ModernScheduledJobEditorSheet: View {
             }
             Spacer()
             if let job {
-                Text(job.id).font(.caption.monospaced()).foregroundStyle(WeeTheme.textMuted)
+                Text(job.id).weeFont(.caption, design: .monospaced).foregroundStyle(WeeTheme.textMuted)
                 Button(role: .destructive) {
                     showDeleteConfirmation = true
                 } label: {
@@ -428,7 +431,7 @@ private struct ModernScheduledJobEditorSheet: View {
             VStack(alignment: .leading, spacing: 12) {
                 HStack {
                     Label("Execution History", systemImage: "clock.badge.checkmark")
-                        .font(.headline.weight(.semibold))
+                        .weeFont(.headline, weight: .semibold)
                         .foregroundStyle(WeeTheme.textPrimary)
                     Spacer()
                     Button {
@@ -444,7 +447,7 @@ private struct ModernScheduledJobEditorSheet: View {
                         ProgressView()
                             .scaleEffect(0.9, anchor: .center)
                         Text("Loading execution history…")
-                            .font(.subheadline)
+                            .weeFont(.subheadline)
                             .foregroundStyle(WeeTheme.textSecondary)
                         Spacer()
                     }
@@ -455,7 +458,7 @@ private struct ModernScheduledJobEditorSheet: View {
                         Image(systemName: "exclamationmark.triangle.fill")
                             .foregroundStyle(WeeTheme.danger)
                         Text(error)
-                            .font(.caption)
+                            .weeFont(.caption)
                             .foregroundStyle(WeeTheme.danger)
                         Spacer()
                     }
@@ -466,7 +469,7 @@ private struct ModernScheduledJobEditorSheet: View {
                         Image(systemName: "calendar.badge.exclamationmark")
                             .foregroundStyle(WeeTheme.textMuted)
                         Text("No execution history yet")
-                            .font(.subheadline)
+                            .weeFont(.subheadline)
                             .foregroundStyle(WeeTheme.textSecondary)
                         Spacer()
                     }
@@ -495,13 +498,13 @@ private struct ModernScheduledJobEditorSheet: View {
                 
                 if let timestamp = result.timestamp {
                     Text(formatDate(timestamp))
-                        .font(.caption)
+                        .weeFont(.caption)
                         .foregroundStyle(WeeTheme.textSecondary)
                 }
                 
                 if let duration = result.durationSeconds {
                     Text(formatDuration(duration))
-                        .font(.caption)
+                        .weeFont(.caption)
                         .foregroundStyle(WeeTheme.textMuted)
                 }
                 
@@ -511,11 +514,11 @@ private struct ModernScheduledJobEditorSheet: View {
             if let runtime = result.runtime {
                 HStack(spacing: 8) {
                     Text(runtime)
-                        .font(.caption2)
+                        .weeFont(.caption2)
                         .foregroundStyle(WeeTheme.textMuted)
                     if let model = result.model {
                         Text(model)
-                            .font(.caption2)
+                            .weeFont(.caption2)
                             .foregroundStyle(WeeTheme.textMuted)
                     }
                 }
@@ -524,10 +527,10 @@ private struct ModernScheduledJobEditorSheet: View {
             if let output = result.output, !output.isEmpty {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Output")
-                        .font(.caption.weight(.semibold))
+                        .weeFont(.caption, weight: .semibold)
                         .foregroundStyle(WeeTheme.textSecondary)
                     Text(output)
-                        .font(.caption.monospaced())
+                        .weeFont(.caption, design: .monospaced)
                         .foregroundStyle(WeeTheme.textMuted)
                         .lineLimit(4)
                         .textSelection(.enabled)
@@ -540,10 +543,10 @@ private struct ModernScheduledJobEditorSheet: View {
             if let error = result.error, !error.isEmpty {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Error")
-                        .font(.caption.weight(.semibold))
+                        .weeFont(.caption, weight: .semibold)
                         .foregroundStyle(WeeTheme.danger)
                     Text(error)
-                        .font(.caption.monospaced())
+                        .weeFont(.caption, design: .monospaced)
                         .foregroundStyle(WeeTheme.danger)
                         .lineLimit(4)
                         .textSelection(.enabled)
@@ -600,18 +603,18 @@ private struct ModernScheduledJobEditorSheet: View {
                 styledTextField("every day at 9am", text: $schedule)
             }
             Text("Examples: “in 5 minutes”, “every Monday at 8am”, “every 6 hours”, or cron “0 9 * * 1-5”.")
-                .font(.caption).foregroundStyle(WeeTheme.textMuted)
+                .weeFont(.caption).foregroundStyle(WeeTheme.textMuted)
 
             if isValidating {
                 Label("Validating schedule…", systemImage: "clock.arrow.circlepath")
-                    .font(.caption.weight(.semibold)).foregroundStyle(WeeTheme.textSecondary)
+                    .weeFont(.caption, weight: .semibold).foregroundStyle(WeeTheme.textSecondary)
             } else if let validationMessage {
                 Label(validationMessage, systemImage: validationIsError ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
-                    .font(.caption.weight(.semibold))
+                    .weeFont(.caption, weight: .semibold)
                     .foregroundStyle(validationIsError ? WeeTheme.gold : WeeTheme.accent)
             } else if let cron = job?.cron, !cron.isEmpty {
                 Label("Saved cron: \(cron)", systemImage: "checkmark.circle.fill")
-                    .font(.caption.monospaced()).foregroundStyle(WeeTheme.accent)
+                    .weeFont(.caption, design: .monospaced).foregroundStyle(WeeTheme.accent)
             }
         }
     }
@@ -619,7 +622,7 @@ private struct ModernScheduledJobEditorSheet: View {
     private var taskSection: some View {
         SchedulerEditorSection(title: executionMode == .command ? "Command" : "Task prompt", symbol: executionMode.symbol) {
             TextEditor(text: $task)
-                .font(.body)
+                .weeFont(.body)
                 .foregroundStyle(WeeTheme.textPrimary)
                 .scrollContentBackground(.hidden)
                 .frame(minHeight: 230)
@@ -676,16 +679,16 @@ private struct ModernScheduledJobEditorSheet: View {
     private var deliverySection: some View {
         SchedulerEditorSection(title: "Options", symbol: "slider.horizontal.3") {
             Toggle("Recurring", isOn: $recurring).tint(WeeTheme.accent)
-            Text("Turn off for a one-time execution.").font(.caption).foregroundStyle(WeeTheme.textMuted)
+            Text("Turn off for a one-time execution.").weeFont(.caption).foregroundStyle(WeeTheme.textMuted)
             Toggle("Telegram notification", isOn: $notify).tint(WeeTheme.accent)
-            Text("Send the result when execution completes.").font(.caption).foregroundStyle(WeeTheme.textMuted)
+            Text("Send the result when execution completes.").weeFont(.caption).foregroundStyle(WeeTheme.textMuted)
             SchedulerEditorField(title: "Timeout") {
                 HStack {
                     Stepper(value: $timeout, in: 60...3600, step: 30) {
                         Text("\(timeout) seconds").foregroundStyle(WeeTheme.textPrimary)
                     }
                     Spacer()
-                    Text(timeoutDescription).font(.caption).foregroundStyle(WeeTheme.textMuted)
+                    Text(timeoutDescription).weeFont(.caption).foregroundStyle(WeeTheme.textMuted)
                 }
             }
         }
@@ -717,13 +720,13 @@ private struct ModernScheduledJobEditorSheet: View {
         HStack {
             if selectedTab == .history {
                 Text("Execution history from the last 50 runs.")
-                    .font(.caption).foregroundStyle(WeeTheme.textMuted)
+                    .weeFont(.caption).foregroundStyle(WeeTheme.textMuted)
             } else if let errorMessage {
                 Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
-                    .font(.caption.weight(.semibold)).foregroundStyle(WeeTheme.danger).lineLimit(2)
+                    .weeFont(.caption, weight: .semibold).foregroundStyle(WeeTheme.danger).lineLimit(2)
             } else {
                 Text(job == nil ? "Create a new scheduler job." : "Update the existing scheduler job.")
-                    .font(.caption).foregroundStyle(WeeTheme.textMuted)
+                    .weeFont(.caption).foregroundStyle(WeeTheme.textMuted)
             }
             Spacer()
             Button("Cancel") { dismiss() }.buttonStyle(WeeGhostButtonStyle())
@@ -848,7 +851,7 @@ private struct SchedulerEditorSection<Content: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Label(title, systemImage: symbol)
-                .font(.headline.weight(.semibold)).foregroundStyle(WeeTheme.textPrimary)
+                .weeFont(.headline, weight: .semibold).foregroundStyle(WeeTheme.textPrimary)
             content
         }
         .padding(12)
@@ -883,10 +886,10 @@ private struct EmptyTaskState: View {
     var body: some View {
         VStack(spacing: 10) {
             Image(systemName: symbol)
-                .font(.title2)
+                .weeFont(.title2)
                 .foregroundStyle(WeeTheme.textMuted)
             Text(title)
-                .font(.subheadline.weight(.semibold))
+                .weeFont(.subheadline, weight: .semibold)
                 .foregroundStyle(WeeTheme.textSecondary)
                 .multilineTextAlignment(.center)
         }
@@ -908,7 +911,7 @@ private struct SectionHeader: View {
                 isCollapsed.toggle()
             } label: {
                 Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
-                    .font(.caption2.weight(.bold))
+                    .weeFont(.caption2, weight: .bold)
                     .foregroundStyle(WeeTheme.textSecondary)
                     .frame(width: 22, height: 22)
                     .contentShape(Rectangle())
@@ -919,7 +922,7 @@ private struct SectionHeader: View {
             Image(systemName: symbol)
                 .foregroundStyle(WeeTheme.accent)
             Text(title)
-                .font(.headline.weight(.semibold))
+                .weeFont(.headline, weight: .semibold)
                 .foregroundStyle(WeeTheme.textPrimary)
             StatusPill(text: summary, color: WeeTheme.textSecondary)
             Spacer()
@@ -940,7 +943,7 @@ private struct CollapsedTaskSummary: View {
             Image(systemName: symbol)
                 .foregroundStyle(WeeTheme.textMuted)
             Text(title)
-                .font(.caption.weight(.semibold))
+                .weeFont(.caption, weight: .semibold)
                 .foregroundStyle(WeeTheme.textSecondary)
             Spacer()
         }
@@ -959,22 +962,22 @@ private struct TaskRow: View {
             HStack(spacing: 8) {
                 StatusPill(text: task.status, color: statusColor, symbol: statusSymbol)
                 Text(task.agent)
-                    .font(.caption.weight(.semibold))
+                    .weeFont(.caption, weight: .semibold)
                     .foregroundStyle(WeeTheme.textSecondary)
                 Spacer()
                 Text(task.taskID)
-                    .font(.caption2.monospaced())
+                    .weeFont(.caption2, design: .monospaced)
                     .foregroundStyle(WeeTheme.textMuted)
             }
 
             Text(task.prompt)
-                .font(.subheadline)
+                .weeFont(.subheadline)
                 .foregroundStyle(WeeTheme.textPrimary)
                 .lineLimit(2)
 
             if let runtime = task.actualRuntime ?? task.runtime {
                 Text([runtime, task.actualModel ?? task.model].compactMap { $0 }.joined(separator: " / "))
-                    .font(.caption)
+                    .weeFont(.caption)
                     .foregroundStyle(WeeTheme.textMuted)
                     .lineLimit(1)
             }
@@ -1011,31 +1014,31 @@ private struct ScheduledJobRow: View {
             HStack(spacing: 8) {
                 StatusPill(text: job.enabled == false ? "paused" : "enabled", color: job.enabled == false ? WeeTheme.gold : WeeTheme.accent, symbol: job.enabled == false ? "pause.circle.fill" : "checkmark.circle.fill")
                 Text(job.mode == "command" ? "command" : job.agent ?? "orchestrator")
-                    .font(.caption.weight(.semibold))
+                    .weeFont(.caption, weight: .semibold)
                     .foregroundStyle(WeeTheme.textSecondary)
                 Spacer()
                 Text(job.id)
-                    .font(.caption2.monospaced())
+                    .weeFont(.caption2, design: .monospaced)
                     .foregroundStyle(WeeTheme.textMuted)
                     .lineLimit(1)
                 Image(systemName: "pencil")
-                    .font(.caption.weight(.semibold))
+                    .weeFont(.caption, weight: .semibold)
                     .foregroundStyle(WeeTheme.accent)
             }
 
             Text(job.displayName)
-                .font(.subheadline.weight(.semibold))
+                .weeFont(.subheadline, weight: .semibold)
                 .foregroundStyle(WeeTheme.textPrimary)
                 .lineLimit(2)
 
             Text(job.displaySchedule)
-                .font(.caption)
+                .weeFont(.caption)
                 .foregroundStyle(WeeTheme.gold)
                 .lineLimit(1)
 
             if let task = job.task, !task.isEmpty {
                 Text(task)
-                    .font(.caption)
+                    .weeFont(.caption)
                     .foregroundStyle(WeeTheme.textSecondary)
                     .lineLimit(2)
             }
@@ -1049,7 +1052,7 @@ private struct ScheduledJobRow: View {
                 }
                 if let runtime = job.runtime, !runtime.isEmpty {
                     Text([runtime, job.model].compactMap { $0 }.joined(separator: " / "))
-                        .font(.caption2)
+                        .weeFont(.caption2)
                         .foregroundStyle(WeeTheme.textMuted)
                         .lineLimit(1)
                 }
@@ -1075,10 +1078,33 @@ private struct TaskDetailView: View {
     @State private var liveOutputLines: [String]?
     @State private var liveStatus: String?
     @State private var isLive = false
+    /// Issue #36: the log pane renders a bounded tail by default so opening a
+    /// long-running task never stalls the UI. The full transcript stays
+    /// reachable on demand — the polling path only ever requests
+    /// `logPreviewLineCount` lines, so expanding issues its own larger fetch
+    /// rather than pretending the truncated tail is everything.
+    @State private var isShowingFullLog = false
+    @State private var fullOutputLines: [String]?
+    @State private var isLoadingFullLog = false
+    @State private var fullLogError: String?
+
+    static let logPreviewLineCount = 100
+    static let fullLogLineCount = 5_000
 
     private var displayedStatus: String { liveStatus ?? detail.status }
+    private var previewOutput: [String] { liveOutputLines ?? detail.recentOutput ?? [] }
     private var displayedOutput: [String] {
-        Array((liveOutputLines ?? detail.recentOutput ?? []).suffix(100))
+        guard isShowingFullLog, let fullOutputLines else {
+            return Array(previewOutput.suffix(Self.logPreviewLineCount))
+        }
+        return fullOutputLines
+    }
+
+    /// The bounded tail can't tell us how much came before it, so offer the
+    /// expansion whenever the preview is saturated (there is probably more) or
+    /// the full log has already been pulled.
+    private var canShowFullLog: Bool {
+        fullOutputLines != nil || previewOutput.count >= Self.logPreviewLineCount
     }
 
     var body: some View {
@@ -1092,7 +1118,7 @@ private struct TaskDetailView: View {
                         metadataGrid
                         if let error = detail.error {
                             Text(error)
-                                .font(.subheadline)
+                                .weeFont(.subheadline)
                                 .foregroundStyle(WeeTheme.danger)
                                 .textSelection(.enabled)
                         }
@@ -1124,7 +1150,7 @@ private struct TaskDetailView: View {
             }
             Spacer()
             Text(detail.taskID)
-                .font(.caption.monospaced())
+                .weeFont(.caption, design: .monospaced)
                 .foregroundStyle(WeeTheme.textMuted)
                 .textSelection(.enabled)
         }
@@ -1132,7 +1158,7 @@ private struct TaskDetailView: View {
 
     private var promptSection: some View {
         Text(detail.prompt)
-            .font(.headline)
+            .weeFont(.headline)
             .foregroundStyle(WeeTheme.textPrimary)
             .textSelection(.enabled)
     }
@@ -1162,21 +1188,56 @@ private struct TaskDetailView: View {
 
     private var logsSection: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("LOGS")
-                .weeFont(size: 9, weight: .bold)
-                .tracking(1)
-                .foregroundStyle(WeeTheme.textMuted)
+            HStack(spacing: 8) {
+                Text("LOGS")
+                    .weeFont(size: 9, weight: .bold)
+                    .tracking(1)
+                    .foregroundStyle(WeeTheme.textMuted)
+
+                Text("\(displayedOutput.count) lines")
+                    .weeFont(size: 9, weight: .semibold)
+                    .monospacedDigit()
+                    .foregroundStyle(WeeTheme.textMuted)
+
+                Spacer()
+
+                if isLoadingFullLog {
+                    ProgressView().controlSize(.mini).tint(WeeTheme.accent)
+                }
+
+                if canShowFullLog {
+                    Button {
+                        Task { await toggleFullLog() }
+                    } label: {
+                        Label(
+                            isShowingFullLog ? "Show last \(Self.logPreviewLineCount)" : "Show full log",
+                            systemImage: isShowingFullLog ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right"
+                        )
+                        .weeFont(.caption2, weight: .semibold)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(WeeTheme.accent)
+                    .disabled(isLoadingFullLog)
+                    .help(isShowingFullLog ? "Collapse to the most recent output" : "Load the complete task output")
+                }
+            }
+
+            if let fullLogError {
+                Text(fullLogError)
+                    .weeFont(.caption2)
+                    .foregroundStyle(WeeTheme.danger)
+            }
 
             if displayedOutput.isEmpty {
                 Text("No output yet.")
-                    .font(.caption)
+                    .weeFont(.caption)
                     .foregroundStyle(WeeTheme.textMuted)
                     .padding(12)
             } else {
                 LazyVStack(alignment: .leading, spacing: 4) {
                     ForEach(Array(displayedOutput.enumerated()), id: \.offset) { item in
                         Text(item.element)
-                            .font(.caption.monospaced())
+                            .weeFont(.caption, design: .monospaced)
                             .foregroundStyle(WeeTheme.textSecondary)
                             .textSelection(.enabled)
                             .fixedSize(horizontal: false, vertical: true)
@@ -1199,12 +1260,45 @@ private struct TaskDetailView: View {
         isLive = true
         defer { isLive = false }
         while !Task.isCancelled {
-            if let logs = try? await model.client.backgroundTaskLogs(id: detail.taskID) {
-                liveOutputLines = logs.outputLines
+            let tail = isShowingFullLog ? Self.fullLogLineCount : Self.logPreviewLineCount
+            if let logs = try? await model.client.backgroundTaskLogs(id: detail.taskID, tail: tail) {
                 liveStatus = logs.status
+                // While expanded, keep refreshing the full view in place instead
+                // of snapping the user back to the bounded tail.
+                if isShowingFullLog {
+                    fullOutputLines = logs.outputLines
+                } else {
+                    liveOutputLines = logs.outputLines
+                }
                 if !isActiveStatus(logs.status) { break }
             }
             try? await Task.sleep(for: .seconds(3))
+        }
+    }
+
+    /// Issue #36: expanding pulls the complete output explicitly. Collapsing
+    /// keeps what was already fetched so re-expanding is instant.
+    private func toggleFullLog() async {
+        if isShowingFullLog {
+            withAnimation(.snappy) { isShowingFullLog = false }
+            return
+        }
+
+        if fullOutputLines != nil {
+            withAnimation(.snappy) { isShowingFullLog = true }
+            return
+        }
+
+        isLoadingFullLog = true
+        fullLogError = nil
+        defer { isLoadingFullLog = false }
+
+        do {
+            let logs = try await model.client.backgroundTaskLogs(id: detail.taskID, tail: Self.fullLogLineCount)
+            fullOutputLines = logs.outputLines
+            withAnimation(.snappy) { isShowingFullLog = true }
+        } catch {
+            fullLogError = "Could not load the full log: \(error.localizedDescription)"
         }
     }
 
@@ -1246,7 +1340,7 @@ private struct MetadataRow: View {
                 .tracking(0.6)
                 .foregroundStyle(WeeTheme.textMuted)
             Text(value ?? "—")
-                .font(.caption.weight(.medium))
+                .weeFont(.caption, weight: .medium)
                 .foregroundStyle(WeeTheme.textPrimary)
                 .textSelection(.enabled)
                 .lineLimit(1)
@@ -1295,10 +1389,10 @@ private struct ScheduledJobEditorSheet: View {
                 HStack {
                     VStack(alignment: .leading, spacing: 4) {
                         Text(job == nil ? "Create Scheduled Task" : "Edit Scheduled Task")
-                            .font(.headline.weight(.semibold))
+                            .weeFont(.headline, weight: .semibold)
                             .foregroundStyle(WeeTheme.textPrimary)
                         Text(job == nil ? "Set up a new recurring or one-shot automation" : "Update this scheduled task")
-                            .font(.caption)
+                            .weeFont(.caption)
                             .foregroundStyle(WeeTheme.textSecondary)
                     }
                     Spacer()
@@ -1330,7 +1424,7 @@ private struct ScheduledJobEditorSheet: View {
                                     Image(systemName: scheduleValidationStatus == "valid" ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
                                         .foregroundStyle(scheduleValidationStatus == "valid" ? WeeTheme.accent : WeeTheme.gold)
                                     Text(scheduleValidationMessage)
-                                        .font(.caption)
+                                        .weeFont(.caption)
                                         .foregroundStyle(scheduleValidationStatus == "valid" ? WeeTheme.accent : WeeTheme.gold)
                                     Spacer()
                                 }
@@ -1343,7 +1437,7 @@ private struct ScheduledJobEditorSheet: View {
                                     Image(systemName: "calendar.badge.clock")
                                         .foregroundStyle(WeeTheme.gold)
                                     Text("Next run: \(nextRun)")
-                                        .font(.caption)
+                                        .weeFont(.caption)
                                         .foregroundStyle(WeeTheme.textSecondary)
                                     Spacer()
                                 }
@@ -1359,7 +1453,7 @@ private struct ScheduledJobEditorSheet: View {
                             HStack(spacing: 12) {
                                 VStack(alignment: .leading, spacing: 6) {
                                     Text("Mode")
-                                        .font(.caption.weight(.semibold))
+                                        .weeFont(.caption, weight: .semibold)
                                         .foregroundStyle(WeeTheme.textSecondary)
                                     Picker("Mode", selection: $mode) {
                                         Text("Prompt").tag("prompt")
@@ -1373,14 +1467,14 @@ private struct ScheduledJobEditorSheet: View {
                             HStack(spacing: 12) {
                                 VStack(alignment: .leading, spacing: 6) {
                                     Text("Recurring")
-                                        .font(.caption.weight(.semibold))
+                                        .weeFont(.caption, weight: .semibold)
                                         .foregroundStyle(WeeTheme.textSecondary)
                                     Toggle("", isOn: $recurring)
                                 }
                                 
                                 VStack(alignment: .leading, spacing: 6) {
                                     Text("Notify on completion")
-                                        .font(.caption.weight(.semibold))
+                                        .weeFont(.caption, weight: .semibold)
                                         .foregroundStyle(WeeTheme.textSecondary)
                                     Toggle("", isOn: $notify)
                                 }
@@ -1413,7 +1507,7 @@ private struct ScheduledJobEditorSheet: View {
                             HStack(spacing: 12) {
                                 VStack(alignment: .leading, spacing: 6) {
                                     Text("Timeout (seconds)")
-                                        .font(.caption.weight(.semibold))
+                                        .weeFont(.caption, weight: .semibold)
                                         .foregroundStyle(WeeTheme.textSecondary)
                                     TextField("300", value: $timeout, format: .number)
                                         .textFieldStyle(.plain)
@@ -1432,7 +1526,7 @@ private struct ScheduledJobEditorSheet: View {
                                 Image(systemName: "exclamationmark.octagon.fill")
                                     .foregroundStyle(WeeTheme.danger)
                                 Text(errorMessage)
-                                    .font(.caption)
+                                    .weeFont(.caption)
                                     .foregroundStyle(WeeTheme.danger)
                                 Spacer()
                             }
@@ -1445,7 +1539,7 @@ private struct ScheduledJobEditorSheet: View {
                                 Image(systemName: "checkmark.circle.fill")
                                     .foregroundStyle(WeeTheme.accent)
                                 Text(successMessage)
-                                    .font(.caption)
+                                    .weeFont(.caption)
                                     .foregroundStyle(WeeTheme.accent)
                                 Spacer()
                             }
@@ -1598,19 +1692,19 @@ private struct LabeledTextField: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(label)
-                .font(.caption.weight(.semibold))
+                .weeFont(.caption, weight: .semibold)
                 .foregroundStyle(WeeTheme.textSecondary)
             
             if isMultiline {
                 TextEditor(text: $text)
-                    .font(.caption.monospaced())
+                    .weeFont(.caption, design: .monospaced)
                     .foregroundStyle(WeeTheme.textPrimary)
                     .padding(8)
                     .frame(minHeight: 60)
                     .background(WeeTheme.sunken, in: RoundedRectangle(cornerRadius: 6))
             } else {
                 TextField(placeholder, text: $text)
-                    .font(.caption)
+                    .weeFont(.caption)
                     .foregroundStyle(WeeTheme.textPrimary)
                     .padding(8)
                     .background(WeeTheme.sunken, in: RoundedRectangle(cornerRadius: 6))

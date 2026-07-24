@@ -45,7 +45,7 @@ struct LocalModelsView: View {
 
                 HStack {
                     Text("RECOMMENDED FOR THIS MAC (\(Int(model.localModelMemoryGB)) GB MEMORY)")
-                        .font(.caption.weight(.bold))
+                        .weeFont(.caption, weight: .bold)
                         .tracking(1.1)
                         .foregroundStyle(WeeTheme.textMuted)
                     Spacer()
@@ -86,7 +86,7 @@ struct LocalModelsView: View {
                 }
 
                 Text("Ollama is the on-device model runner. It provides a local OpenAI-compatible endpoint without sending prompts off this Mac.")
-                    .font(.caption)
+                    .weeFont(.caption)
                     .foregroundStyle(WeeTheme.textSecondary)
 
                 HStack {
@@ -109,7 +109,7 @@ struct LocalModelsView: View {
 
                     Toggle("Start with Wee", isOn: $model.localModelConfiguration.autoStartRunner)
                         .toggleStyle(.switch)
-                        .font(.caption.weight(.semibold))
+                        .weeFont(.caption, weight: .semibold)
                         .onChange(of: model.localModelConfiguration.autoStartRunner) { model.saveConfiguration() }
                 }
             }
@@ -121,19 +121,19 @@ struct LocalModelsView: View {
         LocalModelSection(title: "Local API Bridge", systemImage: "arrow.triangle.branch") {
             VStack(alignment: .leading, spacing: 10) {
                 Text("Selected model")
-                    .font(.caption.weight(.semibold))
+                    .weeFont(.caption, weight: .semibold)
                     .foregroundStyle(WeeTheme.textMuted)
                 Text(selectedCatalogModel?.displayName ?? (model.localModelConfiguration.selectedModel.isEmpty ? "No model selected" : model.localModelConfiguration.selectedModel))
-                    .font(.headline)
+                    .weeFont(.headline)
                     .foregroundStyle(WeeTheme.textPrimary)
                 Text(model.localModelConfiguration.selectedModel.isEmpty
                      ? "Download a 64K+ model, then select it to make it the default for the Local API’s `wee` runtime."
                      : "The Local API is launched with `WEE_OLLAMA_HOST=http://127.0.0.1:11434` and uses `ollama/\(model.localModelConfiguration.selectedModel)` for the `wee` runtime.")
-                    .font(.caption)
+                    .weeFont(.caption)
                     .foregroundStyle(WeeTheme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
                 Text("Set a Local agent’s runtime to `wee` to use this model. Selecting a different model restarts the Local API when it is running.")
-                    .font(.caption2)
+                    .weeFont(.caption2)
                     .foregroundStyle(WeeTheme.gold)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -152,7 +152,7 @@ struct LocalModelsView: View {
 
                 if !model.registrySearchStatus.isEmpty {
                     Text(model.registrySearchStatus)
-                        .font(.caption)
+                        .weeFont(.caption)
                         .foregroundStyle(WeeTheme.textSecondary)
                 }
 
@@ -189,7 +189,7 @@ struct LocalModelsView: View {
                     Spacer()
                     Link("Browse full registry", destination: URL(string: "https://ollama.com/search")!)
                 }
-                .font(.caption)
+                .weeFont(.caption)
                 .foregroundStyle(WeeTheme.textSecondary)
             }
         }
@@ -199,14 +199,14 @@ struct LocalModelsView: View {
         let isDownloaded = model.ollamaModels.contains { $0.name == result.fullTag }
         return HStack {
             VStack(alignment: .leading, spacing: 2) {
-                Text(result.fullTag).font(.subheadline.weight(.semibold))
+                Text(result.fullTag).weeFont(.subheadline, weight: .semibold)
                 Text("\(result.contextWindow / 1_000)K context · \(result.sizeLabel)\(result.modalities.map { " · \($0)" } ?? "")")
-                    .font(.caption)
+                    .weeFont(.caption)
                     .foregroundStyle(WeeTheme.textMuted)
             }
             Spacer()
             if isDownloaded {
-                Text("Downloaded").font(.caption2.weight(.bold)).foregroundStyle(WeeTheme.accent)
+                Text("Downloaded").weeFont(.caption2, weight: .bold).foregroundStyle(WeeTheme.accent)
             } else {
                 Button { Task { await model.pullRegistryModel(result) } } label: {
                     Label("Download", systemImage: "arrow.down.circle")
@@ -235,17 +235,17 @@ struct LocalModelsView: View {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(item.displayName)
-                        .font(.headline)
+                        .weeFont(.headline)
                         .foregroundStyle(WeeTheme.textPrimary)
                     Text("\(item.parameterSize) · \(item.contextWindow / 1_000)K context · ~\(item.estimatedDownloadGB, specifier: "%.0f") GB")
-                        .font(.caption.weight(.semibold))
+                        .weeFont(.caption, weight: .semibold)
                         .foregroundStyle(WeeTheme.accent)
                 }
                 Spacer()
                 if isSelected { Image(systemName: "checkmark.circle.fill").foregroundStyle(WeeTheme.accent) }
             }
             Text(item.description)
-                .font(.caption)
+                .weeFont(.caption)
                 .foregroundStyle(WeeTheme.textSecondary)
                 .lineLimit(2)
             HStack {
@@ -267,7 +267,7 @@ struct LocalModelsView: View {
                 }
                 Spacer()
                 Text(memoryFitLabel(for: item))
-                    .font(.caption2.weight(.bold))
+                    .weeFont(.caption2, weight: .bold)
                     .foregroundStyle(memoryFitColor(for: item))
             }
         }
@@ -295,12 +295,12 @@ struct LocalModelsView: View {
                 ForEach(model.ollamaModels) { downloaded in
                     HStack {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(downloaded.name).font(.subheadline.weight(.semibold))
-                            Text(downloaded.sizeLabel).font(.caption).foregroundStyle(WeeTheme.textMuted)
+                            Text(downloaded.name).weeFont(.subheadline, weight: .semibold)
+                            Text(downloaded.sizeLabel).weeFont(.caption).foregroundStyle(WeeTheme.textMuted)
                         }
                         Spacer()
                         if model.localModelConfiguration.selectedModel == downloaded.name {
-                            Text("Selected").font(.caption2.weight(.bold)).foregroundStyle(WeeTheme.accent)
+                            Text("Selected").weeFont(.caption2, weight: .bold).foregroundStyle(WeeTheme.accent)
                         } else if let contextWindow = model.knownContextWindow(forDownloadedModel: downloaded.name),
                                   contextWindow >= OllamaRegistryClient.minimumContextWindow {
                             Button("Use Model") { model.selectLocalModel(name: downloaded.name, contextWindow: contextWindow) }
@@ -327,7 +327,7 @@ private struct LocalModelSection<Content: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Label(title, systemImage: systemImage)
-                .font(.subheadline.weight(.bold))
+                .weeFont(.subheadline, weight: .bold)
                 .foregroundStyle(WeeTheme.textPrimary)
             content
         }

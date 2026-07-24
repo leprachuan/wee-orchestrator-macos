@@ -77,7 +77,7 @@ struct ChatView: View {
                 LazyVStack(alignment: .leading, spacing: 12) {
                     if model.isShowingRecentChatWindow {
                         Text("Showing the most recent \(model.chatMessages.count) messages")
-                            .font(.caption)
+                            .weeFont(.caption)
                             .foregroundStyle(WeeTheme.textMuted)
                             .frame(maxWidth: .infinity, alignment: .center)
                     }
@@ -1135,6 +1135,11 @@ private struct RecentChatsRail: View {
     var layout: RecentChatsRailLayout = .horizontal
     @State private var sessionToRename: HistorySessionSummary?
     @State private var renameDraft = ""
+    @State private var expandedAgentGroupIDs: Set<String> = []
+    @State private var expandedAllSessionsGroupIDs: Set<String> = []
+    @State private var didSetInitialAgentGroupExpansion = false
+
+    private static let collapsedSessionLimit = 5
 
     var body: some View {
         Group {
@@ -1157,7 +1162,7 @@ private struct RecentChatsRail: View {
             case .vertical:
                 VStack(alignment: .leading, spacing: 10) {
                     HStack {
-                        Text("RECENT CHATS")
+                        Text("CHATS BY AGENT")
                             .weeFont(size: 9, weight: .bold)
                             .tracking(1)
                             .foregroundStyle(WeeTheme.textMuted)
@@ -1182,9 +1187,9 @@ private struct RecentChatsRail: View {
                             .frame(maxWidth: .infinity)
                             .padding(18)
                         } else {
-                            LazyVStack(spacing: 6) {
-                                ForEach(model.visibleHistorySessions.prefix(24)) { session in
-                                    sessionButton(session)
+                            LazyVStack(alignment: .leading, spacing: 2) {
+                                ForEach(agentGroups) { group in
+                                    agentFolder(group)
                                 }
                             }
                             .padding(.horizontal, 7)
@@ -1194,6 +1199,8 @@ private struct RecentChatsRail: View {
                     .scrollIndicators(.hidden)
                 }
                 .glassPanel()
+                .onAppear { setInitialAgentGroupExpansionIfNeeded() }
+                .onChange(of: model.currentSessionID) { _, _ in expandCurrentSessionAgentGroup() }
             }
         }
         .alert("Rename Chat", isPresented: Binding(
@@ -1266,6 +1273,142 @@ private struct RecentChatsRail: View {
                 model.archiveHistorySession(session)
             } label: {
                 Label("Archive", systemImage: "archivebox")
+            }
+        }
+    }
+
+    // MARK: - Per-agent folders
+
+    private struct AgentSessionGroup: Identifiable {
+        let id: String
+        let sessions: [HistorySessionSummary]
+    }
+
+    /// Sessions grouped into one folder per agent. Folders follow the
+    /// configured agent order from `model.agents` (so the tree matches the
+    /// order agents appear elsewhere in the app); agents no longer present in
+    /// that configuration are appended alphabetically, and sessions with no
+    /// recorded agent land in a trailing "Unassigned" folder.
+    private var agentGroups: [AgentSessionGroup] {
+        var buckets: [String: [HistorySessionSummary]] = [:]
+        var seenOrder: [String] = []
+        for session in model.visibleHistorySessions {
+            let raw = session.agent?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let key = raw.isEmpty ? "Unassigned" : raw
+            if buckets[key] == nil {
+                buckets[key] = []
+                seenOrder.append(key)
+            }
+            buckets[key]?.append(session)
+        }
+
+        let configuredOrder = model.agents.map(\.name)
+        let ordered = seenOrder
+            .filter { $0 != "Unassigned" }
+            .sorted { a, b in
+                let indexA = configuredOrder.firstIndex(of: a)
+                let indexB = configuredOrder.firstIndex(of: b)
+                switch (indexA, indexB) {
+                case let (.some(x), .some(y)): return x < y
+                case (.some, .none): return true
+                case (.none, .some): return false
+                default: return a.localizedCaseInsensitiveCompare(b) == .orderedAscending
+                }
+            }
+
+        var keys = ordered
+        if seenOrder.contains("Unassigned") { keys.append("Unassigned") }
+
+        return keys.map { AgentSessionGroup(id: $0, sessions: buckets[$0] ?? []) }
+    }
+
+    private func setInitialAgentGroupExpansionIfNeeded() {
+        guard !didSetInitialAgentGroupExpansion else { return }
+        didSetInitialAgentGroupExpansion = true
+        expandCurrentSessionAgentGroup()
+        if expandedAgentGroupIDs.isEmpty, let first = agentGroups.first {
+            expandedAgentGroupIDs.insert(first.id)
+        }
+    }
+
+    private func expandCurrentSessionAgentGroup() {
+        guard let currentSessionID = model.currentSessionID,
+              let session = model.visibleHistorySessions.first(where: { $0.sessionID == currentSessionID }) else { return }
+        let raw = session.agent?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        expandedAgentGroupIDs.insert(raw.isEmpty ? "Unassigned" : raw)
+    }
+
+    @ViewBuilder
+    private func agentFolder(_ group: AgentSessionGroup) -> some View {
+        let isExpanded = expandedAgentGroupIDs.contains(group.id)
+        let showAllSessions = expandedAllSessionsGroupIDs.contains(group.id)
+        let visibleSessions = showAllSessions ? group.sessions : Array(group.sessions.prefix(Self.collapsedSessionLimit))
+        let hiddenCount = group.sessions.count - visibleSessions.count
+
+        VStack(alignment: .leading, spacing: 3) {
+            Button {
+                withAnimation(.snappy) {
+                    if isExpanded {
+                        expandedAgentGroupIDs.remove(group.id)
+                    } else {
+                        expandedAgentGroupIDs.insert(group.id)
+                    }
+                }
+            } label: {
+                HStack(spacing: 7) {
+                    Image(systemName: "chevron.right")
+                        .weeFont(size: 8, weight: .bold)
+                        .foregroundStyle(WeeTheme.textMuted)
+                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                        .frame(width: 10)
+
+                    Image(systemName: isExpanded ? "folder.fill" : "folder")
+                        .weeFont(size: 11)
+                        .foregroundStyle(ChatAgentColor.color(for: group.id))
+
+                    Text(group.id)
+                        .weeFont(.caption, weight: .semibold)
+                        .foregroundStyle(WeeTheme.textPrimary)
+                        .lineLimit(1)
+
+                    Spacer(minLength: 4)
+
+                    Text("\(group.sessions.count)")
+                        .weeFont(size: 9, weight: .semibold).monospacedDigit()
+                        .foregroundStyle(WeeTheme.textMuted)
+                }
+                .padding(.vertical, 5)
+                .padding(.horizontal, 3)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            if isExpanded {
+                VStack(spacing: 6) {
+                    ForEach(visibleSessions) { session in
+                        sessionButton(session)
+                    }
+
+                    if group.sessions.count > Self.collapsedSessionLimit {
+                        Button {
+                            withAnimation(.snappy) {
+                                if showAllSessions {
+                                    expandedAllSessionsGroupIDs.remove(group.id)
+                                } else {
+                                    expandedAllSessionsGroupIDs.insert(group.id)
+                                }
+                            }
+                        } label: {
+                            Text(showAllSessions ? "Show less" : "Show \(hiddenCount) more")
+                                .weeFont(.caption2, weight: .semibold)
+                                .foregroundStyle(WeeTheme.accent)
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.top, 1)
+                    }
+                }
+                .padding(.leading, 17)
+                .padding(.bottom, 4)
             }
         }
     }

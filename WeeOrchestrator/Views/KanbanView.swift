@@ -97,7 +97,7 @@ struct KanbanView: View {
         VStack(alignment: .leading, spacing: 7) {
             HStack(spacing: 8) {
                 Label("Filters", systemImage: "line.3.horizontal.decrease.circle")
-                    .font(.subheadline.weight(.semibold))
+                    .weeFont(.subheadline, weight: .semibold)
                     .foregroundStyle(WeeTheme.textPrimary)
 
                 Picker("Urgency", selection: $urgencyFilter) {
@@ -149,7 +149,7 @@ struct KanbanView: View {
     private var customDateControls: some View {
         HStack(spacing: 12) {
             Label("Custom Due Range", systemImage: "calendar.badge.clock")
-                .font(.caption.weight(.semibold))
+                .weeFont(.caption, weight: .semibold)
                 .foregroundStyle(WeeTheme.textSecondary)
             DatePicker("Start", selection: $customDueStart, displayedComponents: .date)
                 .datePickerStyle(.compact)
@@ -196,12 +196,12 @@ struct KanbanView: View {
                                         .fill(dueColor(for: card))
                                         .frame(width: 6, height: 6)
                                     Text(card.title)
-                                        .font(.caption.weight(.semibold))
+                                        .weeFont(.caption, weight: .semibold)
                                         .foregroundStyle(WeeTheme.textPrimary)
                                         .lineLimit(1)
                                         .frame(maxWidth: 210, alignment: .leading)
                                     Text(compactDueText(for: card))
-                                        .font(.caption2.weight(.semibold))
+                                        .weeFont(.caption2, weight: .semibold)
                                         .foregroundStyle(dueColor(for: card))
                                         .lineLimit(1)
                                     Image(systemName: "chevron.right")
@@ -218,7 +218,7 @@ struct KanbanView: View {
 
                         if cards.count > 12 {
                             Text("+\(cards.count - 12) more")
-                                .font(.caption.weight(.semibold))
+                                .weeFont(.caption, weight: .semibold)
                                 .foregroundStyle(WeeTheme.textSecondary)
                                 .padding(.horizontal, 8)
                         }
@@ -374,7 +374,7 @@ private struct KanbanColumnView: View {
                 Image(systemName: column.symbol)
                     .foregroundStyle(WeeTheme.accent)
                 Text(column.title)
-                    .font(.headline.weight(.semibold))
+                    .weeFont(.headline, weight: .semibold)
                     .foregroundStyle(WeeTheme.textPrimary)
                 Spacer()
                 StatusPill(text: "\(cards.count)", color: WeeTheme.textSecondary)
@@ -408,7 +408,7 @@ private struct KanbanCardRow: View {
                 StatusPill(text: card.source, color: card.source == "github" ? WeeTheme.gold : WeeTheme.accent, symbol: card.source == "github" ? "number" : "doc.text")
                 if let agent = card.agent, !agent.isEmpty {
                     Text(agent)
-                        .font(.caption.weight(.semibold))
+                        .weeFont(.caption, weight: .semibold)
                         .foregroundStyle(WeeTheme.textSecondary)
                         .lineLimit(1)
                 }
@@ -416,7 +416,7 @@ private struct KanbanCardRow: View {
             }
 
             Text(card.title)
-                .font(.subheadline.weight(.semibold))
+                .weeFont(.subheadline, weight: .semibold)
                 .foregroundStyle(WeeTheme.textPrimary)
                 .lineLimit(3)
 
@@ -426,7 +426,7 @@ private struct KanbanCardRow: View {
 
             if !card.details.isEmpty {
                 Text(card.details)
-                    .font(.caption)
+                    .weeFont(.caption)
                     .foregroundStyle(WeeTheme.textSecondary)
                 .lineLimit(2)
             }
@@ -440,7 +440,7 @@ private struct KanbanCardRow: View {
 
                 if let issue = card.githubIssueNumber {
                     Text("#\(issue)")
-                        .font(.caption2.monospaced())
+                        .weeFont(.caption2, design: .monospaced)
                         .foregroundStyle(WeeTheme.textMuted)
                 }
 
@@ -609,7 +609,7 @@ private struct KanbanItemDetailSheet: View {
         .overlay(alignment: .bottom) {
             if let statusMessage {
                 Text(statusMessage)
-                    .font(.caption)
+                    .weeFont(.caption)
                     .foregroundStyle(WeeTheme.accent)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 5)
@@ -623,7 +623,7 @@ private struct KanbanItemDetailSheet: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
                 Label("Task details", systemImage: "square.and.pencil")
-                    .font(.headline.weight(.semibold))
+                    .weeFont(.headline, weight: .semibold)
                     .foregroundStyle(WeeTheme.textPrimary)
                 Spacer()
                 if isWorking { ProgressView().controlSize(.small).tint(WeeTheme.accent) }
@@ -633,7 +633,7 @@ private struct KanbanItemDetailSheet: View {
                 editorLabel("Title")
                 TextField("Task title", text: $title)
                     .textFieldStyle(.plain)
-                    .font(.body.weight(.medium))
+                    .weeFont(.body, weight: .medium)
                     .foregroundStyle(WeeTheme.textPrimary)
                     .padding(10)
                     .background(WeeTheme.sunken, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
@@ -643,7 +643,7 @@ private struct KanbanItemDetailSheet: View {
             VStack(alignment: .leading, spacing: 6) {
                 editorLabel("Description")
                 TextEditor(text: $details)
-                    .font(.body)
+                    .weeFont(.body)
                     .foregroundStyle(WeeTheme.textPrimary)
                     .scrollContentBackground(.hidden)
                     .frame(minHeight: 270)
@@ -707,19 +707,19 @@ private struct KanbanItemDetailSheet: View {
                 
                 if labels.isEmpty {
                     Text("No labels on this item")
-                        .font(.caption)
+                        .weeFont(.caption)
                         .foregroundStyle(WeeTheme.textSecondary)
                 } else {
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 110), spacing: 6)], alignment: .leading, spacing: 6) {
                         ForEach(labels, id: \.self) { label in
                             HStack(spacing: 4) {
                                 Text(label)
-                                    .font(.caption.weight(.medium))
+                                    .weeFont(.caption, weight: .medium)
                                 Button {
                                     removeLabel(label)
                                 } label: {
                                     Image(systemName: "xmark.circle.fill")
-                                        .font(.caption)
+                                        .weeFont(.caption)
                                 }
                                 .buttonStyle(PlainButtonStyle())
                             }
@@ -779,7 +779,7 @@ private struct KanbanItemDetailSheet: View {
 
             HStack {
                 Text("Changes apply to the linked Kanban source.")
-                    .font(.caption)
+                    .weeFont(.caption)
                     .foregroundStyle(WeeTheme.textMuted)
                 Spacer()
                 Button {
@@ -805,7 +805,7 @@ private struct KanbanItemDetailSheet: View {
     private var commentPanel: some View {
         VStack(alignment: .leading, spacing: 10) {
             Label("Add comment", systemImage: "text.bubble")
-                .font(.subheadline.weight(.semibold)).foregroundStyle(WeeTheme.textPrimary)
+                .weeFont(.subheadline, weight: .semibold).foregroundStyle(WeeTheme.textPrimary)
             TextEditor(text: $comment)
                 .frame(minHeight: 90)
                 .scrollContentBackground(.hidden)
@@ -826,7 +826,7 @@ private struct KanbanItemDetailSheet: View {
     private var dispatchPanel: some View {
         VStack(alignment: .leading, spacing: 10) {
             Label("Dispatch", systemImage: "paperplane.fill")
-                .font(.subheadline.weight(.semibold)).foregroundStyle(WeeTheme.textPrimary)
+                .weeFont(.subheadline, weight: .semibold).foregroundStyle(WeeTheme.textPrimary)
 
             if agentNames.isEmpty {
                 TextField("Agent", text: $dispatchAgent)
@@ -886,7 +886,7 @@ private struct KanbanItemDetailSheet: View {
             VStack(alignment: .leading, spacing: 10) {
                 HStack {
                     Label("Activity", systemImage: "clock.arrow.circlepath")
-                        .font(.headline.weight(.semibold))
+                        .weeFont(.headline, weight: .semibold)
                         .foregroundStyle(WeeTheme.textPrimary)
                     Spacer()
                     StatusPill(text: "\(comments.count)", color: WeeTheme.textSecondary)
@@ -894,10 +894,10 @@ private struct KanbanItemDetailSheet: View {
                 ForEach(comments) { item in
                     VStack(alignment: .leading, spacing: 5) {
                         Text(item.author?.login ?? "comment")
-                            .font(.caption.weight(.semibold))
+                            .weeFont(.caption, weight: .semibold)
                             .foregroundStyle(WeeTheme.textSecondary)
                         Text(item.body)
-                            .font(.caption)
+                            .weeFont(.caption)
                             .foregroundStyle(WeeTheme.textPrimary)
                     }
                     .padding(10)
@@ -1012,10 +1012,10 @@ private struct EmptyKanbanState: View {
     var body: some View {
         VStack(spacing: 10) {
             Image(systemName: symbol)
-                .font(.title2)
+                .weeFont(.title2)
                 .foregroundStyle(WeeTheme.textMuted)
             Text(title)
-                .font(.subheadline.weight(.semibold))
+                .weeFont(.subheadline, weight: .semibold)
                 .foregroundStyle(WeeTheme.textSecondary)
                 .multilineTextAlignment(.center)
         }
