@@ -44,6 +44,9 @@ enum AppSection: String, CaseIterable, Identifiable {
 struct ContentView: View {
     @Bindable var model: WeeAppModel
     @State private var selectedSection: AppSection = .chat
+    /// Persisted like the existing background/scheduled task collapse toggles
+    /// (see TasksView) — an app-wide UI preference, not per-window state.
+    @AppStorage("wee.workspaceRail.collapsed") private var isRailCollapsed = false
     /// Issue #22: the Local/Remote environment previously lived only on the
     /// shared model, so it was effectively one global toggle for every open
     /// window. `WeeAppModel` is a single instance shared across all windows
@@ -173,6 +176,24 @@ struct ContentView: View {
         }
     }
 
+    private static let railExpandedWidth: CGFloat = 196
+    private static let railCollapsedWidth: CGFloat = 64
+
+    private var railToggleButton: some View {
+        Button {
+            withAnimation(.snappy(duration: 0.2)) { isRailCollapsed.toggle() }
+        } label: {
+            Image(systemName: isRailCollapsed ? "sidebar.right" : "sidebar.left")
+                .weeFont(size: 12, weight: .semibold)
+                .foregroundStyle(WeeTheme.textMuted)
+                .frame(width: 22, height: 22)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .keyboardShortcut("\\", modifiers: .command)
+        .help(isRailCollapsed ? "Expand sidebar" : "Collapse sidebar")
+    }
+
     private var workspaceRail: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 9) {
@@ -181,89 +202,178 @@ struct ContentView: View {
                     .aspectRatio(contentMode: .fit)
                     .frame(width: 38, height: 38)
 
-                VStack(alignment: .leading, spacing: 0) {
-                    Text("WEE")
-                        .weeFont(size: 14, weight: .black, design: .rounded)
-                        .foregroundStyle(WeeTheme.textPrimary)
-                    Text("ORCHESTRATOR")
-                        .weeFont(size: 8, weight: .bold)
-                        .tracking(1.1)
-                        .foregroundStyle(WeeTheme.textMuted)
+                if !isRailCollapsed {
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text("WEE")
+                            .weeFont(size: 14, weight: .black, design: .rounded)
+                            .foregroundStyle(WeeTheme.textPrimary)
+                        Text("ORCHESTRATOR")
+                            .weeFont(size: 8, weight: .bold)
+                            .tracking(1.1)
+                            .foregroundStyle(WeeTheme.textMuted)
+                    }
+
+                    Spacer(minLength: 4)
+                    railToggleButton
                 }
             }
-            .padding(.horizontal, 14)
+            .padding(.horizontal, isRailCollapsed ? 0 : 14)
+            .frame(maxWidth: isRailCollapsed ? .infinity : nil, alignment: .center)
             .padding(.top, 14)
-            .padding(.bottom, 18)
+            .padding(.bottom, isRailCollapsed ? 10 : 18)
 
-            Text("WORKSPACE")
-                .weeFont(size: 9, weight: .bold)
-                .tracking(1.2)
-                .foregroundStyle(WeeTheme.textMuted)
-                .padding(.horizontal, 14)
-                .padding(.bottom, 6)
+            if isRailCollapsed {
+                railToggleButton
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.bottom, 10)
+            } else {
+                Text("WORKSPACE")
+                    .weeFont(size: 9, weight: .bold)
+                    .tracking(1.2)
+                    .foregroundStyle(WeeTheme.textMuted)
+                    .padding(.horizontal, 14)
+                    .padding(.bottom, 6)
+            }
 
             VStack(spacing: 3) {
                 ForEach(visibleSections) { section in
                     railButton(section)
                 }
             }
-            .padding(.horizontal, 8)
+            .padding(.horizontal, isRailCollapsed ? 6 : 8)
 
             Spacer(minLength: 12)
 
-            VStack(alignment: .leading, spacing: 9) {
-                HStack(spacing: 7) {
-                    Circle()
-                        .fill(isHealthy ? WeeTheme.emerald : WeeTheme.gold)
-                        .frame(width: 7, height: 7)
-                        .shadow(color: (isHealthy ? WeeTheme.emerald : WeeTheme.gold).opacity(0.5), radius: 4)
-                    Text(isHealthy ? "System online" : "Connection pending")
-                        .weeFont(.caption, weight: .semibold)
-                        .foregroundStyle(WeeTheme.textPrimary)
-                }
-
-                environmentPicker
-
-                HStack {
-                    Text(model.health?.environment ?? model.appConfig?.appEnv ?? "Not connected")
-                        .weeFont(.caption2)
-                        .foregroundStyle(WeeTheme.textMuted)
-                        .lineLimit(1)
-                    Spacer()
-                    if model.isLoading {
-                        ProgressView().controlSize(.mini).tint(WeeTheme.accent)
-                    }
-                }
-
-                Button {
-                    Task { await model.refreshAll() }
-                } label: {
-                    Label("Refresh data", systemImage: "arrow.clockwise")
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .buttonStyle(WeeGhostButtonStyle())
-                .keyboardShortcut("r", modifiers: .command)
-
-                Button {
-                    Task { await model.checkForAppUpdate(showResult: true) }
-                } label: {
-                    Label(
-                        model.availableAppUpdate == nil ? "Check for updates" : "Update available",
-                        systemImage: model.availableAppUpdate == nil ? "arrow.triangle.2.circlepath" : "arrow.down.circle.fill"
-                    )
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .buttonStyle(WeeGhostButtonStyle())
-                .disabled(model.isCheckingForAppUpdate || model.isInstallingAppUpdate)
+            if isRailCollapsed {
+                collapsedStatusColumn
+            } else {
+                expandedStatusPanel
             }
-            .padding(10)
-            .background(WeeTheme.surface, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).stroke(WeeTheme.glassStroke))
-            .padding(8)
         }
-        .frame(width: 196)
+        .frame(width: isRailCollapsed ? Self.railCollapsedWidth : Self.railExpandedWidth)
         .background(WeeTheme.sidebar)
         .overlay(alignment: .trailing) { Rectangle().fill(WeeTheme.divider).frame(width: 1) }
+    }
+
+    private var expandedStatusPanel: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            HStack(spacing: 7) {
+                Circle()
+                    .fill(isHealthy ? WeeTheme.emerald : WeeTheme.gold)
+                    .frame(width: 7, height: 7)
+                    .shadow(color: (isHealthy ? WeeTheme.emerald : WeeTheme.gold).opacity(0.5), radius: 4)
+                Text(isHealthy ? "System online" : "Connection pending")
+                    .weeFont(.caption, weight: .semibold)
+                    .foregroundStyle(WeeTheme.textPrimary)
+            }
+
+            environmentPicker
+
+            HStack {
+                Text(model.health?.environment ?? model.appConfig?.appEnv ?? "Not connected")
+                    .weeFont(.caption2)
+                    .foregroundStyle(WeeTheme.textMuted)
+                    .lineLimit(1)
+                Spacer()
+                if model.isLoading {
+                    ProgressView().controlSize(.mini).tint(WeeTheme.accent)
+                }
+            }
+
+            Button {
+                Task { await model.refreshAll() }
+            } label: {
+                Label("Refresh data", systemImage: "arrow.clockwise")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .buttonStyle(WeeGhostButtonStyle())
+            .keyboardShortcut("r", modifiers: .command)
+
+            Button {
+                Task { await model.checkForAppUpdate(showResult: true) }
+            } label: {
+                Label(
+                    model.availableAppUpdate == nil ? "Check for updates" : "Update available",
+                    systemImage: model.availableAppUpdate == nil ? "arrow.triangle.2.circlepath" : "arrow.down.circle.fill"
+                )
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .buttonStyle(WeeGhostButtonStyle())
+            .disabled(model.isCheckingForAppUpdate || model.isInstallingAppUpdate)
+        }
+        .padding(10)
+        .background(WeeTheme.surface, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).stroke(WeeTheme.glassStroke))
+        .padding(8)
+    }
+
+    /// The collapsed rail keeps every capability from `expandedStatusPanel`
+    /// reachable — nothing is hidden, just relabeled as icon + tooltip — so
+    /// collapsing the sidebar never costs functionality, only screen space.
+    private var collapsedStatusColumn: some View {
+        VStack(spacing: 10) {
+            Circle()
+                .fill(isHealthy ? WeeTheme.emerald : WeeTheme.gold)
+                .frame(width: 8, height: 8)
+                .shadow(color: (isHealthy ? WeeTheme.emerald : WeeTheme.gold).opacity(0.5), radius: 4)
+                .help(isHealthy ? "System online" : "Connection pending")
+
+            Menu {
+                ForEach(WeeEnvironment.allCases) { environment in
+                    Button {
+                        windowEnvironment = environment
+                        Task { await model.switchEnvironment(to: environment) }
+                    } label: {
+                        Label(environment.title, systemImage: environment == model.activeEnvironment ? "checkmark.circle.fill" : environment.symbol)
+                    }
+                }
+            } label: {
+                Image(systemName: model.activeEnvironment.symbol)
+                    .weeFont(size: 13, weight: .semibold)
+                    .foregroundStyle(WeeTheme.textSecondary)
+                    .frame(width: 28, height: 28)
+                    .contentShape(Rectangle())
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .help("\(model.activeEnvironment.title) API — this window's Local/Remote mode")
+
+            Button {
+                Task { await model.refreshAll() }
+            } label: {
+                Image(systemName: "arrow.clockwise")
+                    .weeFont(size: 13, weight: .semibold)
+                    .foregroundStyle(WeeTheme.textSecondary)
+                    .frame(width: 28, height: 28)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .keyboardShortcut("r", modifiers: .command)
+            .help("Refresh data")
+
+            Button {
+                Task { await model.checkForAppUpdate(showResult: true) }
+            } label: {
+                ZStack(alignment: .topTrailing) {
+                    Image(systemName: model.availableAppUpdate == nil ? "arrow.triangle.2.circlepath" : "arrow.down.circle.fill")
+                        .weeFont(size: 13, weight: .semibold)
+                        .foregroundStyle(model.availableAppUpdate == nil ? WeeTheme.textSecondary : WeeTheme.accent)
+                    if model.availableAppUpdate != nil {
+                        Circle().fill(WeeTheme.accent).frame(width: 6, height: 6)
+                    }
+                }
+                .frame(width: 28, height: 28)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(model.isCheckingForAppUpdate || model.isInstallingAppUpdate)
+            .help(model.availableAppUpdate == nil ? "Check for updates" : "Update available")
+        }
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity)
+        .background(WeeTheme.surface, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).stroke(WeeTheme.glassStroke))
+        .padding(8)
     }
 
     private func railButton(_ section: AppSection) -> some View {
@@ -271,44 +381,57 @@ struct ContentView: View {
             selectedSection = section
         } label: {
             HStack(spacing: 10) {
-                Image(systemName: section.symbol)
-                    .weeFont(size: 13, weight: .semibold)
-                    .frame(width: 18)
-                    .foregroundStyle(selectedSection == section ? WeeTheme.accent : WeeTheme.textSecondary)
-
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(section.title)
+                ZStack(alignment: .topTrailing) {
+                    Image(systemName: section.symbol)
                         .weeFont(size: 13, weight: .semibold)
-                        .foregroundStyle(selectedSection == section ? WeeTheme.textPrimary : WeeTheme.textSecondary)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.82)
-                    Text(section.eyebrow)
-                        .weeFont(size: 8, weight: .bold)
-                        .tracking(0.7)
-                        .foregroundStyle(WeeTheme.textMuted)
+                        .frame(width: 18)
+                        .foregroundStyle(selectedSection == section ? WeeTheme.accent : WeeTheme.textSecondary)
+
+                    if isRailCollapsed, badgeCount(for: section) > 0 {
+                        Circle()
+                            .fill(section == .kanban ? WeeTheme.gold : WeeTheme.accent)
+                            .frame(width: 6, height: 6)
+                            .offset(x: 7, y: -5)
+                    }
                 }
 
-                Spacer(minLength: 4)
-                if badgeCount(for: section) > 0 {
-                    Text("\(badgeCount(for: section))")
-                        .weeFont(size: 9, weight: .bold)
-                        .foregroundStyle(section == .kanban ? WeeTheme.gold : WeeTheme.accent)
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 2)
-                        .background((section == .kanban ? WeeTheme.gold : WeeTheme.accent).opacity(0.13), in: Capsule())
+                if !isRailCollapsed {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(section.title)
+                            .weeFont(size: 13, weight: .semibold)
+                            .foregroundStyle(selectedSection == section ? WeeTheme.textPrimary : WeeTheme.textSecondary)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.82)
+                        Text(section.eyebrow)
+                            .weeFont(size: 8, weight: .bold)
+                            .tracking(0.7)
+                            .foregroundStyle(WeeTheme.textMuted)
+                    }
+
+                    Spacer(minLength: 4)
+                    if badgeCount(for: section) > 0 {
+                        Text("\(badgeCount(for: section))")
+                            .weeFont(size: 9, weight: .bold)
+                            .foregroundStyle(section == .kanban ? WeeTheme.gold : WeeTheme.accent)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 2)
+                            .background((section == .kanban ? WeeTheme.gold : WeeTheme.accent).opacity(0.13), in: Capsule())
+                    }
                 }
             }
-            .padding(.horizontal, 9)
+            .padding(.horizontal, isRailCollapsed ? 0 : 9)
+            .frame(maxWidth: isRailCollapsed ? .infinity : nil, alignment: isRailCollapsed ? .center : .leading)
             .frame(height: 43)
             .background(selectedSection == section ? WeeTheme.surfaceRaised : Color.clear, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
             .overlay(alignment: .leading) {
-                if selectedSection == section {
+                if selectedSection == section, !isRailCollapsed {
                     RoundedRectangle(cornerRadius: 2).fill(WeeTheme.accent).frame(width: 3, height: 22)
                 }
             }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .help(isRailCollapsed ? section.title : "")
     }
 
     @ViewBuilder private var sectionView: some View {

@@ -67,6 +67,22 @@ struct WeeOrchestratorApp: App {
                 }
                 .disabled(model.availableAppUpdate == nil || model.isInstallingAppUpdate)
             }
+            // The same text-size preference Settings edits via its Increase/Decrease
+            // buttons — Cmd+=/Cmd+- are the standard macOS "zoom in/out" bindings,
+            // matching how browsers and other apps size up their content.
+            CommandGroup(after: .toolbar) {
+                Button("Increase Text Size") {
+                    model.increaseTextSize()
+                }
+                .keyboardShortcut("=", modifiers: .command)
+                .disabled(!model.canIncreaseTextSize)
+
+                Button("Decrease Text Size") {
+                    model.decreaseTextSize()
+                }
+                .keyboardShortcut("-", modifiers: .command)
+                .disabled(!model.canDecreaseTextSize)
+            }
         }
     }
 }
