@@ -369,15 +369,16 @@ struct ChatBrowserWorkspace: View {
         .task(id: sessionKey) {
             guard let sessionID = model.currentSessionID else {
                 controller = nil
+                store.deactivateAll()
                 return
             }
-            let selected = store.controller(
+            // `activate` stops the previously selected session's poller before starting
+            // this one, so at most one long-poll connection is ever outstanding.
+            controller = store.activate(
                 environment: model.activeEnvironment,
                 sessionID: sessionID,
                 client: model.client
             )
-            controller = selected
-            selected.connect()
         }
     }
 
@@ -404,6 +405,7 @@ struct ChatBrowserWorkspace: View {
 @Observable
 final class BrowserSessionStore {
     private var controllers: [String: BrowserSessionController] = [:]
+    private(set) var activeSessionKey: String?
 
     func controller(
         environment: WeeEnvironment,
@@ -419,6 +421,40 @@ final class BrowserSessionStore {
         )
         controllers[key] = controller
         return controller
+    }
+
+    /// Makes `sessionID` the only session with a live command poller.
+    ///
+    /// Each poller parks a 25-second long poll on a URLSession connection. Leaving the
+    /// pollers of previously visited threads running exhausts the six-connection-per-host
+    /// pool, after which interactive requests stall until a poll returns or times out.
+    /// Keeping exactly one poller alive bounds that cost at a single connection.
+    @discardableResult
+    func activate(
+        environment: WeeEnvironment,
+        sessionID: String,
+        client: WeeAPIClient
+    ) -> BrowserSessionController {
+        let selected = controller(environment: environment, sessionID: sessionID, client: client)
+        for (key, controller) in controllers where key != selected.sessionKey {
+            controller.disconnect()
+        }
+        activeSessionKey = selected.sessionKey
+        selected.connect()
+        return selected
+    }
+
+    /// Stops every poller — used when no session is selected, so an unattended window
+    /// holds no connections at all.
+    func deactivateAll() {
+        for controller in controllers.values {
+            controller.disconnect()
+        }
+        activeSessionKey = nil
+    }
+
+    var pollingControllerCount: Int {
+        controllers.values.filter(\.isPolling).count
     }
 }
 
@@ -453,11 +489,24 @@ final class BrowserSessionController: NSObject, WKNavigationDelegate {
 
     deinit { pollingTask?.cancel() }
 
+    var isPolling: Bool { pollingTask != nil }
+
     func connect() {
         guard pollingTask == nil else { return }
         pollingTask = Task { [weak self] in
             await self?.pollCommands()
         }
+    }
+
+    /// Stops this session's command poller and releases its long-poll connection.
+    ///
+    /// Cancelling the task cancels the in-flight `URLSession` request, so the connection
+    /// returns to the pool immediately rather than when the 25-second poll next returns.
+    func disconnect() {
+        guard let pollingTask else { return }
+        pollingTask.cancel()
+        self.pollingTask = nil
+        bridgeStatus = "Paused"
     }
 
     func navigate() {
@@ -527,9 +576,14 @@ final class BrowserSessionController: NSObject, WKNavigationDelegate {
             } catch is CancellationError {
                 break
             } catch {
+                // A deliberate disconnect cancels the in-flight request, which surfaces as
+                // URLError.cancelled rather than CancellationError. Treat it as the exit it
+                // is, instead of reporting a connection problem and re-registering.
+                if Task.isCancelled { break }
                 bridgeStatus = Self.bridgeStatus(for: error)
                 lastError = bridgeStatus == "Reconnecting…" ? error.localizedDescription : nil
                 try? await Task.sleep(for: .seconds(2))
+                if Task.isCancelled { break }
                 try? await client.registerNativeBrowser(sessionID: sessionID, clientID: clientID)
             }
         }

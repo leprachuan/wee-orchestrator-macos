@@ -58,8 +58,31 @@ struct WeeAPIClient {
         delegateQueue: nil
     )
 
-    private var session: URLSession {
+    // Browser command polling parks a 25-second long poll on a connection. Sharing a
+    // connection pool with interactive traffic means a parked poll occupies one of the six
+    // per-host slots that chat, history, and session-create requests need, so those requests
+    // queue behind it. A dedicated session gives long polls their own pool and keeps that
+    // contention off the interactive path entirely.
+    private static let browserInsecureDelegate = InsecureSessionDelegate()
+    private static let browserSession = makeBrowserSession(delegate: nil)
+    private static let browserInsecureSession = makeBrowserSession(delegate: browserInsecureDelegate)
+
+    private static func makeBrowserSession(delegate: URLSessionDelegate?) -> URLSession {
+        let configuration = URLSessionConfiguration.default
+        configuration.httpMaximumConnectionsPerHost = 4
+        // Comfortably above the server's 25-second long-poll window, so a healthy poll is
+        // never cut short by the transport.
+        configuration.timeoutIntervalForRequest = 60
+        return URLSession(configuration: configuration, delegate: delegate, delegateQueue: nil)
+    }
+
+    var session: URLSession {
         configuration.allowInsecureTLS ? Self.insecureSession : URLSession.shared
+    }
+
+    /// Connection pool reserved for long polls, kept separate from `session`.
+    var longPollSession: URLSession {
+        configuration.allowInsecureTLS ? Self.browserInsecureSession : Self.browserSession
     }
 
     func health() async throws -> HealthResponse {
@@ -296,7 +319,9 @@ struct WeeAPIClient {
     ) async throws -> BrowserCommandEnvelope {
         try await request(
             "GET",
-            path: "/api/v1/browser/sessions/\(sessionID)/commands?client_id=\(clientID)&timeout=25"
+            path: "/api/v1/browser/sessions/\(sessionID)/commands?client_id=\(clientID)&timeout=25",
+            timeout: 60,
+            session: longPollSession
         )
     }
 
@@ -479,11 +504,28 @@ struct WeeAPIClient {
         return data
     }
 
-    private func request<T: Decodable>(_ method: String, path: String, timeout: TimeInterval = 45) async throws -> T {
-        try await request(method, path: path, body: Optional<String>.none, timeout: timeout)
+    private func request<T: Decodable>(
+        _ method: String,
+        path: String,
+        timeout: TimeInterval = 45,
+        session overrideSession: URLSession? = nil
+    ) async throws -> T {
+        try await request(
+            method,
+            path: path,
+            body: Optional<String>.none,
+            timeout: timeout,
+            session: overrideSession
+        )
     }
 
-    private func request<T: Decodable, B: Encodable>(_ method: String, path: String, body: B?, timeout: TimeInterval = 45) async throws -> T {
+    private func request<T: Decodable, B: Encodable>(
+        _ method: String,
+        path: String,
+        body: B?,
+        timeout: TimeInterval = 45,
+        session overrideSession: URLSession? = nil
+    ) async throws -> T {
         guard let baseURL else { throw WeeAPIError.invalidBaseURL }
 
         guard let url = makeURL(baseURL: baseURL, path: path) else {
@@ -508,7 +550,7 @@ struct WeeAPIClient {
             request.httpBody = try JSONEncoder().encode(body)
         }
 
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await (overrideSession ?? session).data(for: request)
         guard let http = response as? HTTPURLResponse else {
             throw WeeAPIError.invalidResponse
         }
