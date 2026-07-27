@@ -39,11 +39,24 @@ For example, the first SemVer release is `macos-v0.2.0` with the asset
    ```sh
    DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
      xcodebuild -project WeeOrchestrator.xcodeproj -scheme WeeOrchestrator \
-     -configuration Release test CODE_SIGNING_ALLOWED=NO
+     -configuration Release test
    ```
+
+   Do not add `CODE_SIGNING_ALLOWED=NO`. The test host is the app itself, and
+   an unsigned host has no `get-task-allow` entitlement, so XCTest cannot
+   attach to it — the run fails with "The test runner hung before establishing
+   connection" after a multi-minute timeout, which looks like a hang rather
+   than a signing problem.
 
 3. Build a Release archive, sign the `.app`, verify its signature, then create
    the release asset with the binary-only packaging guard:
+
+   Build the release bundle with a **separate clean `build`**, not with the
+   product left behind by step 2. The `test` action injects `XCTestCore` and
+   `Testing` into `Contents/Frameworks` of the host app, and the packaging
+   guard below does not catch embedded test frameworks. A correct release
+   bundle has no `Contents/Frameworks` directory; confirm with
+   `codesign -dvvv` that it reports `Sealed Resources ... files=2`.
 
    ```sh
    scripts/package-macos-release.sh 0.4.1 path/to/WeeOrchestrator.app dist
