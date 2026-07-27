@@ -786,10 +786,29 @@ final class WeeAppModel {
             DispatchQueue.main.async {
                 NSApp.terminate(nil)
             }
+            await watchdogStuckAppUpdateInstall(version: update.version)
         } catch {
             isInstallingAppUpdate = false
             appUpdateStatus = "Update failed: \(error.localizedDescription)"
         }
+    }
+
+    /// Resets the "Installing…" UI if this process is somehow still running
+    /// well after asking AppKit to quit for an update.
+    ///
+    /// applicationShouldTerminate already returns .terminateNow, but AppKit
+    /// teardown can still stall for a reason outside this app's control, and
+    /// the detached helper script's own 30-attempt poll loop silently gives up
+    /// if this process never exits — it never reported that back, so
+    /// isInstallingAppUpdate stayed stuck true forever with no error and no
+    /// way out. On a normal, successful quit the whole process goes down
+    /// before this sleep ever returns, so it never fires on the happy path.
+    /// The timeout is a parameter so a test can drive this without a real
+    /// 10-second wait.
+    func watchdogStuckAppUpdateInstall(version: AppSemanticVersion, timeout: Duration = .seconds(10)) async {
+        try? await Task.sleep(for: timeout)
+        isInstallingAppUpdate = false
+        appUpdateStatus = "Wee Orchestrator didn't quit to finish installing \(version). Quit and reopen it — the update completes automatically if the installer is still waiting — or try again below."
     }
 
     private var currentAppVersion: AppSemanticVersion? {
