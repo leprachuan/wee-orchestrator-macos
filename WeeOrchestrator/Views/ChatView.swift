@@ -1278,8 +1278,8 @@ private struct RecentChatsRail: View {
         Button {
             Task { await model.selectHistorySession(session) }
         } label: {
-            VStack(alignment: .leading, spacing: 5) {
-                HStack(spacing: 6) {
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 5) {
                     Text(model.title(for: session))
                         .weeFont(.caption, weight: .semibold)
                         .lineLimit(1)
@@ -1291,14 +1291,14 @@ private struct RecentChatsRail: View {
                     }
                     if session.sessionID == model.currentSessionID {
                         Image(systemName: "checkmark.circle.fill")
-                            .weeFont(.caption)
+                            .weeFont(.caption2)
                             .foregroundStyle(WeeTheme.accent)
                     }
                 }
-                HStack(spacing: 5) {
+                HStack(spacing: 4) {
                     Circle()
                         .fill(ChatAgentColor.color(for: session.agent))
-                        .frame(width: 7, height: 7)
+                        .frame(width: 6, height: 6)
                     Text(session.agent ?? "agent")
                         .weeFont(.caption2, weight: .medium)
                         .foregroundStyle(ChatAgentColor.color(for: session.agent))
@@ -1307,13 +1307,14 @@ private struct RecentChatsRail: View {
                 Text(session.displayPreview)
                     .weeFont(.caption2)
                     .foregroundStyle(WeeTheme.textSecondary)
-                    .lineLimit(width == nil ? 2 : 1)
+                    .lineLimit(1)
             }
             .frame(width: width, alignment: .leading)
             .frame(maxWidth: width == nil ? .infinity : nil, alignment: .leading)
-            .padding(8)
-            .background(session.sessionID == model.currentSessionID ? WeeTheme.accent.opacity(0.14) : Color.white.opacity(0.055), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(session.sessionID == model.currentSessionID ? WeeTheme.accent.opacity(0.34) : WeeTheme.glassStroke))
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            .background(session.sessionID == model.currentSessionID ? WeeTheme.accent.opacity(0.14) : Color.white.opacity(0.055), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).stroke(session.sessionID == model.currentSessionID ? WeeTheme.accent.opacity(0.34) : WeeTheme.glassStroke))
         }
         .buttonStyle(.plain)
         .contextMenu {
@@ -1438,7 +1439,7 @@ private struct RecentChatsRail: View {
             .buttonStyle(.plain)
 
             if isExpanded {
-                VStack(spacing: 6) {
+                VStack(spacing: 4) {
                     ForEach(visibleSessions) { session in
                         sessionButton(session)
                     }
