@@ -45,6 +45,7 @@
 		A10043 /* LocalManifestModelMergeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10043; };
 		A10044 /* WeeCatalogRefreshTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10044; };
 		A10046 /* BrowserPollerLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10046; };
+		A10047 /* LongOperationConnectionPoolTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10047; };
 		A10045 /* ScalableTypographyCoverageTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10045; };
 /* End PBXBuildFile section */
 
@@ -89,6 +90,7 @@
 		B10043 /* LocalManifestModelMergeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalManifestModelMergeTests.swift; sourceTree = "<group>"; };
 		B10044 /* WeeCatalogRefreshTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WeeCatalogRefreshTests.swift; sourceTree = "<group>"; };
 		B10046 /* BrowserPollerLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserPollerLifecycleTests.swift; sourceTree = "<group>"; };
+		B10047 /* LongOperationConnectionPoolTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LongOperationConnectionPoolTests.swift; sourceTree = "<group>"; };
 		B10045 /* ScalableTypographyCoverageTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScalableTypographyCoverageTests.swift; sourceTree = "<group>"; };
 		P10001 /* WeeOrchestrator.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = WeeOrchestrator.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		P10002 /* WeeOrchestratorTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = WeeOrchestratorTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -212,6 +214,7 @@
 				B10043 /* LocalManifestModelMergeTests.swift */,
 				B10044 /* WeeCatalogRefreshTests.swift */,
 				B10046 /* BrowserPollerLifecycleTests.swift */,
+				B10047 /* LongOperationConnectionPoolTests.swift */,
 				B10045 /* ScalableTypographyCoverageTests.swift */,
 			);
 			path = WeeOrchestratorTests;
@@ -362,6 +365,7 @@
 				A10044,
 				A10045,
 				A10046,
+				A10047,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -368,7 +368,18 @@ final class WeeAppModel {
     /// back to macOS.  Without this strong reference, Process can be released
     /// immediately after launch and the installer never gets a chance to
     /// replace the bundle.
-    @ObservationIgnored private var appReplacementProcess: Process?
+    ///
+    /// Left at internal (not private) access, like the other update-related
+    /// properties on this model, so a test can simulate "a previous attempt's
+    /// helper is still alive and waiting" without spawning a real replacement
+    /// process against this bundle.
+    @ObservationIgnored var appReplacementProcess: Process?
+    /// Test-only seam: when set, installAvailableAppUpdate()'s retry path
+    /// calls this instead of exit(0). A unit test cannot allow the real
+    /// exit(0) to run -- it would terminate the test process itself -- so
+    /// this is the only way to verify the retry reaches the force-quit step
+    /// at all.
+    @ObservationIgnored var forceQuitOverrideForTesting: (() -> Void)?
     @ObservationIgnored private var streamTranscripts = ChatStreamTranscriptStore()
     @ObservationIgnored private var chatPrefetchTask: Task<Void, Never>?
     @ObservationIgnored private var queuedChatMessages = ChatMessageQueueStore()
@@ -732,6 +743,26 @@ final class WeeAppModel {
     func installAvailableAppUpdate() async {
         guard let update = availableAppUpdate else { return }
         guard !isInstallingAppUpdate else { return }
+
+        // Issue: clicking "Update and Restart" again after the watchdog fired
+        // did nothing visible. That button re-ran this whole function from
+        // scratch -- re-downloading, re-verifying the checksum, and calling
+        // scheduleAppReplacement() a second time while the first attempt's
+        // detached helper was still alive and waiting on this same PID,
+        // racing two helpers against one target bundle -- and then repeated
+        // the exact NSApp.terminate() call that had already failed to bring
+        // the process down within the watchdog's 10-second window. The same
+        // call was never going to behave differently the second time. If a
+        // replacement is already staged and its helper is still waiting,
+        // retry must not redo any of that -- it must force the exit the
+        // first attempt couldn't get AppKit to perform.
+        if let appReplacementProcess, appReplacementProcess.isRunning {
+            isInstallingAppUpdate = true
+            appUpdateStatus = "Installing Wee Orchestrator \(update.version)…"
+            forceQuitToFinishInstall()
+            return
+        }
+
         guard Bundle.main.bundleURL.pathExtension == "app" else {
             appUpdateStatus = "This build is not installed as an app bundle. Download the release manually."
             return
@@ -809,6 +840,28 @@ final class WeeAppModel {
         try? await Task.sleep(for: timeout)
         isInstallingAppUpdate = false
         appUpdateStatus = "Wee Orchestrator didn't quit to finish installing \(version). Quit and reopen it — the update completes automatically if the installer is still waiting — or try again below."
+    }
+
+    /// Guaranteed process exit, used only on the retry path after
+    /// NSApp.terminate() already had 10 seconds and failed to bring this
+    /// process down once this session.
+    ///
+    /// The detached replacement helper only cares that `kill -0 $old_pid`
+    /// starts failing; it does not require a clean AppKit-mediated quit. A
+    /// raw process exit satisfies that just as well as NSApp.terminate() on
+    /// the happy path, and unlike NSApp.terminate() -- which funnels through
+    /// AppKit's own termination machinery and can stall there for reasons
+    /// outside this app's control -- exit() cannot be held up by it. This is
+    /// deliberately not the first thing tried: a normal quit is preferable
+    /// when it works, so the first attempt still goes through
+    /// NSApp.terminate() and the watchdog above.
+    private func forceQuitToFinishInstall() {
+        stopLocalAPIForApplicationTermination()
+        if let forceQuitOverrideForTesting {
+            forceQuitOverrideForTesting()
+            return
+        }
+        exit(0)
     }
 
     private var currentAppVersion: AppSemanticVersion? {

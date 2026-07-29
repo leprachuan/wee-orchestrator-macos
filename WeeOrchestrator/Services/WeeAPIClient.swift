@@ -76,6 +76,33 @@ struct WeeAPIClient {
         return URLSession(configuration: configuration, delegate: delegate, delegateQueue: nil)
     }
 
+    // A chat stream is a POST held open for up to five minutes while an assistant
+    // response comes in, and sendChat() deliberately lets a stream keep running
+    // after the user has navigated away -- "a stream can outlive the visible chat
+    // or selected session" -- so several can be open at once across different
+    // threads. File uploads, transcription, and text-to-speech are shorter but
+    // still open-ended (120-180s) one-shot requests. All four share the same risk
+    // that #47 found in browser polling: on the shared pool, they can occupy every
+    // one of the six per-host connection slots, so starting a new thread --
+    // createSession(), plus the sequential /agent, /runtime, /model, and /mode
+    // commands sendChat() runs right after it -- queues behind them instead of
+    // getting a connection immediately. A dedicated pool keeps that contention off
+    // the interactive path the same way it does for browser polling.
+    private static let longOperationInsecureDelegate = InsecureSessionDelegate()
+    private static let longOperationSession = makeLongOperationSession(delegate: nil)
+    private static let longOperationInsecureSession = makeLongOperationSession(delegate: longOperationInsecureDelegate)
+
+    private static func makeLongOperationSession(delegate: URLSessionDelegate?) -> URLSession {
+        let configuration = URLSessionConfiguration.default
+        // Higher than the browser long-poll pool: multiple chat streams can be
+        // open concurrently by design, not just one active poller at a time.
+        configuration.httpMaximumConnectionsPerHost = 6
+        // Comfortably above the longest request timeout below (chat streaming's
+        // 300s), so a healthy request is never cut short by the transport.
+        configuration.timeoutIntervalForRequest = 330
+        return URLSession(configuration: configuration, delegate: delegate, delegateQueue: nil)
+    }
+
     var session: URLSession {
         configuration.allowInsecureTLS ? Self.insecureSession : URLSession.shared
     }
@@ -83,6 +110,12 @@ struct WeeAPIClient {
     /// Connection pool reserved for long polls, kept separate from `session`.
     var longPollSession: URLSession {
         configuration.allowInsecureTLS ? Self.browserInsecureSession : Self.browserSession
+    }
+
+    /// Connection pool reserved for chat streaming, uploads, transcription, and
+    /// text-to-speech -- requests that stay open well past a normal round trip.
+    var longOperationSession: URLSession {
+        configuration.allowInsecureTLS ? Self.longOperationInsecureSession : Self.longOperationSession
     }
 
     func health() async throws -> HealthResponse {
@@ -401,7 +434,7 @@ struct WeeAPIClient {
         let body = StreamRequest(query: query, model: model, runtime: runtime, agent: agent)
         request.httpBody = try JSONEncoder().encode(body)
 
-        let (bytes, response) = try await session.bytes(for: request)
+        let (bytes, response) = try await longOperationSession.bytes(for: request)
         guard let http = response as? HTTPURLResponse else {
             throw WeeAPIError.invalidResponse
         }
@@ -441,7 +474,7 @@ struct WeeAPIClient {
         body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
         request.httpBody = body
 
-        let (responseData, response) = try await session.data(for: request)
+        let (responseData, response) = try await longOperationSession.data(for: request)
         guard let http = response as? HTTPURLResponse else {
             throw WeeAPIError.invalidResponse
         }
@@ -474,7 +507,7 @@ struct WeeAPIClient {
         body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
         request.httpBody = body
 
-        let (responseData, response) = try await session.data(for: request)
+        let (responseData, response) = try await longOperationSession.data(for: request)
         guard let http = response as? HTTPURLResponse else { throw WeeAPIError.invalidResponse }
         guard (200..<300).contains(http.statusCode) else {
             let message = String(data: responseData, encoding: .utf8) ?? HTTPURLResponse.localizedString(forStatusCode: http.statusCode)
@@ -495,7 +528,7 @@ struct WeeAPIClient {
         applyAuthorization(to: &request)
         request.httpBody = try JSONEncoder().encode(TextToSpeechRequest(text: text, voice: voice))
 
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await longOperationSession.data(for: request)
         guard let http = response as? HTTPURLResponse else { throw WeeAPIError.invalidResponse }
         guard (200..<300).contains(http.statusCode) else {
             let message = String(data: data, encoding: .utf8) ?? HTTPURLResponse.localizedString(forStatusCode: http.statusCode)
