@@ -122,6 +122,53 @@ final class BrowserPollerLifecycleTests: XCTestCase {
         XCTAssertEqual(store.pollingControllerCount, 1)
     }
 
+    /// Issue #50: every distinct thread visited left a cached
+    /// BrowserSessionController alive for the lifetime of the app, and each one
+    /// owns a WKWebView with its own WebKit helper processes. Memory and helper
+    /// count grew all day until the app was relaunched.
+    func test_issue_50_visitingManyThreadsDoesNotCacheAControllerForEachOne() {
+        let store = makeStore()
+        let client = makeClient()
+
+        for index in 0..<20 {
+            store.activate(environment: .local, sessionID: "session-\(index)", client: client)
+        }
+
+        XCTAssertLessThanOrEqual(
+            store.cachedControllerCount,
+            BrowserSessionStore.maximumCachedSessions,
+            "Cached web views must be bounded, not one per thread ever visited"
+        )
+    }
+
+    func test_issue_50_evictionNeverDiscardsTheActiveSession() {
+        let store = makeStore()
+        let client = makeClient()
+
+        let active = store.activate(environment: .local, sessionID: "keep-me", client: client)
+        for index in 0..<20 {
+            _ = store.controller(environment: .local, sessionID: "other-\(index)", client: client)
+        }
+
+        XCTAssertTrue(
+            store.activate(environment: .local, sessionID: "keep-me", client: client) === active,
+            "The session being viewed must survive eviction rather than being rebuilt underneath the user"
+        )
+    }
+
+    func test_issue_50_evictionStopsTheEvictedSessionsPoller() {
+        let store = makeStore()
+        let client = makeClient()
+
+        let first = store.activate(environment: .local, sessionID: "session-0", client: client)
+        for index in 1...BrowserSessionStore.maximumCachedSessions + 2 {
+            store.activate(environment: .local, sessionID: "session-\(index)", client: client)
+        }
+
+        XCTAssertFalse(first.isPolling, "An evicted controller must not leave its poller running")
+        XCTAssertEqual(store.pollingControllerCount, 1)
+    }
+
     func test_issue_47_longPollsUseAConnectionPoolSeparateFromInteractiveRequests() {
         let client = makeClient()
 

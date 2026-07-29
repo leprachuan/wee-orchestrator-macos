@@ -1911,6 +1911,15 @@ final class WeeAppModel {
         process.standardOutput = pipe
         process.standardError = pipe
         var environment = ProcessInfo.processInfo.environment
+        // A Finder-launched app inherits PATH=/usr/bin:/bin:/usr/sbin:/sbin from
+        // launchd, not the PATH from a login shell. The Local API shells out to
+        // developer tools that live outside those four directories -- `gh` for
+        // the Kanban board, plus git and the runtime CLIs -- and
+        // subprocess.run(["gh", ...]) raises FileNotFoundError when it cannot
+        // find the binary. The Kanban board route does not catch that, so the
+        // whole request failed as a bare 500 "Internal server error" whenever
+        // the app had been started from Finder rather than a terminal.
+        environment["PATH"] = Self.localServicePath(inheriting: environment["PATH"])
         // Explicit values override anything inherited from the desktop process.
         // In particular, never let AGENT_CONFIG_FILE point Local at a shared config.
         environment["PYTHONUNBUFFERED"] = "1"
@@ -1972,6 +1981,25 @@ final class WeeAppModel {
         } catch {
             localServiceStatus = "Launch failed: \(error.localizedDescription)"
         }
+    }
+
+    /// Directories holding developer tools the Local API shells out to, which
+    /// are absent from the launchd-provided PATH a Finder-launched app gets.
+    /// Homebrew's Apple Silicon prefix first, then its Intel prefix, so a
+    /// machine with either layout resolves `gh`, `git`, and the runtime CLIs.
+    nonisolated static let localServiceToolDirectories = [
+        "/opt/homebrew/bin",
+        "/opt/homebrew/sbin",
+        "/usr/local/bin",
+    ]
+
+    /// Prepends the tool directories to an inherited PATH, preserving order and
+    /// skipping any entry already present so a terminal-launched app (which
+    /// already has a full PATH) is unaffected.
+    nonisolated static func localServicePath(inheriting inherited: String?) -> String {
+        let existing = (inherited ?? "").split(separator: ":").map(String.init).filter { !$0.isEmpty }
+        let missing = localServiceToolDirectories.filter { !existing.contains($0) }
+        return (missing + existing).joined(separator: ":")
     }
 
     func setKeepLocalAPIRunningAfterAppQuits(_ enabled: Bool) {

@@ -404,7 +404,20 @@ struct ChatBrowserWorkspace: View {
 @MainActor
 @Observable
 final class BrowserSessionStore {
+    /// Every cached controller owns a live `WKWebView`, which is far heavier
+    /// than it looks: each one carries its own WebKit content, networking, and
+    /// GPU helper processes. Without a bound, one accumulated per distinct
+    /// chat thread visited and was never released for the lifetime of the app,
+    /// so memory and helper-process count grew all day and only a relaunch
+    /// reclaimed them. `ChatStreamTranscriptStore` already caps its own cache
+    /// at 12 sessions for the same reason; this cache holds much heavier
+    /// objects, so it is capped harder.
+    static let maximumCachedSessions = 4
+
     private var controllers: [String: BrowserSessionController] = [:]
+    /// Recency is tracked separately from the dictionary so the least recently
+    /// used session can be evicted, rather than an arbitrary one.
+    private var recency: [String] = []
     private(set) var activeSessionKey: String?
 
     func controller(
@@ -413,15 +426,37 @@ final class BrowserSessionStore {
         client: WeeAPIClient
     ) -> BrowserSessionController {
         let key = "\(environment.rawValue):\(sessionID)"
-        if let existing = controllers[key] { return existing }
+        if let existing = controllers[key] {
+            touch(key)
+            return existing
+        }
         let controller = BrowserSessionController(
             sessionKey: key,
             sessionID: sessionID,
             client: client
         )
         controllers[key] = controller
+        touch(key)
+        evictLeastRecentlyUsedIfNeeded()
         return controller
     }
+
+    private func touch(_ key: String) {
+        recency.removeAll { $0 == key }
+        recency.append(key)
+    }
+
+    /// Releases the oldest controllers beyond the cache limit, tearing down
+    /// their pollers and web views. The active session is never evicted.
+    private func evictLeastRecentlyUsedIfNeeded() {
+        while recency.count > Self.maximumCachedSessions {
+            guard let evictable = recency.first(where: { $0 != activeSessionKey }) else { return }
+            recency.removeAll { $0 == evictable }
+            controllers.removeValue(forKey: evictable)?.disconnect()
+        }
+    }
+
+    var cachedControllerCount: Int { controllers.count }
 
     /// Makes `sessionID` the only session with a live command poller.
     ///
