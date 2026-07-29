@@ -1,8 +1,14 @@
-# Wee Orchestrator for macOS v0.9.2
+# Wee Orchestrator for macOS v0.9.3
 
-Released July 28, 2026.
+Released July 29, 2026.
 
-## Improved
+## Fixed
 
-- Chat cards in the sidebar's per-agent folders are noticeably more compact, so
-  more of your recent chats fit on screen at once without scrolling.
+- After the "didn't quit to finish installing" dialog appeared, clicking
+  "Update and Restart" did nothing. It now forces the update through instead
+  of repeating the same failed quit.
+- Periodic stalls, especially when starting a new chat thread, caused by chat
+  responses holding a connection open for minutes at a time and crowding out
+  the connections that starting a new thread needs. Chat streaming, file
+  uploads, transcription, and text-to-speech now use their own separate pool
+  of connections.
