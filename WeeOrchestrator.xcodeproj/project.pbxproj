@@ -47,6 +47,7 @@
 		A10046 /* BrowserPollerLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10046; };
 		A10047 /* LongOperationConnectionPoolTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10047; };
 		A10048 /* LocalServiceEnvironmentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10048; };
+		A10049 /* ChatFolderActivityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10049; };
 		A10045 /* ScalableTypographyCoverageTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10045; };
 /* End PBXBuildFile section */
 
@@ -93,6 +94,7 @@
 		B10046 /* BrowserPollerLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserPollerLifecycleTests.swift; sourceTree = "<group>"; };
 		B10047 /* LongOperationConnectionPoolTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LongOperationConnectionPoolTests.swift; sourceTree = "<group>"; };
 		B10048 /* LocalServiceEnvironmentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalServiceEnvironmentTests.swift; sourceTree = "<group>"; };
+		B10049 /* ChatFolderActivityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatFolderActivityTests.swift; sourceTree = "<group>"; };
 		B10045 /* ScalableTypographyCoverageTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScalableTypographyCoverageTests.swift; sourceTree = "<group>"; };
 		P10001 /* WeeOrchestrator.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = WeeOrchestrator.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		P10002 /* WeeOrchestratorTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = WeeOrchestratorTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -218,6 +220,7 @@
 				B10046 /* BrowserPollerLifecycleTests.swift */,
 				B10047 /* LongOperationConnectionPoolTests.swift */,
 				B10048 /* LocalServiceEnvironmentTests.swift */,
+				B10049 /* ChatFolderActivityTests.swift */,
 				B10045 /* ScalableTypographyCoverageTests.swift */,
 			);
 			path = WeeOrchestratorTests;
@@ -370,6 +373,7 @@
 				A10046,
 				A10047,
 				A10048,
+				A10049,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

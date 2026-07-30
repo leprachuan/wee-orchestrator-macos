@@ -1219,6 +1219,22 @@ private enum RecentChatsRailLayout {
     case vertical
 }
 
+/// Folder-level activity indicator rules for the per-agent chat folders.
+///
+/// Kept out of the (private) view so the behaviour can be tested directly:
+/// the interesting part is *when* the indicator appears, not how it is drawn.
+enum ChatFolderActivity {
+    static func showsIndicator(isExpanded: Bool, runningSessionCount: Int) -> Bool {
+        !isExpanded && runningSessionCount > 0
+    }
+
+    static func indicatorHelp(runningSessionCount: Int) -> String {
+        runningSessionCount == 1
+            ? "1 chat in this folder is running"
+            : "\(runningSessionCount) chats in this folder are running"
+    }
+}
+
 private struct RecentChatsRail: View {
     @Bindable var model: WeeAppModel
     var layout: RecentChatsRailLayout = .horizontal
@@ -1412,6 +1428,10 @@ private struct RecentChatsRail: View {
         return keys.map { AgentSessionGroup(id: $0, sessions: buckets[$0] ?? []) }
     }
 
+    private func runningSessionCount(in group: AgentSessionGroup) -> Int {
+        group.sessions.filter { model.isSessionStreaming($0.sessionID) }.count
+    }
+
     private func setInitialAgentGroupExpansionIfNeeded() {
         guard !didSetInitialAgentGroupExpansion else { return }
         didSetInitialAgentGroupExpansion = true
@@ -1460,6 +1480,21 @@ private struct RecentChatsRail: View {
                         .weeFont(.caption, weight: .semibold)
                         .foregroundStyle(WeeTheme.textPrimary)
                         .lineLimit(1)
+
+                    // Collapsing a folder hides the per-session spinners inside
+                    // it, so surface that work at the folder instead. Only while
+                    // collapsed: expanded folders already show each running
+                    // session's own spinner, and two indicators for the same work
+                    // reads as two separate things happening.
+                    if ChatFolderActivity.showsIndicator(
+                        isExpanded: isExpanded,
+                        runningSessionCount: runningSessionCount(in: group)
+                    ) {
+                        ProgressView()
+                            .controlSize(.mini)
+                            .tint(WeeTheme.accent)
+                            .help(ChatFolderActivity.indicatorHelp(runningSessionCount: runningSessionCount(in: group)))
+                    }
 
                     Spacer(minLength: 4)
 
