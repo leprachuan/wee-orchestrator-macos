@@ -1,15 +1,12 @@
-# Wee Orchestrator for macOS v0.9.4
+# Wee Orchestrator for macOS v0.10.0
 
-Released July 29, 2026.
+Released July 30, 2026.
 
-## Fixed
+## New
 
-- The Kanban board reported "Internal server error" against the Local API. The
-  local service could not find the `gh` command when Wee was launched from
-  Finder, because apps started that way get a much shorter search path than a
-  Terminal window does. The local service is now given the full path, which
-  also fixes any other developer tool it needs to run.
-- The app got slower the longer it stayed open, and only relaunching cleared
-  it. Every chat thread you opened left behind a hidden browser view that was
-  never released, so they piled up all day along with their supporting system
-  processes. Only the few most recent are kept now.
+- An agent's instructions file (`AGENTS.md`) can now be viewed and edited
+  directly in the agent editor, alongside its existing settings. Agents without
+  one yet start with an empty editor, and saving creates the file.
+- A collapsed agent folder in the chat sidebar now shows a spinner when any
+  chat inside it is still running, so a query in a folded-away folder no longer
+  looks finished.
