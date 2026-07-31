@@ -1341,6 +1341,22 @@ struct ChatMessage: Identifiable, Hashable {
     }
 }
 
+struct AgentInstructionsResponse: Decodable {
+    let content: String
+    /// False when the agent has no AGENTS.md yet — an empty editor that will
+    /// create the file on save, not an error.
+    let exists: Bool
+}
+
+struct AgentInstructionsUpdateRequest: Encodable {
+    let content: String
+}
+
+struct AgentInstructionsSaveResponse: Decodable {
+    let status: String?
+    let path: String?
+}
+
 struct ChatToolActivity: Identifiable, Hashable {
     let id: String
     var name: String

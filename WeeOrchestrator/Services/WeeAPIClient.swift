@@ -139,6 +139,18 @@ struct WeeAPIClient {
         let _: EmptyAPIResponse = try await request("PUT", path: "/api/v1/agents-config", body: config)
     }
 
+    func agentInstructions(agent: String) async throws -> AgentInstructionsResponse {
+        try await request("GET", path: "/api/v1/agents/\(agent)/instructions")
+    }
+
+    func saveAgentInstructions(agent: String, content: String) async throws {
+        let _: AgentInstructionsSaveResponse = try await request(
+            "PUT",
+            path: "/api/v1/agents/\(agent)/instructions",
+            body: AgentInstructionsUpdateRequest(content: content)
+        )
+    }
+
     func reloadAgents() async throws {
         let _: EmptyAPIResponse = try await request("POST", path: "/api/v1/reload-agents", body: Optional<String>.none)
     }

@@ -185,6 +185,13 @@ private struct AgentEditorSheet: View {
     @State private var statusIsError = false
     @State private var showDeleteConfirmation = false
     @State private var isLoaded = false
+    @State private var instructions = ""
+    @State private var loadedInstructions = ""
+    @State private var instructionsExists = false
+    @State private var isLoadingInstructions = false
+    @State private var isSavingInstructions = false
+    @State private var instructionsStatus: String?
+    @State private var instructionsStatusIsError = false
 
     private let runtimeFallbacks = ["wee", "copilot", "copilot-sdk", "claude", "claude-sdk", "gemini", "opencode", "codex", "devin"]
 
@@ -206,6 +213,7 @@ private struct AgentEditorSheet: View {
                 VStack(alignment: .leading, spacing: 14) {
                     agentDetailsSection
                     permissionsSection
+                    instructionsSection
                     actionSection
                 }
                 .padding([.horizontal, .bottom], 16)
@@ -216,12 +224,123 @@ private struct AgentEditorSheet: View {
         .task {
             await loadIfNeeded()
         }
+        // Reload per selected agent so one agent's instructions are never left
+        // on screen — or saved — while another is selected.
+        .task(id: selectedAgentName) {
+            await loadInstructions(for: selectedAgentName)
+        }
         .confirmationDialog("Delete Agent?", isPresented: $showDeleteConfirmation, titleVisibility: .visible) {
             Button("Delete \(selectedAgentName)", role: .destructive) {
                 Task { await deleteSelectedAgent() }
             }
         } message: {
             Text("This removes the agent from the shared agents config.")
+        }
+    }
+
+    /// The selected agent's AGENTS.md.
+    ///
+    /// Loaded per agent and reloaded when the selection changes, so one agent's
+    /// instructions are never shown or saved while another is selected.
+    private var instructionsSection: some View {
+        AgentEditorSection(title: "Instructions (AGENTS.md)", systemImage: "doc.text") {
+            VStack(alignment: .leading, spacing: 8) {
+                if isLoadingInstructions {
+                    HStack(spacing: 8) {
+                        ProgressView().controlSize(.small)
+                        Text("Loading instructions…")
+                            .weeFont(.caption)
+                            .foregroundStyle(WeeTheme.textSecondary)
+                    }
+                } else {
+                    if instructionsExists == false {
+                        Text("This agent has no AGENTS.md yet. Saving creates one.")
+                            .weeFont(.caption)
+                            .foregroundStyle(WeeTheme.textMuted)
+                    }
+
+                    TextEditor(text: $instructions)
+                        .weeFont(.caption, design: .monospaced)
+                        .foregroundStyle(WeeTheme.textPrimary)
+                        .scrollContentBackground(.hidden)
+                        .frame(minHeight: 220)
+                        .padding(8)
+                        .background(WeeTheme.sunken, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(WeeTheme.glassStroke))
+                        .disabled(selectedAgentName.isEmpty)
+
+                    HStack(spacing: 10) {
+                        Button {
+                            Task { await saveInstructions() }
+                        } label: {
+                            HStack(spacing: 6) {
+                                if isSavingInstructions { ProgressView().controlSize(.small) }
+                                Text("Save Instructions")
+                            }
+                        }
+                        .buttonStyle(WeePrimaryButtonStyle())
+                        .disabled(
+                            selectedAgentName.isEmpty
+                            || isSavingInstructions
+                            || instructions == loadedInstructions
+                        )
+
+                        Button("Revert") {
+                            instructions = loadedInstructions
+                            instructionsStatus = nil
+                        }
+                        .buttonStyle(WeeGhostButtonStyle())
+                        .disabled(instructions == loadedInstructions)
+
+                        if let instructionsStatus {
+                            Text(instructionsStatus)
+                                .weeFont(.caption)
+                                .foregroundStyle(instructionsStatusIsError ? WeeTheme.danger : WeeTheme.accent)
+                        }
+
+                        Spacer()
+                    }
+                }
+            }
+        }
+    }
+
+    private func loadInstructions(for agent: String) async {
+        guard agent.isEmpty == false else { return }
+        isLoadingInstructions = true
+        instructionsStatus = nil
+        defer { isLoadingInstructions = false }
+        do {
+            let response = try await model.client.agentInstructions(agent: agent)
+            instructions = response.content
+            loadedInstructions = response.content
+            instructionsExists = response.exists
+        } catch {
+            instructions = ""
+            loadedInstructions = ""
+            instructionsExists = false
+            instructionsStatus = "Could not load instructions: \(error.localizedDescription)"
+            instructionsStatusIsError = true
+        }
+    }
+
+    private func saveInstructions() async {
+        let agent = selectedAgentName
+        guard agent.isEmpty == false else { return }
+        isSavingInstructions = true
+        defer { isSavingInstructions = false }
+        do {
+            try await model.client.saveAgentInstructions(agent: agent, content: instructions)
+            // Only trust the save for the agent still selected: the sheet's
+            // picker can change while the request is in flight.
+            guard agent == selectedAgentName else { return }
+            loadedInstructions = instructions
+            instructionsExists = true
+            instructionsStatus = "Saved"
+            instructionsStatusIsError = false
+        } catch {
+            instructionsStatus = "Save failed: \(error.localizedDescription)"
+            instructionsStatusIsError = true
         }
     }
 
