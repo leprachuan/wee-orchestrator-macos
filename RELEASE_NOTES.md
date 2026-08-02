@@ -1,12 +1,17 @@
-# Wee Orchestrator for macOS v0.10.0
+# Wee Orchestrator for macOS v0.10.1
 
-Released July 30, 2026.
+Released August 2, 2026.
 
-## New
+## Fixed
 
-- An agent's instructions file (`AGENTS.md`) can now be viewed and edited
-  directly in the agent editor, alongside its existing settings. Agents without
-  one yet start with an empty editor, and saving creates the file.
-- A collapsed agent folder in the chat sidebar now shows a spinner when any
-  chat inside it is still running, so a query in a folded-away folder no longer
-  looks finished.
+- The Local API stayed down after it stopped unexpectedly. Nothing restarted
+  it — the auto-start setting only applies when Wee launches — so a crash left
+  the Local environment unusable until you noticed and started it by hand. Wee
+  now brings it back on its own, retrying up to three times with a growing
+  delay, and tells you the exit code while it does. If it still won't stay up,
+  Wee stops retrying and says so rather than looping.
+- When the Local API is not running, chats showed only "Could not connect to
+  the server", which didn't say what was wrong or what to do. The message now
+  names the Local API, the address that refused, and where to start it. Chats
+  against the Remote backend are unaffected — the same failure there means
+  something else.
