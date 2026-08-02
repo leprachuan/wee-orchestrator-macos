@@ -320,6 +320,7 @@ struct ChatView: View {
 struct ChatBrowserWorkspace: View {
     @Bindable var model: WeeAppModel
     let store: BrowserSessionStore
+    let shellStore: ShellSessionStore
     @AppStorage("wee.browser.visible") private var browserVisible = true
     @State private var controller: BrowserSessionController?
 
@@ -331,6 +332,7 @@ struct ChatBrowserWorkspace: View {
         HSplitView {
             ChatView(model: model)
                 .frame(minWidth: 520)
+                .chatShellWorkspace(model: model, store: shellStore)
 
             if browserVisible {
                 if let controller {

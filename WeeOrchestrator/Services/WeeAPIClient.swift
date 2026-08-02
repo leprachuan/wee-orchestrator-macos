@@ -381,6 +381,40 @@ struct WeeAPIClient {
         )
     }
 
+    func registerNativeShell(sessionID: String, clientID: String) async throws {
+        let _: ShellRegistrationResponse = try await request(
+            "POST",
+            path: "/api/v1/shell/sessions/\(sessionID)/register",
+            body: ShellRegistrationRequest(clientID: clientID)
+        )
+    }
+
+    func pollNativeShellCommand(
+        sessionID: String,
+        clientID: String
+    ) async throws -> ShellCommandEnvelope {
+        try await request(
+            "GET",
+            path: "/api/v1/shell/sessions/\(sessionID)/commands?client_id=\(clientID)&timeout=25",
+            timeout: 60,
+            // Same pool as browser polling: both are long-held GETs, and issue
+            // #47's fix was "keep long polls off the interactive path," not
+            // "one pool per feature."
+            session: longPollSession
+        )
+    }
+
+    func submitNativeShellResult(
+        sessionID: String,
+        result: ShellCommandResultRequest
+    ) async throws {
+        let _: ShellResultAcceptedResponse = try await request(
+            "POST",
+            path: "/api/v1/shell/sessions/\(sessionID)/results",
+            body: result
+        )
+    }
+
     func sessionStatus(sessionID: String) async throws -> SessionStatusResponse {
         try await request("GET", path: "/api/v1/sessions/\(sessionID)/status")
     }
