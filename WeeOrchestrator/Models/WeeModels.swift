@@ -1555,3 +1555,48 @@ struct BrowserCommandResultRequest: Encodable {
 struct BrowserResultAcceptedResponse: Decodable {
     let accepted: Bool
 }
+
+struct ShellRegistrationRequest: Encodable {
+    let clientID: String
+
+    enum CodingKeys: String, CodingKey { case clientID = "client_id" }
+}
+
+struct ShellRegistrationResponse: Decodable {
+    let registered: Bool
+    let sessionID: String
+
+    enum CodingKeys: String, CodingKey {
+        case registered
+        case sessionID = "session_id"
+    }
+}
+
+struct ShellCommandEnvelope: Decodable {
+    let command: ShellCommand?
+}
+
+struct ShellCommand: Decodable, Identifiable {
+    let id: String
+    let action: String
+    let command: String?
+    let text: String?
+    let key: String?
+}
+
+struct ShellCommandResultRequest: Encodable {
+    let clientID: String
+    let commandID: String
+    let output: String?
+    let error: String?
+
+    enum CodingKeys: String, CodingKey {
+        case output, error
+        case clientID = "client_id"
+        case commandID = "command_id"
+    }
+}
+
+struct ShellResultAcceptedResponse: Decodable {
+    let accepted: Bool
+}

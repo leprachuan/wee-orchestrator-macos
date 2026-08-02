@@ -57,6 +57,7 @@ struct ContentView: View {
     @State private var windowEnvironment: WeeEnvironment = .local
     @State private var thisWindow: NSWindow?
     @State private var browserStore = BrowserSessionStore()
+    @State private var shellStore = ShellSessionStore()
 
     var body: some View {
         HStack(spacing: 0) {
@@ -436,12 +437,12 @@ struct ContentView: View {
 
     @ViewBuilder private var sectionView: some View {
         switch selectedSection {
-        case .chat: ChatBrowserWorkspace(model: model, store: browserStore)
+        case .chat: ChatBrowserWorkspace(model: model, store: browserStore, shellStore: shellStore)
         case .kanban:
             if model.kanbanEnabled {
                 KanbanView(model: model)
             } else {
-                ChatBrowserWorkspace(model: model, store: browserStore)
+                ChatBrowserWorkspace(model: model, store: browserStore, shellStore: shellStore)
             }
         case .backgroundTasks: TasksView(model: model, mode: .background)
         case .scheduledTasks: TasksView(model: model, mode: .scheduled)
