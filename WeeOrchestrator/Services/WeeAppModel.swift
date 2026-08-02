@@ -373,6 +373,17 @@ final class WeeAppModel {
     /// properties on this model, so a test can simulate "a previous attempt's
     /// helper is still alive and waiting" without spawning a real replacement
     /// process against this bundle.
+    /// True only between a deliberate Stop/Restart and the resulting exit, so
+    /// the supervisor can tell "the user stopped it" from "it died".
+    @ObservationIgnored private var isStoppingLocalAPIIntentionally = false
+    @ObservationIgnored private var localAPIRestartAttempts = 0
+    @ObservationIgnored private var localAPIRestartTask: Task<Void, Never>?
+    static let maximumLocalAPIRestartAttempts = 3
+    /// Seconds before each retry. Backs off so a service failing on a bad
+    /// config does not spin.
+    static let localAPIRestartBackoff: [Double] = [1, 4, 10]
+    /// How long the service must stay up before its retry budget is cleared.
+    static let localAPIStableUptimeSeconds: Double = 30
     @ObservationIgnored var appReplacementProcess: Process?
     /// Test-only seam: when set, installAvailableAppUpdate()'s retry path
     /// calls this instead of exit(0). A unit test cannot allow the real
@@ -1962,12 +1973,20 @@ final class WeeAppModel {
             }
         }
         process.terminationHandler = { [weak self] process in
+            let status = process.terminationStatus
             Task { @MainActor [weak self] in
-                self?.isLocalServiceRunning = false
-                self?.localServiceStatus = "Stopped (exit \(process.terminationStatus))"
-                self?.localAPIProcess = nil
-                self?.localLogPipe?.fileHandleForReading.readabilityHandler = nil
-                self?.localLogPipe = nil
+                guard let self else { return }
+                self.isLocalServiceRunning = false
+                self.localAPIProcess = nil
+                self.localLogPipe?.fileHandleForReading.readabilityHandler = nil
+                self.localLogPipe = nil
+
+                if self.isStoppingLocalAPIIntentionally {
+                    self.isStoppingLocalAPIIntentionally = false
+                    self.localServiceStatus = "Stopped (exit \(status))"
+                    return
+                }
+                self.superviseUnexpectedLocalAPIExit(terminationStatus: status)
             }
         }
 
@@ -1977,6 +1996,15 @@ final class WeeAppModel {
             localLogPipe = pipe
             isLocalServiceRunning = true
             localServiceStatus = "Running (PID \(process.processIdentifier))"
+            // Clear the retry budget only once it has stayed up. Resetting on
+            // launch would let a service that dies immediately restart forever,
+            // since every attempt would look like a fresh first failure.
+            let launched = process
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .seconds(Self.localAPIStableUptimeSeconds))
+                guard let self, self.localAPIProcess === launched, launched.isRunning else { return }
+                self.localAPIRestartAttempts = 0
+            }
             saveConfiguration()
         } catch {
             localServiceStatus = "Launch failed: \(error.localizedDescription)"
@@ -2017,6 +2045,10 @@ final class WeeAppModel {
     /// Called only by the app lifecycle. Manual Stop and Restart continue to
     /// terminate the service even when the keep-running preference is enabled.
     func stopLocalAPIForApplicationTermination() {
+        // Cancel any pending supervisor retry either way: the app is going
+        // away, so relaunching the service behind it is never right.
+        localAPIRestartTask?.cancel()
+        localAPIRestartTask = nil
         guard shouldStopLocalAPIForApplicationTermination else {
             localServiceStatus = "Continuing after Wee closes"
             return
@@ -2025,6 +2057,10 @@ final class WeeAppModel {
     }
 
     func stopLocalAPI() {
+        // Mark before terminating so the exit is recognised as deliberate and
+        // the supervisor does not immediately bring it back.
+        isStoppingLocalAPIIntentionally = true
+        localAPIRestartAttempts = 0
         guard let process = localAPIProcess, process.isRunning else {
             isLocalServiceRunning = false
             localServiceStatus = "Stopped"
@@ -2039,6 +2075,37 @@ final class WeeAppModel {
         Task { @MainActor [weak self] in
             try? await Task.sleep(for: .milliseconds(500))
             await self?.startLocalAPI()
+        }
+    }
+
+    /// Brings the Local API back after it dies on its own.
+    ///
+    /// Nothing used to. `autoStart` only runs at launch, so a crash — or a
+    /// process killed from outside the app — left the service down with no
+    /// notice, and every request then failed with a generic "Could not connect
+    /// to the server" that says nothing about the actual cause. Recovery was a
+    /// manual Start the user had to know to look for.
+    ///
+    /// Bounded and backed off: a service that cannot stay up is a real problem
+    /// the user needs to see, not something to relaunch forever in a loop.
+    private func superviseUnexpectedLocalAPIExit(terminationStatus: Int32) {
+        guard localAPIRestartAttempts < Self.maximumLocalAPIRestartAttempts else {
+            localServiceStatus = "Stopped unexpectedly (exit \(terminationStatus)). "
+                + "Restarted \(Self.maximumLocalAPIRestartAttempts)× without staying up — start it manually to see the error."
+            return
+        }
+
+        localAPIRestartAttempts += 1
+        let attempt = localAPIRestartAttempts
+        let delay = Self.localAPIRestartBackoff[min(attempt - 1, Self.localAPIRestartBackoff.count - 1)]
+        localServiceStatus = "Stopped unexpectedly (exit \(terminationStatus)) — restarting (\(attempt)/\(Self.maximumLocalAPIRestartAttempts))…"
+
+        localAPIRestartTask?.cancel()
+        localAPIRestartTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(delay))
+            guard let self, Task.isCancelled == false else { return }
+            guard self.localAPIProcess == nil else { return }
+            await self.startLocalAPI()
         }
     }
 
@@ -3369,6 +3436,17 @@ final class WeeAppModel {
     }
 
     private func handleAuthErrorIfNeeded(_ error: Error) -> String? {
+        // A dead Local API surfaces as URLError's stock "Could not connect to
+        // the server", which names neither the service nor the fix. Every
+        // caller already routes through here, so explain it once.
+        if let explanation = Self.localServiceOutageExplanation(
+            for: error,
+            environment: activeEnvironment,
+            isLocalServiceRunning: isLocalServiceRunning,
+            baseURL: configuration.baseURLString
+        ) {
+            return explanation
+        }
         guard case WeeAPIError.httpStatus(401, _) = error else { return nil }
         let message = "Session expired. Sign in with Telegram in Settings."
         configuration.token = ""
@@ -3378,6 +3456,30 @@ final class WeeAppModel {
         let account = activeEnvironment == .local ? "api-token-local" : "api-token-remote"
         KeychainStore.saveSecret("", account: account)
         return message
+    }
+
+    /// Turns a transport failure against a stopped Local API into something
+    /// actionable, or nil when the error is not that.
+    ///
+    /// Only speaks up for the Local environment: the same URLError against the
+    /// Remote backend means the network or the remote host, and telling someone
+    /// to start a local service would send them the wrong way.
+    nonisolated static func localServiceOutageExplanation(
+        for error: Error,
+        environment: WeeEnvironment,
+        isLocalServiceRunning: Bool,
+        baseURL: String
+    ) -> String? {
+        guard environment == .local, isLocalServiceRunning == false else { return nil }
+        guard let urlError = error as? URLError else { return nil }
+        switch urlError.code {
+        case .cannotConnectToHost, .cannotFindHost, .networkConnectionLost, .notConnectedToInternet:
+            let target = baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+            return "The Local API is not running, so \(target.isEmpty ? "the local backend" : target) "
+                + "refused the connection. Start it in Settings → Local API, or switch this window to Remote."
+        default:
+            return nil
+        }
     }
 
     // MARK: - Stream Helpers
