@@ -296,98 +296,6 @@ final class PTYProcess {
 
 // MARK: - Session-scoped native shell
 
-struct ChatShellWorkspaceModifier: ViewModifier {
-    @Bindable var model: WeeAppModel
-    let store: ShellSessionStore
-    @AppStorage("wee.shell.visible") private var shellVisible = false
-    @State private var controller: ShellSessionController?
-
-    private var sessionKey: String {
-        "\(model.activeEnvironment.rawValue):\(model.currentSessionID ?? "none")"
-    }
-
-    func body(content: Content) -> some View {
-        HSplitView {
-            content
-
-            if shellVisible {
-                if let controller {
-                    NativeShellPanel(controller: controller, isVisible: $shellVisible)
-                        .frame(minWidth: 380, idealWidth: 520)
-                } else {
-                    shellPlaceholder
-                        .frame(minWidth: 380, idealWidth: 520)
-                }
-            }
-        }
-        .overlay(alignment: .trailing) {
-            if !shellVisible {
-                Button {
-                    shellVisible = true
-                } label: {
-                    Image(systemName: "terminal")
-                        .weeFont(size: 16, weight: .semibold)
-                        .foregroundStyle(WeeTheme.accent)
-                        .frame(width: 38, height: 48)
-                        .background(
-                            WeeTheme.surfaceRaised,
-                            in: RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        )
-                        .overlay {
-                            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                .stroke(WeeTheme.glassStroke)
-                        }
-                }
-                .buttonStyle(.plain)
-                .help("Show session shell")
-                .accessibilityLabel("Show Shell")
-                .padding(.trailing, 8)
-                .padding(.bottom, 56)
-            }
-        }
-        .task(id: sessionKey) {
-            guard let sessionID = model.currentSessionID else {
-                controller = nil
-                store.deactivateAll()
-                return
-            }
-            controller = store.activate(
-                environment: model.activeEnvironment,
-                sessionID: sessionID,
-                client: model.client
-            )
-        }
-    }
-
-    private var shellPlaceholder: some View {
-        VStack(spacing: 12) {
-            Image(systemName: "terminal")
-                .weeFont(size: 30)
-                .foregroundStyle(WeeTheme.accent)
-            Text("Session Shell")
-                .weeFont(.headline, weight: .bold)
-                .foregroundStyle(WeeTheme.textPrimary)
-            Text("Send a message to create this chat session, then its private shell will appear here.")
-                .weeFont(.caption)
-                .foregroundStyle(WeeTheme.textSecondary)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: 280)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(WeeTheme.background)
-    }
-}
-
-extension View {
-    /// Adds the session-scoped shell panel alongside this view, mirroring how
-    /// `ChatBrowserWorkspace` adds the browser panel. Applied inside
-    /// `ChatBrowserWorkspace` so a chat session can show its browser, its
-    /// shell, both, or neither.
-    func chatShellWorkspace(model: WeeAppModel, store: ShellSessionStore) -> some View {
-        modifier(ChatShellWorkspaceModifier(model: model, store: store))
-    }
-}
-
 @MainActor
 @Observable
 final class ShellSessionStore {
@@ -478,6 +386,8 @@ final class ShellSessionController {
     @ObservationIgnored private var pollingTask: Task<Void, Never>?
     @ObservationIgnored private var llmReadMark = 0
     @ObservationIgnored private var started = false
+    @ObservationIgnored private var terminalColumns = 0
+    @ObservationIgnored private var terminalRows = 0
 
     init(sessionKey: String, sessionID: String, client: WeeAPIClient) {
         self.sessionKey = sessionKey
@@ -533,6 +443,18 @@ final class ShellSessionController {
     func submitUserInput(_ text: String) {
         ensureStarted()
         pty.write(text + "\n")
+    }
+
+    /// Keeps the PTY's logical terminal size in step with the resizable shell
+    /// pane. Programs that use `$COLUMNS`, `$LINES`, or react to SIGWINCH now
+    /// see the same dimensions as the panel the user is looking at.
+    func resizeViewport(_ size: CGSize) {
+        let columns = max(1, Int(size.width / 8))
+        let rows = max(1, Int(size.height / 16))
+        guard columns != terminalColumns || rows != terminalRows else { return }
+        terminalColumns = columns
+        terminalRows = rows
+        pty.resize(cols: columns, rows: rows)
     }
 
     private func pollCommands() async {
@@ -661,7 +583,7 @@ final class ShellSessionController {
     }
 }
 
-private struct NativeShellPanel: View {
+struct NativeShellPanel: View {
     @Bindable var controller: ShellSessionController
     @Binding var isVisible: Bool
     @State private var inputText = ""
@@ -716,6 +638,7 @@ private struct NativeShellPanel: View {
                     proxy.scrollTo("shell-bottom-\(controller.sessionKey)", anchor: .bottom)
                 }
             }
+            .background(ShellViewportReporter { controller.resizeViewport($0) })
             .overlay(alignment: .bottomLeading) {
                 if let error = controller.lastError {
                     Text(error)
@@ -749,6 +672,26 @@ private struct NativeShellPanel: View {
         }
         .background(WeeTheme.background)
         .overlay(alignment: .leading) { Rectangle().fill(WeeTheme.divider).frame(width: 1) }
-        .onAppear { controller.connect() }
+        .onAppear {
+            controller.connect()
+            // The browser can remain the AppKit first responder after the shell
+            // panel is inserted. Explicitly reclaim it once the TextField has
+            // joined the view hierarchy, so typing works immediately on open.
+            DispatchQueue.main.async { inputFocused = true }
+        }
+    }
+}
+
+/// Reports the scrollable terminal surface's actual AppKit-backed size without
+/// influencing the surrounding split view's layout.
+private struct ShellViewportReporter: View {
+    let onResize: (CGSize) -> Void
+
+    var body: some View {
+        GeometryReader { proxy in
+            Color.clear
+                .onAppear { onResize(proxy.size) }
+                .onChange(of: proxy.size) { _, size in onResize(size) }
+        }
     }
 }

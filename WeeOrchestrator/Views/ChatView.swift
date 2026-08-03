@@ -13,16 +13,23 @@ struct ChatView: View {
     @State private var isDropTargeted = false
     @State private var isShowingFilePicker = false
     @State private var voice = ChatVoiceController()
+    @AppStorage("wee.chat.sessionList.visible") private var isSessionListVisible = true
 
     var body: some View {
         VStack(spacing: 0) {
-            HeaderPanel(model: model, isShowingHistory: $isShowingHistory)
+            HeaderPanel(
+                model: model,
+                isShowingHistory: $isShowingHistory,
+                isSessionListVisible: $isSessionListVisible
+            )
                 .padding(.horizontal, 10)
                 .padding(.top, 10)
 
             HStack(spacing: 8) {
-                RecentChatsRail(model: model, layout: .vertical)
-                    .frame(width: 220)
+                if isSessionListVisible {
+                    RecentChatsRail(model: model, layout: .vertical)
+                        .frame(width: 220)
+                }
 
                 chatTranscript
             }
@@ -322,7 +329,9 @@ struct ChatBrowserWorkspace: View {
     let store: BrowserSessionStore
     let shellStore: ShellSessionStore
     @AppStorage("wee.browser.visible") private var browserVisible = true
+    @AppStorage("wee.shell.visible") private var shellVisible = false
     @State private var controller: BrowserSessionController?
+    @State private var shellController: ShellSessionController?
 
     private var sessionKey: String {
         "\(model.activeEnvironment.rawValue):\(model.currentSessionID ?? "none")"
@@ -330,48 +339,45 @@ struct ChatBrowserWorkspace: View {
 
     var body: some View {
         HSplitView {
-            ChatView(model: model)
-                .frame(minWidth: 520)
-                .chatShellWorkspace(model: model, store: shellStore)
+            // `HSplitView` is stable with two children, but its three-child
+            // layout can enter a continuous AttributeGraph layout transaction
+            // when both persisted panels are restored. Keep the shell and chat
+            // together in a nested two-child split instead.
+            chatAndShell
 
             if browserVisible {
                 if let controller {
                     NativeBrowserPanel(controller: controller, isVisible: $browserVisible)
-                        .frame(minWidth: 380, idealWidth: 620)
+                        .frame(minWidth: 300, idealWidth: 500)
                 } else {
                     browserPlaceholder
-                        .frame(minWidth: 380, idealWidth: 620)
+                        .frame(minWidth: 300, idealWidth: 500)
                 }
             }
         }
         .overlay(alignment: .trailing) {
-            if !browserVisible {
-                Button {
-                    browserVisible = true
-                } label: {
-                    Image(systemName: "globe")
-                        .weeFont(size: 16, weight: .semibold)
-                        .foregroundStyle(WeeTheme.accent)
-                        .frame(width: 38, height: 48)
-                        .background(
-                            WeeTheme.surfaceRaised,
-                            in: RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        )
-                        .overlay {
-                            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                .stroke(WeeTheme.glassStroke)
-                        }
+            VStack(spacing: 8) {
+                if !shellVisible {
+                    workspacePanelButton(symbol: "terminal", help: "Show session shell") {
+                        shellVisible = true
+                    }
+                    .accessibilityLabel("Show Shell")
                 }
-                .buttonStyle(.plain)
-                .help("Show session browser")
-                .accessibilityLabel("Show Browser")
-                .padding(.trailing, 8)
+                if !browserVisible {
+                    workspacePanelButton(symbol: "globe", help: "Show session browser") {
+                        browserVisible = true
+                    }
+                    .accessibilityLabel("Show Browser")
+                }
             }
+            .padding(.trailing, 8)
         }
         .task(id: sessionKey) {
             guard let sessionID = model.currentSessionID else {
                 controller = nil
+                shellController = nil
                 store.deactivateAll()
+                shellStore.deactivateAll()
                 return
             }
             // `activate` stops the previously selected session's poller before starting
@@ -381,7 +387,51 @@ struct ChatBrowserWorkspace: View {
                 sessionID: sessionID,
                 client: model.client
             )
+            shellController = shellStore.activate(
+                environment: model.activeEnvironment,
+                sessionID: sessionID,
+                client: model.client
+            )
         }
+    }
+
+    @ViewBuilder private var chatAndShell: some View {
+        if shellVisible {
+            HSplitView {
+                ChatView(model: model)
+                    .frame(minWidth: 440)
+
+                if let shellController {
+                    NativeShellPanel(controller: shellController, isVisible: $shellVisible)
+                        .frame(minWidth: 300, idealWidth: 400)
+                } else {
+                    shellPlaceholder
+                        .frame(minWidth: 300, idealWidth: 400)
+                }
+            }
+        } else {
+            ChatView(model: model)
+                .frame(minWidth: 440)
+        }
+    }
+
+    private func workspacePanelButton(symbol: String, help: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .weeFont(size: 16, weight: .semibold)
+                .foregroundStyle(WeeTheme.accent)
+                .frame(width: 38, height: 48)
+                .background(
+                    WeeTheme.surfaceRaised,
+                    in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+                )
+                .overlay {
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .stroke(WeeTheme.glassStroke)
+                }
+        }
+        .buttonStyle(.plain)
+        .help(help)
     }
 
     private var browserPlaceholder: some View {
@@ -393,6 +443,24 @@ struct ChatBrowserWorkspace: View {
                 .weeFont(.headline, weight: .bold)
                 .foregroundStyle(WeeTheme.textPrimary)
             Text("Send a message to create this chat session, then its private browser will appear here.")
+                .weeFont(.caption)
+                .foregroundStyle(WeeTheme.textSecondary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 280)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(WeeTheme.background)
+    }
+
+    private var shellPlaceholder: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "terminal")
+                .weeFont(size: 30)
+                .foregroundStyle(WeeTheme.accent)
+            Text("Session Shell")
+                .weeFont(.headline, weight: .bold)
+                .foregroundStyle(WeeTheme.textPrimary)
+            Text("Send a message to create this chat session, then its private shell will appear here.")
                 .weeFont(.caption)
                 .foregroundStyle(WeeTheme.textSecondary)
                 .multilineTextAlignment(.center)
@@ -797,10 +865,62 @@ private struct NativeBrowserPanel: View {
 private struct NativeWebView: NSViewRepresentable {
     let webView: WKWebView
 
-    func makeNSView(context: Context) -> WKWebView { webView }
-    func updateNSView(_ nsView: WKWebView, context: Context) {}
-}
+    func makeCoordinator() -> Coordinator { Coordinator(webView: webView) }
 
+    func makeNSView(context: Context) -> WKWebView {
+        // WKWebView naturally changes its CSS viewport when AppKit changes its
+        // frame. The notification also lets us dispatch a resize event for
+        // pages whose reactive code listens explicitly to `window.resize`.
+        webView.postsFrameChangedNotifications = true
+        context.coordinator.observe(webView)
+        return webView
+    }
+
+    func updateNSView(_ nsView: WKWebView, context: Context) {
+        context.coordinator.reportViewportChange(for: nsView)
+    }
+
+    static func dismantleNSView(_ nsView: WKWebView, coordinator: Coordinator) {
+        coordinator.stopObserving()
+    }
+
+    final class Coordinator {
+        private weak var webView: WKWebView?
+        private var frameObserver: NSObjectProtocol?
+        private var lastViewportSize = CGSize.zero
+
+        init(webView: WKWebView) { self.webView = webView }
+
+        func observe(_ webView: WKWebView) {
+            stopObserving()
+            frameObserver = NotificationCenter.default.addObserver(
+                forName: NSView.frameDidChangeNotification,
+                object: webView,
+                queue: .main
+            ) { [weak self, weak webView] _ in
+                guard let webView else { return }
+                self?.reportViewportChange(for: webView)
+            }
+            reportViewportChange(for: webView)
+        }
+
+        func stopObserving() {
+            if let frameObserver {
+                NotificationCenter.default.removeObserver(frameObserver)
+                self.frameObserver = nil
+            }
+        }
+
+        func reportViewportChange(for webView: WKWebView) {
+            let size = webView.bounds.size
+            guard size.width > 0, size.height > 0, size != lastViewportSize else { return }
+            lastViewportSize = size
+            webView.evaluateJavaScript("window.dispatchEvent(new Event('resize'))") { _, _ in }
+        }
+
+        deinit { stopObserving() }
+    }
+}
 private struct ChatComposerTextView: NSViewRepresentable {
     @Binding var text: String
     let onSubmit: () -> Void
@@ -951,6 +1071,7 @@ private struct ChatQueuePanel: View {
 private struct HeaderPanel: View {
     @Bindable var model: WeeAppModel
     @Binding var isShowingHistory: Bool
+    @Binding var isSessionListVisible: Bool
 
     var body: some View {
         HStack(spacing: 10) {
@@ -978,6 +1099,16 @@ private struct HeaderPanel: View {
             Spacer(minLength: 0)
 
             HStack(spacing: 6) {
+                Button {
+                    withAnimation(.snappy(duration: 0.2)) { isSessionListVisible.toggle() }
+                } label: {
+                    Image(systemName: isSessionListVisible ? "sidebar.left" : "sidebar.right")
+                        .frame(width: 20, height: 20)
+                }
+                .buttonStyle(WeeGhostButtonStyle())
+                .help(isSessionListVisible ? "Hide chat list" : "Show chat list")
+                .accessibilityLabel(isSessionListVisible ? "Hide Chat List" : "Show Chat List")
+
                 Button {
                     Task { await model.startNewChat() }
                 } label: {
