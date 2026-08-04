@@ -227,8 +227,10 @@ struct MarkdownText: View {
         return URL(string: urlString, relativeTo: baseURL)?.absoluteURL
     }
 
-    #if DEBUG
     /// Test-only view into parsed blocks, since `Block` itself is private to the parser.
+    /// Not gated behind `#if DEBUG`: the WeeOrchestratorTests target can also build
+    /// against a Release configuration of the app, which would otherwise make this
+    /// unavailable there. It has no effect on shipped behavior.
     enum DebugBlockKind: Equatable {
         case paragraph(String)
         case image(alt: String, url: String)
@@ -246,7 +248,6 @@ struct MarkdownText: View {
             }
         }
     }
-    #endif
 
     private func parseHeading(_ line: String) -> (level: Int, text: String)? {
         let hashes = line.prefix { $0 == "#" }.count
