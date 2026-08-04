@@ -58,6 +58,12 @@ struct ContentView: View {
     @State private var thisWindow: NSWindow?
     @State private var browserStore = BrowserSessionStore()
     @State private var shellStore = ShellSessionStore()
+    // These mirror the same UserDefaults keys ChatView/ChatBrowserWorkspace own, so the
+    // window's minimum width can grow to fit whichever chat-section panels are actually
+    // showing without needing those panels' own state threaded up to this view.
+    @AppStorage("wee.chat.sessionList.visible") private var isSessionListVisible = true
+    @AppStorage("wee.shell.visible") private var isShellVisible = false
+    @AppStorage("wee.browser.visible") private var isBrowserVisible = true
 
     var body: some View {
         HStack(spacing: 0) {
@@ -72,7 +78,7 @@ struct ContentView: View {
         .background(WindowAccessor(window: $thisWindow))
         .background(WeeTheme.background)
         .preferredColorScheme(.dark)
-        .frame(minWidth: 1180, minHeight: 680)
+        .frame(minWidth: minimumWindowWidth, minHeight: 680)
         .task {
             // The unit-test bundle is hosted by the app executable. Avoid
             // starting managed services, installing the CLI, or making API
@@ -179,6 +185,50 @@ struct ContentView: View {
 
     private static let railExpandedWidth: CGFloat = 196
     private static let railCollapsedWidth: CGFloat = 64
+
+    /// Chat-section pane minimum widths, mirrored from ChatView/ChatBrowserWorkspace's
+    /// own `.frame(minWidth:)` values. `NativeShellPanel`/`NativeBrowserPanel` inside an
+    /// `HSplitView` cannot shrink below these, so if the window itself is allowed to be
+    /// narrower than the sum of every currently-visible pane's minimum, AppKit has no
+    /// choice but to compress panes below their stated floor — which is what produced
+    /// the overlapping shell/browser navigation controls in issue #54. Growing the
+    /// window's own minimum to match keeps every visible pane at or above its floor.
+    private static let chatMinWidth: CGFloat = 440
+    private static let sessionListExpandedWidth: CGFloat = 220
+    private static let sessionListCollapsedWidth: CGFloat = 56
+    private static let shellMinWidth: CGFloat = 300
+    private static let browserMinWidth: CGFloat = 300
+    /// The floor this app has always shipped with for the Chat section with its default
+    /// panel configuration (session list expanded, browser visible, shell hidden). Never
+    /// shrink below it just because computed requirements happen to be smaller.
+    private static let baselineMinWidth: CGFloat = 1180
+
+    private var minimumWindowWidth: CGFloat {
+        Self.minimumWindowWidth(
+            section: selectedSection,
+            railCollapsed: isRailCollapsed,
+            sessionListVisible: isSessionListVisible,
+            shellVisible: isShellVisible,
+            browserVisible: isBrowserVisible
+        )
+    }
+
+    static func minimumWindowWidth(
+        section: AppSection,
+        railCollapsed: Bool,
+        sessionListVisible: Bool,
+        shellVisible: Bool,
+        browserVisible: Bool
+    ) -> CGFloat {
+        let railWidth = railCollapsed ? railCollapsedWidth : railExpandedWidth
+        guard section == .chat else { return max(railWidth + chatMinWidth, baselineMinWidth) }
+
+        var width = railWidth + chatMinWidth
+        width += sessionListVisible ? sessionListExpandedWidth : sessionListCollapsedWidth
+        if shellVisible { width += shellMinWidth }
+        if browserVisible { width += browserMinWidth }
+        return max(width, baselineMinWidth)
+    }
 
     private var railToggleButton: some View {
         Button {

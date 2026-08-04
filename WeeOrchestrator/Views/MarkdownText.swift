@@ -1,10 +1,15 @@
 import SwiftUI
+import os
 
 struct MarkdownText: View {
-    let source: String
+    private static let logger = Logger(subsystem: "com.lipkey.weeorchestrator.macos", category: "MarkdownText")
 
-    init(_ source: String) {
+    let source: String
+    let baseURL: URL?
+
+    init(_ source: String, baseURL: URL? = nil) {
         self.source = source
+        self.baseURL = baseURL
     }
 
     var body: some View {
@@ -23,6 +28,7 @@ struct MarkdownText: View {
         case code(language: String, content: String)
         case table(headers: [String], rows: [[String]])
         case image(alt: String, url: URL)
+        case unsupportedVisualization(file: String)
         case horizontalRule
     }
 
@@ -33,6 +39,7 @@ struct MarkdownText: View {
     }
 
     private static let imagePattern = /!\[([^\]]*)\]\(([^)]+)\)/
+    private static let inlineVisPattern = /::codex-inline-vis\{[^}]*file\s*=\s*"([^"]+)"[^}]*\}/
 
     private var blocks: [Block] {
         var result: [Block] = []
@@ -63,7 +70,7 @@ struct MarkdownText: View {
                 result.append(parseBlockquote(lines: lines, index: &i))
             } else {
                 let paragraph = parseParagraph(lines: lines, index: &i)
-                result.append(contentsOf: extractImages(from: paragraph))
+                result.append(contentsOf: extractMediaBlocks(from: paragraph))
             }
         }
 
@@ -156,24 +163,49 @@ struct MarkdownText: View {
         return paragraphLines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private func extractImages(from text: String) -> [Block] {
+    private func extractMediaBlocks(from text: String) -> [Block] {
         var blocks: [Block] = []
         var remaining = text[text.startIndex...]
 
-        while let match = remaining.firstMatch(of: Self.imagePattern) {
-            let before = String(remaining[remaining.startIndex..<match.range.lowerBound])
+        while true {
+            let imageMatch = remaining.firstMatch(of: Self.imagePattern)
+            let visMatch = remaining.firstMatch(of: Self.inlineVisPattern)
+
+            let nextStart: String.Index
+            switch (imageMatch, visMatch) {
+            case (nil, nil):
+                nextStart = remaining.endIndex
+            case (let image?, nil):
+                nextStart = image.range.lowerBound
+            case (nil, let vis?):
+                nextStart = vis.range.lowerBound
+            case (let image?, let vis?):
+                nextStart = min(image.range.lowerBound, vis.range.lowerBound)
+            }
+
+            if nextStart == remaining.endIndex { break }
+
+            let before = String(remaining[remaining.startIndex..<nextStart])
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             if !before.isEmpty {
                 blocks.append(.paragraph(before))
             }
 
-            let alt = String(match.1)
-            let urlString = String(match.2)
-            if let url = URL(string: urlString) {
-                blocks.append(.image(alt: alt, url: url))
+            if let imageMatch, imageMatch.range.lowerBound == nextStart {
+                let alt = String(imageMatch.1)
+                let urlString = String(imageMatch.2)
+                if let url = Self.resolveMediaURL(urlString, relativeTo: baseURL) {
+                    blocks.append(.image(alt: alt, url: url))
+                } else {
+                    Self.logger.error("Failed to resolve image URL '\(urlString, privacy: .public)' against base '\(self.baseURL?.absoluteString ?? "nil", privacy: .public)'")
+                    blocks.append(.unsupportedVisualization(file: alt.isEmpty ? urlString : alt))
+                }
+                remaining = remaining[imageMatch.range.upperBound...]
+            } else if let visMatch {
+                let file = String(visMatch.1)
+                blocks.append(.unsupportedVisualization(file: file))
+                remaining = remaining[visMatch.range.upperBound...]
             }
-
-            remaining = remaining[match.range.upperBound...]
         }
 
         let after = String(remaining).trimmingCharacters(in: .whitespacesAndNewlines)
@@ -183,6 +215,38 @@ struct MarkdownText: View {
 
         return blocks
     }
+
+    /// Resolves a Markdown image destination against the active environment's API base URL.
+    /// Fully qualified `http(s)://` (or other schemed) URLs are returned unchanged; scheme-relative
+    /// destinations like `/ai-media/<session>/<file>.png` are resolved against `baseURL` since the
+    /// native app has no document origin to resolve them against implicitly.
+    static func resolveMediaURL(_ urlString: String, relativeTo baseURL: URL?) -> URL? {
+        guard let url = URL(string: urlString) else { return nil }
+        if url.scheme != nil { return url }
+        guard let baseURL else { return nil }
+        return URL(string: urlString, relativeTo: baseURL)?.absoluteURL
+    }
+
+    #if DEBUG
+    /// Test-only view into parsed blocks, since `Block` itself is private to the parser.
+    enum DebugBlockKind: Equatable {
+        case paragraph(String)
+        case image(alt: String, url: String)
+        case unsupportedVisualization(file: String)
+        case other
+    }
+
+    func debugBlocks() -> [DebugBlockKind] {
+        blocks.map { block in
+            switch block {
+            case .paragraph(let text): return .paragraph(text)
+            case .image(let alt, let url): return .image(alt: alt, url: url.absoluteString)
+            case .unsupportedVisualization(let file): return .unsupportedVisualization(file: file)
+            default: return .other
+            }
+        }
+    }
+    #endif
 
     private func parseHeading(_ line: String) -> (level: Int, text: String)? {
         let hashes = line.prefix { $0 == "#" }.count
@@ -314,6 +378,9 @@ struct MarkdownText: View {
         case .image(let alt, let url):
             imageView(alt: alt, url: url)
 
+        case .unsupportedVisualization(let file):
+            unsupportedVisualizationView(file: file)
+
         case .horizontalRule:
             Rectangle()
                 .fill(WeeTheme.glassStroke)
@@ -412,7 +479,7 @@ struct MarkdownText: View {
                     .frame(maxWidth: 420, maxHeight: 320)
                     .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                     .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(WeeTheme.glassStroke))
-            case .failure:
+            case .failure(let error):
                 HStack(spacing: 6) {
                     Image(systemName: "photo.badge.exclamationmark")
                     Text(alt.isEmpty ? "Image failed to load" : alt)
@@ -421,6 +488,9 @@ struct MarkdownText: View {
                 .foregroundStyle(WeeTheme.textMuted)
                 .padding(8)
                 .background(WeeTheme.sunken, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .onAppear {
+                    Self.logger.error("AsyncImage failed to load '\(url.absoluteString, privacy: .public)': \(error.localizedDescription, privacy: .public)")
+                }
             default:
                 HStack(spacing: 6) {
                     ProgressView()
@@ -434,8 +504,20 @@ struct MarkdownText: View {
         }
     }
 
+    private func unsupportedVisualizationView(file: String) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: "chart.xyaxis.line")
+            Text("Inline visualization not yet supported: \(file)")
+                .weeFont(.caption)
+        }
+        .foregroundStyle(WeeTheme.textMuted)
+        .padding(8)
+        .background(WeeTheme.sunken, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+    }
+
     private func stripImageSyntax(_ text: String) -> String {
-        text.replacing(Self.imagePattern, with: { match in String(match.1) })
+        let withoutImages = text.replacing(Self.imagePattern, with: { match in String(match.1) })
+        return withoutImages.replacing(Self.inlineVisPattern, with: { _ in "" })
     }
 
     private func renderInline(_ text: String) -> some View {

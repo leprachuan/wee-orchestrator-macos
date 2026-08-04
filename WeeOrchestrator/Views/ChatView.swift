@@ -26,10 +26,8 @@ struct ChatView: View {
                 .padding(.top, 10)
 
             HStack(spacing: 8) {
-                if isSessionListVisible {
-                    RecentChatsRail(model: model, layout: .vertical)
-                        .frame(width: 220)
-                }
+                RecentChatsRail(model: model, layout: .vertical, isCollapsed: !isSessionListVisible)
+                    .frame(width: isSessionListVisible ? 220 : 56)
 
                 chatTranscript
             }
@@ -99,6 +97,7 @@ struct ChatView: View {
                                 isPreparingSpeech: voice.loadingMessageID == message.id,
                                 isSpeaking: voice.speakingMessageID == message.id,
                                 userAvatarImage: model.userAvatarImage,
+                                mediaBaseURL: URL(string: model.configuration.baseURLString),
                                 onSpeak: {
                                     Task { await voice.toggleSpeech(for: message, model: model) }
                                 }
@@ -355,7 +354,7 @@ struct ChatBrowserWorkspace: View {
                 }
             }
         }
-        .overlay(alignment: .trailing) {
+        .overlay(alignment: .topTrailing) {
             VStack(spacing: 8) {
                 if !shellVisible {
                     workspacePanelButton(symbol: "terminal", help: "Show session shell") {
@@ -370,6 +369,11 @@ struct ChatBrowserWorkspace: View {
                     .accessibilityLabel("Show Browser")
                 }
             }
+            // Anchored below both panels' header + status rows (44 + 28pt) so these
+            // floating toggles never sit on top of the shell/browser's own navigation
+            // controls (back/forward/reload/address bar, hide button), regardless of
+            // window height.
+            .padding(.top, 80)
             .padding(.trailing, 8)
         }
         .task(id: sessionKey) {
@@ -666,18 +670,30 @@ final class BrowserSessionController: NSObject, WKNavigationDelegate {
                 )
                 bridgeStatus = "Wee connected"
                 guard let command = envelope.command else { continue }
-                let result = await execute(command)
-                try await client.submitNativeBrowserResult(
-                    sessionID: sessionID,
-                    result: BrowserCommandResultRequest(
-                        clientID: clientID,
-                        commandID: command.id,
-                        result: result.value,
-                        error: result.error,
-                        url: webView.url?.absoluteString,
-                        title: webView.title
+                // Once a command has been claimed off the queue, see it through to a
+                // submitted result even if `disconnect()` cancels this poll loop in the
+                // meantime (e.g. a session switch racing an in-flight remote-control
+                // command). A plain `Task` is unstructured — unlike the surrounding
+                // `pollingTask`, it is not cancelled by that cancellation — so the
+                // command still gets a definitive result instead of silently reporting
+                // as cancelled and having the remote (iOS) caller retry into the same race.
+                // `try await ... .value` still rethrows a genuine submission failure to
+                // the outer `catch` below, preserving the existing reconnect behavior —
+                // only cancellation of the *outer* loop is what this shields against.
+                try await Task { @MainActor in
+                    let result = await self.execute(command)
+                    try await self.client.submitNativeBrowserResult(
+                        sessionID: self.sessionID,
+                        result: BrowserCommandResultRequest(
+                            clientID: self.clientID,
+                            commandID: command.id,
+                            result: result.value,
+                            error: result.error,
+                            url: self.webView.url?.absoluteString,
+                            title: self.webView.title
+                        )
                     )
-                )
+                }.value
             } catch is CancellationError {
                 break
             } catch {
@@ -858,7 +874,6 @@ private struct NativeBrowserPanel: View {
                 }
         }
         .background(WeeTheme.background)
-        .overlay(alignment: .leading) { Rectangle().fill(WeeTheme.divider).frame(width: 1) }
     }
 }
 
@@ -1106,8 +1121,8 @@ private struct HeaderPanel: View {
                         .frame(width: 20, height: 20)
                 }
                 .buttonStyle(WeeGhostButtonStyle())
-                .help(isSessionListVisible ? "Hide chat list" : "Show chat list")
-                .accessibilityLabel(isSessionListVisible ? "Hide Chat List" : "Show Chat List")
+                .help(isSessionListVisible ? "Collapse chat list" : "Expand chat list")
+                .accessibilityLabel(isSessionListVisible ? "Collapse Chat List" : "Expand Chat List")
 
                 Button {
                     Task { await model.startNewChat() }
@@ -1371,6 +1386,10 @@ enum ChatFolderActivity {
 private struct RecentChatsRail: View {
     @Bindable var model: WeeAppModel
     var layout: RecentChatsRailLayout = .horizontal
+    /// When true, renders a narrow icon-only strip instead of the full session list —
+    /// mirroring `ContentView`'s workspace rail collapse pattern, so the list narrows
+    /// rather than disappearing entirely.
+    var isCollapsed = false
     @State private var sessionToRename: HistorySessionSummary?
     @State private var renameDraft = ""
     @State private var expandedAgentGroupIDs: Set<String> = []
@@ -1381,6 +1400,9 @@ private struct RecentChatsRail: View {
 
     var body: some View {
         Group {
+            if isCollapsed {
+                collapsedRail
+            } else {
             switch layout {
             case .horizontal:
                 if !model.visibleHistorySessions.isEmpty {
@@ -1440,6 +1462,7 @@ private struct RecentChatsRail: View {
                 .onAppear { setInitialAgentGroupExpansionIfNeeded() }
                 .onChange(of: model.currentSessionID) { _, _ in expandCurrentSessionAgentGroup() }
             }
+            }
         }
         .alert("Rename Chat", isPresented: Binding(
             get: { sessionToRename != nil },
@@ -1456,6 +1479,51 @@ private struct RecentChatsRail: View {
         } message: {
             Text("Use a name that helps you find this conversation later.")
         }
+    }
+
+    private var collapsedRail: some View {
+        ScrollView {
+            LazyVStack(spacing: 8) {
+                ForEach(model.visibleHistorySessions.prefix(40)) { session in
+                    collapsedSessionButton(session)
+                }
+            }
+            .padding(.vertical, 10)
+        }
+        .scrollIndicators(.hidden)
+        .glassPanel()
+    }
+
+    private func collapsedSessionButton(_ session: HistorySessionSummary) -> some View {
+        let isCurrent = session.sessionID == model.currentSessionID
+        return Button {
+            Task { await model.selectHistorySession(session) }
+        } label: {
+            ZStack(alignment: .topTrailing) {
+                Circle()
+                    .fill(isCurrent ? WeeTheme.accent.opacity(0.22) : Color.white.opacity(0.06))
+                    .overlay(Circle().stroke(isCurrent ? WeeTheme.accent.opacity(0.5) : WeeTheme.glassStroke))
+                    .frame(width: 34, height: 34)
+                Text(String(model.title(for: session).prefix(1)).uppercased())
+                    .weeFont(.caption, weight: .bold)
+                    .foregroundStyle(WeeTheme.textPrimary)
+                    .frame(width: 34, height: 34)
+                if model.isSessionStreaming(session.sessionID) {
+                    Circle()
+                        .fill(WeeTheme.accent)
+                        .frame(width: 8, height: 8)
+                        .offset(x: 2, y: -2)
+                } else {
+                    Circle()
+                        .fill(ChatAgentColor.color(for: session.agent))
+                        .frame(width: 8, height: 8)
+                        .offset(x: 2, y: -2)
+                }
+            }
+        }
+        .buttonStyle(.plain)
+        .help(model.title(for: session))
+        .accessibilityLabel(model.title(for: session))
     }
 
     private func sessionButton(_ session: HistorySessionSummary, width: CGFloat? = nil) -> some View {
@@ -1789,6 +1857,7 @@ private struct ChatBubble: View {
     let isPreparingSpeech: Bool
     let isSpeaking: Bool
     let userAvatarImage: NSImage?
+    let mediaBaseURL: URL?
     let onSpeak: () -> Void
 
     var body: some View {
@@ -1854,7 +1923,7 @@ private struct ChatBubble: View {
                 }
 
                 if !message.text.isEmpty {
-                    MarkdownText(message.text)
+                    MarkdownText(message.text, baseURL: mediaBaseURL)
                 }
 
                 if isStreaming {

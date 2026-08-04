@@ -671,13 +671,23 @@ struct NativeShellPanel: View {
             .overlay(alignment: .top) { Rectangle().fill(WeeTheme.divider).frame(height: 1) }
         }
         .background(WeeTheme.background)
-        .overlay(alignment: .leading) { Rectangle().fill(WeeTheme.divider).frame(width: 1) }
         .onAppear {
             controller.connect()
-            // The browser can remain the AppKit first responder after the shell
-            // panel is inserted. Explicitly reclaim it once the TextField has
-            // joined the view hierarchy, so typing works immediately on open.
-            DispatchQueue.main.async { inputFocused = true }
+            reclaimFocus()
+        }
+    }
+
+    /// AppKit can leave another view (typically the browser's `WKWebView`) as first
+    /// responder for one or more run-loop turns after this panel is inserted into the
+    /// split view — a single reclaim attempt on appear is not reliable, and was
+    /// observed to fail specifically when this panel is created for the first time by
+    /// sending the first message in a brand-new chat. Retry across a few turns so the
+    /// TextField wins first responder once the view hierarchy has actually settled.
+    private func reclaimFocus() {
+        for delay in [0, 30, 120, 300] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(delay)) {
+                inputFocused = true
+            }
         }
     }
 }
