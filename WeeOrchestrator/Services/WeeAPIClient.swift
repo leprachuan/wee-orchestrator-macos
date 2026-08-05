@@ -234,11 +234,39 @@ struct WeeAPIClient {
     }
 
     func createScheduledJob(_ job: ScheduledJobMutationRequest) async throws {
-        let _: EmptyAPIResponse = try await request("POST", path: "/api/v1/scheduler/jobs", body: job)
+        do {
+            let _: EmptyAPIResponse = try await request("POST", path: "/api/v1/scheduler/jobs", body: job)
+        } catch let error as WeeAPIError where Self.shouldRetryScheduledJobWithoutPermissionMode(error, job: job) {
+            let _: EmptyAPIResponse = try await request(
+                "POST",
+                path: "/api/v1/scheduler/jobs",
+                body: job.withoutPermissionMode()
+            )
+        }
     }
 
     func updateScheduledJob(id: String, job: ScheduledJobMutationRequest) async throws {
-        let _: EmptyAPIResponse = try await request("PUT", path: "/api/v1/scheduler/jobs/\(id)", body: job)
+        do {
+            let _: EmptyAPIResponse = try await request("PUT", path: "/api/v1/scheduler/jobs/\(id)", body: job)
+        } catch let error as WeeAPIError where Self.shouldRetryScheduledJobWithoutPermissionMode(error, job: job) {
+            let _: EmptyAPIResponse = try await request(
+                "PUT",
+                path: "/api/v1/scheduler/jobs/\(id)",
+                body: job.withoutPermissionMode()
+            )
+        }
+    }
+
+    static func shouldRetryScheduledJobWithoutPermissionMode(
+        _ error: WeeAPIError,
+        job: ScheduledJobMutationRequest
+    ) -> Bool {
+        guard job.permissionMode != nil,
+              case .httpStatus(404, let message) = error else {
+            return false
+        }
+        let normalized = message.lowercased()
+        return normalized.contains("unknown fields") && normalized.contains("permission_mode")
     }
 
     func deleteScheduledJob(id: String) async throws {

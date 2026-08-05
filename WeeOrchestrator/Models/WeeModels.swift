@@ -486,6 +486,28 @@ struct ScheduledJobMutationRequest: Encodable {
         case permissionMode = "permission_mode"
         case workingDir = "working_dir"
     }
+
+    /// Older remote API deployments predate `permission_mode`. Keep the normal
+    /// request feature-complete, but allow the client to retry that specific
+    /// schema mismatch without discarding the rest of an edit.
+    func withoutPermissionMode() -> Self {
+        Self(
+            name: name,
+            schedule: schedule,
+            agent: agent,
+            runtime: runtime,
+            model: model,
+            fallbackRuntime: fallbackRuntime,
+            fallbackModel: fallbackModel,
+            mode: mode,
+            task: task,
+            notify: notify,
+            recurring: recurring,
+            timeout: timeout,
+            permissionMode: nil,
+            workingDir: workingDir
+        )
+    }
 }
 
 struct ScheduleValidationRequest: Encodable {
