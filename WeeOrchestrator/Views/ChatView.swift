@@ -19,14 +19,13 @@ struct ChatView: View {
         VStack(spacing: 0) {
             HeaderPanel(
                 model: model,
-                isShowingHistory: $isShowingHistory,
-                isSessionListVisible: $isSessionListVisible
+                isShowingHistory: $isShowingHistory
             )
                 .padding(.horizontal, 10)
                 .padding(.top, 10)
 
             HStack(spacing: 8) {
-                RecentChatsRail(model: model, layout: .vertical, isCollapsed: !isSessionListVisible)
+                RecentChatsRail(model: model, layout: .vertical, isExpanded: $isSessionListVisible)
                     .frame(width: isSessionListVisible ? 220 : 56)
 
                 chatTranscript
@@ -1086,7 +1085,6 @@ private struct ChatQueuePanel: View {
 private struct HeaderPanel: View {
     @Bindable var model: WeeAppModel
     @Binding var isShowingHistory: Bool
-    @Binding var isSessionListVisible: Bool
 
     var body: some View {
         HStack(spacing: 10) {
@@ -1114,16 +1112,6 @@ private struct HeaderPanel: View {
             Spacer(minLength: 0)
 
             HStack(spacing: 6) {
-                Button {
-                    withAnimation(.snappy(duration: 0.2)) { isSessionListVisible.toggle() }
-                } label: {
-                    Image(systemName: isSessionListVisible ? "sidebar.left" : "sidebar.right")
-                        .frame(width: 20, height: 20)
-                }
-                .buttonStyle(WeeGhostButtonStyle())
-                .help(isSessionListVisible ? "Collapse chat list" : "Expand chat list")
-                .accessibilityLabel(isSessionListVisible ? "Collapse Chat List" : "Expand Chat List")
-
                 Button {
                     Task { await model.startNewChat() }
                 } label: {
@@ -1386,10 +1374,10 @@ enum ChatFolderActivity {
 private struct RecentChatsRail: View {
     @Bindable var model: WeeAppModel
     var layout: RecentChatsRailLayout = .horizontal
-    /// When true, renders a narrow icon-only strip instead of the full session list —
-    /// mirroring `ContentView`'s workspace rail collapse pattern, so the list narrows
-    /// rather than disappearing entirely.
-    var isCollapsed = false
+    /// Owns its own collapse toggle (mirroring `ContentView`'s workspace rail, whose
+    /// toggle lives at the top of the rail it controls rather than off in the global
+    /// header) — a narrow icon-only strip when false, instead of vanishing entirely.
+    @Binding var isExpanded: Bool
     @State private var sessionToRename: HistorySessionSummary?
     @State private var renameDraft = ""
     @State private var expandedAgentGroupIDs: Set<String> = []
@@ -1400,7 +1388,7 @@ private struct RecentChatsRail: View {
 
     var body: some View {
         Group {
-            if isCollapsed {
+            if !isExpanded {
                 collapsedRail
             } else {
             switch layout {
@@ -1422,6 +1410,7 @@ private struct RecentChatsRail: View {
             case .vertical:
                 VStack(alignment: .leading, spacing: 10) {
                     HStack {
+                        collapseToggleButton
                         Text("CHATS BY AGENT")
                             .weeFont(size: 9, weight: .bold)
                             .tracking(1)
@@ -1482,16 +1471,39 @@ private struct RecentChatsRail: View {
     }
 
     private var collapsedRail: some View {
-        ScrollView {
-            LazyVStack(spacing: 8) {
-                ForEach(model.visibleHistorySessions.prefix(40)) { session in
-                    collapsedSessionButton(session)
+        VStack(spacing: 8) {
+            collapseToggleButton
+                .padding(.top, 10)
+
+            ScrollView {
+                LazyVStack(spacing: 8) {
+                    ForEach(model.visibleHistorySessions.prefix(40)) { session in
+                        collapsedSessionButton(session)
+                    }
                 }
+                .padding(.vertical, 10)
             }
-            .padding(.vertical, 10)
+            .scrollIndicators(.hidden)
         }
-        .scrollIndicators(.hidden)
         .glassPanel()
+    }
+
+    /// Sits directly above the thread list it controls (in both the expanded header
+    /// row and the collapsed rail) rather than in the global chat header, mirroring
+    /// `ContentView`'s workspace rail toggle.
+    private var collapseToggleButton: some View {
+        Button {
+            withAnimation(.snappy(duration: 0.2)) { isExpanded.toggle() }
+        } label: {
+            Image(systemName: isExpanded ? "sidebar.left" : "sidebar.right")
+                .weeFont(size: 11, weight: .semibold)
+                .foregroundStyle(WeeTheme.textMuted)
+                .frame(width: 20, height: 20)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(isExpanded ? "Collapse chat list" : "Expand chat list")
+        .accessibilityLabel(isExpanded ? "Collapse Chat List" : "Expand Chat List")
     }
 
     private func collapsedSessionButton(_ session: HistorySessionSummary) -> some View {
