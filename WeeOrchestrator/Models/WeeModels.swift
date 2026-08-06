@@ -110,6 +110,25 @@ struct BotTokenUpdateRequest: Encodable {
     }
 }
 
+/// Whether the given agent's bot connector process is running (issue #491).
+/// `supported == false` for channels without service control wired up yet
+/// (only webex today) -- `unit`/`running`/`state` are absent in that case.
+struct BotServiceStatus: Decodable, Equatable {
+    let agent: String
+    let channel: String
+    let supported: Bool
+    let unit: String?
+    let running: Bool?
+    let state: String?
+}
+
+struct BotServiceRestartResponse: Decodable {
+    let status: String
+    let agent: String
+    let channel: String
+    let unit: String
+}
+
 struct PairingRequest: Encodable {
     let identity: String
     let channel: String

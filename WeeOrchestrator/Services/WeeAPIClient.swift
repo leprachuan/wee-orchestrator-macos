@@ -175,6 +175,19 @@ struct WeeAPIClient {
         )
     }
 
+    func botServiceStatus(agent: String, channel: String) async throws -> BotServiceStatus {
+        try await request("GET", path: "/api/v1/agents/\(agent)/bots/\(channel)/status")
+    }
+
+    @discardableResult
+    func restartBotService(agent: String, channel: String) async throws -> BotServiceRestartResponse {
+        try await request(
+            "POST",
+            path: "/api/v1/agents/\(agent)/bots/\(channel)/restart",
+            body: Optional<String>.none
+        )
+    }
+
     func envSettings() async throws -> EnvSettingsResponse {
         try await request("GET", path: "/api/v1/settings/env")
     }

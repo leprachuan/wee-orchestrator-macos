@@ -192,6 +192,14 @@ private struct AgentEditorSheet: View {
     @State private var isSavingInstructions = false
     @State private var instructionsStatus: String?
     @State private var instructionsStatusIsError = false
+    @State private var webexTokenInput = ""
+    @State private var webexTokenStatus = BotTokenStatus(agent: "", channel: "webex", configured: false, secretName: nil, allowedUsers: [])
+    @State private var webexServiceStatus: BotServiceStatus?
+    @State private var isLoadingWebex = false
+    @State private var isSavingWebexToken = false
+    @State private var isRestartingWebexService = false
+    @State private var webexStatus: String?
+    @State private var webexStatusIsError = false
 
     private let runtimeFallbacks = ["wee", "copilot", "copilot-sdk", "claude", "claude-sdk", "gemini", "opencode", "codex", "devin"]
 
@@ -214,6 +222,7 @@ private struct AgentEditorSheet: View {
                     agentDetailsSection
                     permissionsSection
                     instructionsSection
+                    webexSection
                     actionSection
                 }
                 .padding([.horizontal, .bottom], 16)
@@ -228,6 +237,7 @@ private struct AgentEditorSheet: View {
         // on screen — or saved — while another is selected.
         .task(id: selectedAgentName) {
             await loadInstructions(for: selectedAgentName)
+            await loadWebexStatus(for: selectedAgentName)
         }
         .confirmationDialog("Delete Agent?", isPresented: $showDeleteConfirmation, titleVisibility: .visible) {
             Button("Delete \(selectedAgentName)", role: .destructive) {
@@ -341,6 +351,163 @@ private struct AgentEditorSheet: View {
         } catch {
             instructionsStatus = "Save failed: \(error.localizedDescription)"
             instructionsStatusIsError = true
+        }
+    }
+
+    /// Per-agent Webex bot token + service control (issue #491). Mirrors
+    /// instructionsSection's per-agent reload discipline: token state is
+    /// never shown or acted on for a stale selection.
+    private var webexSection: some View {
+        AgentEditorSection(title: "Webex Bot", systemImage: "message.badge") {
+            VStack(alignment: .leading, spacing: 8) {
+                if isLoadingWebex {
+                    HStack(spacing: 8) {
+                        ProgressView().controlSize(.small)
+                        Text("Loading Webex status…")
+                            .weeFont(.caption)
+                            .foregroundStyle(WeeTheme.textSecondary)
+                    }
+                } else {
+                    HStack(spacing: 8) {
+                        StatusPill(
+                            text: webexTokenStatus.configured ? "token configured" : "no token",
+                            color: webexTokenStatus.configured ? WeeTheme.emerald : WeeTheme.textSecondary,
+                            symbol: webexTokenStatus.configured ? "checkmark.circle.fill" : "circle"
+                        )
+                        if let webexServiceStatus, webexServiceStatus.supported {
+                            StatusPill(
+                                text: webexServiceStatus.running == true ? "running" : "stopped",
+                                color: webexServiceStatus.running == true ? WeeTheme.emerald : WeeTheme.gold,
+                                symbol: webexServiceStatus.running == true ? "bolt.fill" : "bolt.slash"
+                            )
+                        }
+                    }
+
+                    AgentEditorFieldRow(title: "Bot Token") {
+                        SecureField(
+                            webexTokenStatus.configured ? "•••••••• (saving replaces the existing token)" : "Paste the Webex bot token",
+                            text: $webexTokenInput
+                        )
+                    }
+
+                    HStack(spacing: 10) {
+                        Button {
+                            Task { await saveWebexToken() }
+                        } label: {
+                            HStack(spacing: 6) {
+                                if isSavingWebexToken { ProgressView().controlSize(.small) }
+                                Text("Save Token")
+                            }
+                        }
+                        .buttonStyle(WeePrimaryButtonStyle())
+                        .disabled(selectedAgentName.isEmpty || isSavingWebexToken || webexTokenInput.isEmpty)
+
+                        Button("Clear Token") {
+                            Task { await clearWebexToken() }
+                        }
+                        .buttonStyle(WeeGhostButtonStyle())
+                        .disabled(selectedAgentName.isEmpty || !webexTokenStatus.configured)
+
+                        Button {
+                            Task { await restartWebexService() }
+                        } label: {
+                            HStack(spacing: 6) {
+                                if isRestartingWebexService { ProgressView().controlSize(.small) }
+                                Text(webexServiceStatus?.running == true ? "Restart Service" : "Start Service")
+                            }
+                        }
+                        .buttonStyle(WeeGhostButtonStyle())
+                        .disabled(
+                            selectedAgentName.isEmpty
+                            || isRestartingWebexService
+                            || (selectedAgentName != "orchestrator" && !webexTokenStatus.configured)
+                        )
+                        .help(
+                            selectedAgentName != "orchestrator" && !webexTokenStatus.configured
+                            ? "Save a bot token before starting this agent's Webex service."
+                            : ""
+                        )
+
+                        if let webexStatus {
+                            Text(webexStatus)
+                                .weeFont(.caption)
+                                .foregroundStyle(webexStatusIsError ? WeeTheme.danger : WeeTheme.accent)
+                        }
+
+                        Spacer()
+                    }
+                }
+            }
+        }
+    }
+
+    private func loadWebexStatus(for agent: String) async {
+        guard agent.isEmpty == false else { return }
+        isLoadingWebex = true
+        webexStatus = nil
+        webexTokenInput = ""
+        defer { isLoadingWebex = false }
+        do {
+            webexTokenStatus = try await model.client.botTokenStatus(agent: agent, channel: "webex")
+        } catch {
+            webexTokenStatus = BotTokenStatus(agent: agent, channel: "webex", configured: false, secretName: nil, allowedUsers: [])
+        }
+        do {
+            webexServiceStatus = try await model.client.botServiceStatus(agent: agent, channel: "webex")
+        } catch {
+            webexServiceStatus = nil
+        }
+    }
+
+    private func saveWebexToken() async {
+        let agent = selectedAgentName
+        guard agent.isEmpty == false, webexTokenInput.isEmpty == false else { return }
+        isSavingWebexToken = true
+        defer { isSavingWebexToken = false }
+        do {
+            try await model.client.saveBotToken(agent: agent, channel: "webex", token: webexTokenInput, allowedUsers: webexTokenStatus.allowedUsers)
+            guard agent == selectedAgentName else { return }
+            webexTokenInput = ""
+            webexTokenStatus = try await model.client.botTokenStatus(agent: agent, channel: "webex")
+            webexStatus = "Token saved"
+            webexStatusIsError = false
+        } catch {
+            webexStatus = "Save failed: \(error.localizedDescription)"
+            webexStatusIsError = true
+        }
+    }
+
+    private func clearWebexToken() async {
+        let agent = selectedAgentName
+        guard agent.isEmpty == false else { return }
+        isSavingWebexToken = true
+        defer { isSavingWebexToken = false }
+        do {
+            try await model.client.deleteBotToken(agent: agent, channel: "webex")
+            guard agent == selectedAgentName else { return }
+            webexTokenStatus = BotTokenStatus(agent: agent, channel: "webex", configured: false, secretName: nil, allowedUsers: [])
+            webexStatus = "Token removed"
+            webexStatusIsError = false
+        } catch {
+            webexStatus = "Remove failed: \(error.localizedDescription)"
+            webexStatusIsError = true
+        }
+    }
+
+    private func restartWebexService() async {
+        let agent = selectedAgentName
+        guard agent.isEmpty == false else { return }
+        isRestartingWebexService = true
+        defer { isRestartingWebexService = false }
+        do {
+            try await model.client.restartBotService(agent: agent, channel: "webex")
+            guard agent == selectedAgentName else { return }
+            webexServiceStatus = try await model.client.botServiceStatus(agent: agent, channel: "webex")
+            webexStatus = "Service restarted"
+            webexStatusIsError = false
+        } catch {
+            webexStatus = "Restart failed: \(error.localizedDescription)"
+            webexStatusIsError = true
         }
     }
 
