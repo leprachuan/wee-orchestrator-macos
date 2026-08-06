@@ -163,6 +163,17 @@ struct WeeAPIClient {
         return try await request("GET", path: "/api/v1/agents/\(agent)/memories/\(encodedName)")
     }
 
+    func saveAgentMemory(agent: String, name: String, content: String) async throws {
+        guard let encodedName = name.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) else {
+            throw WeeAPIError.invalidBaseURL
+        }
+        let _: AgentInstructionsSaveResponse = try await request(
+            "PUT",
+            path: "/api/v1/agents/\(agent)/memories/\(encodedName)",
+            body: AgentInstructionsUpdateRequest(content: content)
+        )
+    }
+
     func agentFiles(agent: String, path: String = "") async throws -> AgentFileListResponse {
         var suffix = ""
         if !path.isEmpty {

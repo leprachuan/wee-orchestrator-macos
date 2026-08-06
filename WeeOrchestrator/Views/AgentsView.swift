@@ -203,9 +203,11 @@ private struct AgentEditorSheet: View {
     @State private var memoryEntries: [AgentMemoryEntry] = []
     @State private var selectedMemoryName: String?
     @State private var selectedMemoryContent = ""
+    @State private var loadedMemoryContent = ""
     @State private var selectedMemoryExists = false
     @State private var isLoadingMemoryList = false
     @State private var isLoadingMemoryContent = false
+    @State private var isSavingMemory = false
     @State private var memoriesStatus: String?
     @State private var memoriesStatusIsError = false
 
@@ -364,11 +366,11 @@ private struct AgentEditorSheet: View {
         }
     }
 
-    /// Read-only viewer for an agent's memories (issue #65): the durable
+    /// Editable viewer for an agent's memories (issues #65, #461): the durable
     /// MEMORY.md plus dated notes under daily/. Mirrors instructionsSection's
     /// per-agent reload discipline -- switching agents clears the selected
-    /// memory and reloads the list, so a stale agent's content is never left
-    /// on screen.
+    /// memory and reloads the list, so a stale agent's content is never shown
+    /// or saved while another is selected.
     private var memoriesSection: some View {
         AgentEditorSection(title: "Memories", systemImage: "brain") {
             VStack(alignment: .leading, spacing: 8) {
@@ -400,21 +402,43 @@ private struct AgentEditorSheet: View {
                                     Text("\(selectedMemoryName) is empty.")
                                         .weeFont(.caption)
                                         .foregroundStyle(WeeTheme.textMuted)
-                                } else {
-                                    ScrollView {
-                                        Text(selectedMemoryContent)
-                                            .weeFont(.caption, design: .monospaced)
-                                            .foregroundStyle(WeeTheme.textPrimary)
-                                            .textSelection(.enabled)
-                                            .frame(maxWidth: .infinity, alignment: .leading)
-                                            .padding(8)
-                                    }
+                                }
+
+                                TextEditor(text: $selectedMemoryContent)
+                                    .weeFont(.caption, design: .monospaced)
+                                    .foregroundStyle(WeeTheme.textPrimary)
+                                    .scrollContentBackground(.hidden)
                                     .frame(minHeight: 160, maxHeight: 260)
+                                    .padding(8)
                                     .background(WeeTheme.sunken, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                                     .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(WeeTheme.glassStroke))
+
+                                HStack(spacing: 10) {
+                                    Button {
+                                        Task { await saveMemory() }
+                                    } label: {
+                                        HStack(spacing: 6) {
+                                            if isSavingMemory { ProgressView().controlSize(.small) }
+                                            Text("Save Memory")
+                                        }
+                                    }
+                                    .buttonStyle(WeePrimaryButtonStyle())
+                                    .disabled(
+                                        isSavingMemory
+                                        || selectedMemoryContent == loadedMemoryContent
+                                    )
+
+                                    Button("Revert") {
+                                        selectedMemoryContent = loadedMemoryContent
+                                        memoriesStatus = nil
+                                    }
+                                    .buttonStyle(WeeGhostButtonStyle())
+                                    .disabled(selectedMemoryContent == loadedMemoryContent)
+
+                                    Spacer()
                                 }
                             } else {
-                                Text("Select a memory to view its contents.")
+                                Text("Select a memory to view and edit its contents.")
                                     .weeFont(.caption)
                                     .foregroundStyle(WeeTheme.textMuted)
                             }
@@ -469,6 +493,7 @@ private struct AgentEditorSheet: View {
         memoriesStatus = nil
         selectedMemoryName = nil
         selectedMemoryContent = ""
+        loadedMemoryContent = ""
         defer { isLoadingMemoryList = false }
         do {
             memoryEntries = try await model.client.agentMemories(agent: agent)
@@ -490,12 +515,34 @@ private struct AgentEditorSheet: View {
             // can change while the request is in flight.
             guard agent == selectedAgentName, selectedMemoryName == name else { return }
             selectedMemoryContent = response.content
+            loadedMemoryContent = response.content
             selectedMemoryExists = response.exists
         } catch {
             guard agent == selectedAgentName, selectedMemoryName == name else { return }
             selectedMemoryContent = ""
+            loadedMemoryContent = ""
             selectedMemoryExists = false
             memoriesStatus = "Could not load \(name): \(error.localizedDescription)"
+            memoriesStatusIsError = true
+        }
+    }
+
+    private func saveMemory() async {
+        let agent = selectedAgentName
+        guard let name = selectedMemoryName, agent.isEmpty == false else { return }
+        isSavingMemory = true
+        defer { isSavingMemory = false }
+        do {
+            try await model.client.saveAgentMemory(agent: agent, name: name, content: selectedMemoryContent)
+            // Only trust the save for the agent/memory still selected: both
+            // can change while the request is in flight.
+            guard agent == selectedAgentName, selectedMemoryName == name else { return }
+            loadedMemoryContent = selectedMemoryContent
+            selectedMemoryExists = true
+            memoriesStatus = "Saved"
+            memoriesStatusIsError = false
+        } catch {
+            memoriesStatus = "Save failed: \(error.localizedDescription)"
             memoriesStatusIsError = true
         }
     }
