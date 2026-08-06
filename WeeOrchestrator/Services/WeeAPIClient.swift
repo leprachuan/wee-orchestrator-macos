@@ -151,6 +151,18 @@ struct WeeAPIClient {
         )
     }
 
+    func agentMemories(agent: String) async throws -> [AgentMemoryEntry] {
+        let response: AgentMemoryListResponse = try await request("GET", path: "/api/v1/agents/\(agent)/memories")
+        return response.memories
+    }
+
+    func agentMemoryContent(agent: String, name: String) async throws -> AgentMemoryContentResponse {
+        guard let encodedName = name.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) else {
+            throw WeeAPIError.invalidBaseURL
+        }
+        return try await request("GET", path: "/api/v1/agents/\(agent)/memories/\(encodedName)")
+    }
+
     func reloadAgents() async throws {
         let _: EmptyAPIResponse = try await request("POST", path: "/api/v1/reload-agents", body: Optional<String>.none)
     }

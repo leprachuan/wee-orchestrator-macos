@@ -200,6 +200,14 @@ private struct AgentEditorSheet: View {
     @State private var isRestartingWebexService = false
     @State private var webexStatus: String?
     @State private var webexStatusIsError = false
+    @State private var memoryEntries: [AgentMemoryEntry] = []
+    @State private var selectedMemoryName: String?
+    @State private var selectedMemoryContent = ""
+    @State private var selectedMemoryExists = false
+    @State private var isLoadingMemoryList = false
+    @State private var isLoadingMemoryContent = false
+    @State private var memoriesStatus: String?
+    @State private var memoriesStatusIsError = false
 
     private let runtimeFallbacks = ["wee", "copilot", "copilot-sdk", "claude", "claude-sdk", "gemini", "opencode", "codex", "devin"]
 
@@ -222,6 +230,7 @@ private struct AgentEditorSheet: View {
                     agentDetailsSection
                     permissionsSection
                     instructionsSection
+                    memoriesSection
                     webexSection
                     actionSection
                 }
@@ -238,6 +247,7 @@ private struct AgentEditorSheet: View {
         .task(id: selectedAgentName) {
             await loadInstructions(for: selectedAgentName)
             await loadWebexStatus(for: selectedAgentName)
+            await loadMemoryList(for: selectedAgentName)
         }
         .confirmationDialog("Delete Agent?", isPresented: $showDeleteConfirmation, titleVisibility: .visible) {
             Button("Delete \(selectedAgentName)", role: .destructive) {
@@ -351,6 +361,142 @@ private struct AgentEditorSheet: View {
         } catch {
             instructionsStatus = "Save failed: \(error.localizedDescription)"
             instructionsStatusIsError = true
+        }
+    }
+
+    /// Read-only viewer for an agent's memories (issue #65): the durable
+    /// MEMORY.md plus dated notes under daily/. Mirrors instructionsSection's
+    /// per-agent reload discipline -- switching agents clears the selected
+    /// memory and reloads the list, so a stale agent's content is never left
+    /// on screen.
+    private var memoriesSection: some View {
+        AgentEditorSection(title: "Memories", systemImage: "brain") {
+            VStack(alignment: .leading, spacing: 8) {
+                if isLoadingMemoryList {
+                    HStack(spacing: 8) {
+                        ProgressView().controlSize(.small)
+                        Text("Loading memories…")
+                            .weeFont(.caption)
+                            .foregroundStyle(WeeTheme.textSecondary)
+                    }
+                } else if memoryEntries.isEmpty {
+                    Text("This agent has no memories yet.")
+                        .weeFont(.caption)
+                        .foregroundStyle(WeeTheme.textMuted)
+                } else {
+                    HStack(alignment: .top, spacing: 10) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            ForEach(memoryEntries) { entry in
+                                memoryRow(entry)
+                            }
+                        }
+                        .frame(width: 200, alignment: .leading)
+
+                        VStack(alignment: .leading, spacing: 6) {
+                            if isLoadingMemoryContent {
+                                ProgressView().controlSize(.small)
+                            } else if let selectedMemoryName {
+                                if selectedMemoryExists == false {
+                                    Text("\(selectedMemoryName) is empty.")
+                                        .weeFont(.caption)
+                                        .foregroundStyle(WeeTheme.textMuted)
+                                } else {
+                                    ScrollView {
+                                        Text(selectedMemoryContent)
+                                            .weeFont(.caption, design: .monospaced)
+                                            .foregroundStyle(WeeTheme.textPrimary)
+                                            .textSelection(.enabled)
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+                                            .padding(8)
+                                    }
+                                    .frame(minHeight: 160, maxHeight: 260)
+                                    .background(WeeTheme.sunken, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                                    .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(WeeTheme.glassStroke))
+                                }
+                            } else {
+                                Text("Select a memory to view its contents.")
+                                    .weeFont(.caption)
+                                    .foregroundStyle(WeeTheme.textMuted)
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+
+                if let memoriesStatus {
+                    Text(memoriesStatus)
+                        .weeFont(.caption)
+                        .foregroundStyle(memoriesStatusIsError ? WeeTheme.danger : WeeTheme.accent)
+                }
+            }
+        }
+    }
+
+    private func memoryRow(_ entry: AgentMemoryEntry) -> some View {
+        Button {
+            Task { await loadMemoryContent(agent: selectedAgentName, name: entry.name) }
+        } label: {
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 5) {
+                    Image(systemName: entry.isDaily ? "calendar" : "doc.text.fill")
+                        .weeFont(.caption2)
+                    Text(entry.isDaily ? String(entry.name.dropFirst("daily/".count)) : entry.name)
+                        .weeFont(.caption, weight: .semibold)
+                        .lineLimit(1)
+                }
+                .foregroundStyle(selectedMemoryName == entry.name ? WeeTheme.accent : WeeTheme.textPrimary)
+                if entry.summary.isEmpty == false {
+                    Text(entry.summary)
+                        .weeFont(.caption2)
+                        .foregroundStyle(WeeTheme.textMuted)
+                        .lineLimit(1)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(6)
+            .background(
+                selectedMemoryName == entry.name ? WeeTheme.accent.opacity(0.12) : Color.clear,
+                in: RoundedRectangle(cornerRadius: 6, style: .continuous)
+            )
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(entry.isDaily ? "Daily note \(entry.name)" : "Durable memory \(entry.name)")
+    }
+
+    private func loadMemoryList(for agent: String) async {
+        guard agent.isEmpty == false else { return }
+        isLoadingMemoryList = true
+        memoriesStatus = nil
+        selectedMemoryName = nil
+        selectedMemoryContent = ""
+        defer { isLoadingMemoryList = false }
+        do {
+            memoryEntries = try await model.client.agentMemories(agent: agent)
+        } catch {
+            memoryEntries = []
+            memoriesStatus = "Could not load memories: \(error.localizedDescription)"
+            memoriesStatusIsError = true
+        }
+    }
+
+    private func loadMemoryContent(agent: String, name: String) async {
+        isLoadingMemoryContent = true
+        selectedMemoryName = name
+        memoriesStatus = nil
+        defer { isLoadingMemoryContent = false }
+        do {
+            let response = try await model.client.agentMemoryContent(agent: agent, name: name)
+            // Only trust the result for the agent/memory still selected: both
+            // can change while the request is in flight.
+            guard agent == selectedAgentName, selectedMemoryName == name else { return }
+            selectedMemoryContent = response.content
+            selectedMemoryExists = response.exists
+        } catch {
+            guard agent == selectedAgentName, selectedMemoryName == name else { return }
+            selectedMemoryContent = ""
+            selectedMemoryExists = false
+            memoriesStatus = "Could not load \(name): \(error.localizedDescription)"
+            memoriesStatusIsError = true
         }
     }
 

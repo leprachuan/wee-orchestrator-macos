@@ -35,6 +35,7 @@
 		A10055 /* ScheduledJobMutationRequestTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10055; };
 		A10056 /* ChatScrollFollowStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10056; };
 		A10057 /* BrowserZoomTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10057; };
+		A10058 /* AgentMemoryModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10058; };
 		A10022 /* AppDelegateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10024; };
 		A10023 /* ChatMessageQueueObservationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10025; };
 		A10024 /* ChatStreamTranscriptStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10026; };
@@ -90,6 +91,7 @@
 		B10055 /* ScheduledJobMutationRequestTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScheduledJobMutationRequestTests.swift; sourceTree = "<group>"; };
 		B10056 /* ChatScrollFollowStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatScrollFollowStateTests.swift; sourceTree = "<group>"; };
 		B10057 /* BrowserZoomTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserZoomTests.swift; sourceTree = "<group>"; };
+		B10058 /* AgentMemoryModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentMemoryModelTests.swift; sourceTree = "<group>"; };
 		B10024 /* AppDelegateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegateTests.swift; sourceTree = "<group>"; };
 		B10025 /* ChatMessageQueueObservationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatMessageQueueObservationTests.swift; sourceTree = "<group>"; };
 		B10026 /* ChatStreamTranscriptStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatStreamTranscriptStoreTests.swift; sourceTree = "<group>"; };
@@ -225,6 +227,7 @@
 				B10055 /* ScheduledJobMutationRequestTests.swift */,
 				B10056 /* ChatScrollFollowStateTests.swift */,
 				B10057 /* BrowserZoomTests.swift */,
+				B10058 /* AgentMemoryModelTests.swift */,
 				B10024 /* AppDelegateTests.swift */,
 				B10025 /* ChatMessageQueueObservationTests.swift */,
 				B10026 /* ChatStreamTranscriptStoreTests.swift */,
@@ -385,6 +388,7 @@
 				A10055,
 				A10056,
 				A10057,
+				A10058,
 				A10022,
 				A10023,
 				A10024,

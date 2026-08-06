@@ -1398,6 +1398,26 @@ struct AgentInstructionsSaveResponse: Decodable {
     let path: String?
 }
 
+/// Issue #65. One entry from GET /api/v1/agents/{name}/memories: `name` is
+/// "MEMORY.md" (durable) or a relative path like "daily/2026-08-06.md" --
+/// the caller distinguishes the two by whether `name` starts with "daily/".
+struct AgentMemoryEntry: Decodable, Equatable, Identifiable {
+    let name: String
+    let summary: String
+
+    var id: String { name }
+    var isDaily: Bool { name.hasPrefix("daily/") }
+}
+
+struct AgentMemoryListResponse: Decodable {
+    let memories: [AgentMemoryEntry]
+}
+
+struct AgentMemoryContentResponse: Decodable {
+    let content: String
+    let exists: Bool
+}
+
 struct ChatToolActivity: Identifiable, Hashable {
     let id: String
     var name: String
