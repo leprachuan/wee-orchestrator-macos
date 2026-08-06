@@ -40,6 +40,8 @@
 		A10058 /* AgentMemoryModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10058; };
 		A10060 /* NotificationCenterStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10060; };
 		A10062 /* FileBrowserPathTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10062; };
+		A10063 /* TerminalKeyTranslator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10063; };
+		A10064 /* TerminalKeyTranslatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10064; };
 		A10022 /* AppDelegateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10024; };
 		A10023 /* ChatMessageQueueObservationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10025; };
 		A10024 /* ChatStreamTranscriptStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10026; };
@@ -100,6 +102,8 @@
 		B10058 /* AgentMemoryModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentMemoryModelTests.swift; sourceTree = "<group>"; };
 		B10060 /* NotificationCenterStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationCenterStoreTests.swift; sourceTree = "<group>"; };
 		B10062 /* FileBrowserPathTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileBrowserPathTests.swift; sourceTree = "<group>"; };
+		B10063 /* TerminalKeyTranslator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalKeyTranslator.swift; sourceTree = "<group>"; };
+		B10064 /* TerminalKeyTranslatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalKeyTranslatorTests.swift; sourceTree = "<group>"; };
 		B10024 /* AppDelegateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegateTests.swift; sourceTree = "<group>"; };
 		B10025 /* ChatMessageQueueObservationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatMessageQueueObservationTests.swift; sourceTree = "<group>"; };
 		B10026 /* ChatStreamTranscriptStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatStreamTranscriptStoreTests.swift; sourceTree = "<group>"; };
@@ -206,6 +210,7 @@
 				B10008 /* ChatView.swift */,
 				B10061 /* FileBrowserWorkspace.swift */,
 				B10051 /* ShellSession.swift */,
+				B10063 /* TerminalKeyTranslator.swift */,
 				B10009 /* TasksView.swift */,
 				B10010 /* KanbanView.swift */,
 				B10011 /* AgentsView.swift */,
@@ -240,6 +245,7 @@
 				B10058 /* AgentMemoryModelTests.swift */,
 				B10060 /* NotificationCenterStoreTests.swift */,
 				B10062 /* FileBrowserPathTests.swift */,
+				B10064 /* TerminalKeyTranslatorTests.swift */,
 				B10024 /* AppDelegateTests.swift */,
 				B10025 /* ChatMessageQueueObservationTests.swift */,
 				B10026 /* ChatStreamTranscriptStoreTests.swift */,
@@ -372,6 +378,7 @@
 				A10005,
 				A10059,
 				A10061,
+				A10063,
 				A10006,
 				A10007,
 				A10008,
@@ -405,6 +412,7 @@
 				A10058,
 				A10060,
 				A10062,
+				A10064,
 				A10022,
 				A10023,
 				A10024,

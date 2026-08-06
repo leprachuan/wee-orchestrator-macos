@@ -437,12 +437,16 @@ final class ShellSessionController {
         bridgeStatus = "Paused"
     }
 
-    /// The user typed this directly into the panel. It goes through the exact
-    /// same PTY the LLM's `run` action writes to, so both sides share one
-    /// buffer -- there is no separate "user shell" and "agent shell".
-    func submitUserInput(_ text: String) {
+    /// Issue #61: the terminal surface forwards every keystroke here as it's
+    /// typed (already translated to the right bytes by TerminalKeyTranslator
+    /// -- Enter becomes "\r", not an appended "\n", since the caller is
+    /// forwarding raw terminal input now, not submitting a line). Goes
+    /// through the exact same PTY the LLM's `run` action writes to, so both
+    /// sides share one buffer -- there is no separate "user shell" and
+    /// "agent shell".
+    func sendRawInput(_ bytes: String) {
         ensureStarted()
-        pty.write(text + "\n")
+        pty.write(bytes)
     }
 
     /// Keeps the PTY's logical terminal size in step with the resizable shell
@@ -586,8 +590,11 @@ final class ShellSessionController {
 struct NativeShellPanel: View {
     @Bindable var controller: ShellSessionController
     @Binding var isVisible: Bool
-    @State private var inputText = ""
-    @FocusState private var inputFocused: Bool
+    // Issue #61: the terminal surface itself is now the input -- there is no
+    // more separate command field to focus. Renamed from the old
+    // `inputFocused` (which targeted that field) since it now targets the
+    // scrollable terminal surface directly.
+    @FocusState private var terminalFocused: Bool
 
     var body: some View {
         VStack(spacing: 0) {
@@ -612,6 +619,11 @@ struct NativeShellPanel: View {
                     .weeFont(.caption, weight: .semibold)
                     .lineLimit(1)
                 Spacer()
+                if terminalFocused {
+                    Text("Typing here")
+                        .weeFont(.caption2, weight: .semibold)
+                        .foregroundStyle(WeeTheme.accent)
+                }
                 Text(controller.bridgeStatus)
                     .weeFont(.caption2)
                     .foregroundStyle(WeeTheme.textMuted)
@@ -639,6 +651,46 @@ struct NativeShellPanel: View {
                 }
             }
             .background(ShellViewportReporter { controller.resizeViewport($0) })
+            // Issue #61: the terminal surface itself captures keyboard input
+            // now, replacing the separate line-buffered command field below.
+            // `.focusable()` + `@FocusState` make it a real responder;
+            // `.onKeyPress` intercepts every keystroke and forwards the
+            // translated bytes straight to the PTY as they're typed, rather
+            // than buffering a line until Enter -- required for interactive
+            // programs (prompts, menus, full-screen apps) that react to each
+            // keystroke individually. Command (⌘) combinations are left
+            // un-handled except paste, so system shortcuts (⌘C to copy the
+            // existing .textSelection(.enabled) selection, ⌘F, etc.) still
+            // reach their normal handlers instead of being swallowed as
+            // terminal input.
+            .focusable()
+            .focusEffectDisabled()
+            .focused($terminalFocused)
+            .onTapGesture { terminalFocused = true }
+            .onKeyPress(phases: .down) { keyPress in
+                if keyPress.modifiers.contains(.command) {
+                    if keyPress.characters.lowercased() == "v" {
+                        pasteClipboard()
+                        return .handled
+                    }
+                    return .ignored
+                }
+                guard let bytes = TerminalKeyTranslator.bytes(for: TerminalKeyInput(
+                    characters: keyPress.characters,
+                    key: Self.keyName(for: keyPress.key),
+                    hasControlModifier: keyPress.modifiers.contains(.control)
+                )) else {
+                    return .ignored
+                }
+                controller.sendRawInput(bytes)
+                return .handled
+            }
+            .overlay {
+                if terminalFocused {
+                    RoundedRectangle(cornerRadius: 0)
+                        .strokeBorder(WeeTheme.accent.opacity(0.6), lineWidth: 2)
+                }
+            }
             .overlay(alignment: .bottomLeading) {
                 if let error = controller.lastError {
                     Text(error)
@@ -649,26 +701,6 @@ struct NativeShellPanel: View {
                         .padding(8)
                 }
             }
-
-            HStack(spacing: 8) {
-                Text("$")
-                    .weeFont(.caption, design: .monospaced)
-                    .foregroundStyle(WeeTheme.textMuted)
-                TextField("Type a command", text: $inputText)
-                    .textFieldStyle(.plain)
-                    .weeFont(.caption, design: .monospaced)
-                    .focused($inputFocused)
-                    .onSubmit {
-                        let command = inputText
-                        inputText = ""
-                        guard !command.isEmpty else { return }
-                        controller.submitUserInput(command)
-                    }
-            }
-            .padding(.horizontal, 10)
-            .frame(height: 32)
-            .background(WeeTheme.surfaceRaised)
-            .overlay(alignment: .top) { Rectangle().fill(WeeTheme.divider).frame(height: 1) }
         }
         .background(WeeTheme.background)
         .onAppear {
@@ -677,16 +709,38 @@ struct NativeShellPanel: View {
         }
     }
 
+    private func pasteClipboard() {
+        guard let text = NSPasteboard.general.string(forType: .string), !text.isEmpty else { return }
+        controller.sendRawInput(text)
+    }
+
+    /// Maps a few `KeyEquivalent`s TerminalKeyTranslator recognizes by name;
+    /// everything else falls through to plain `characters` (ordinary
+    /// printable input).
+    private static func keyName(for key: KeyEquivalent) -> String {
+        switch key {
+        case .return: "return"
+        case .escape: "escape"
+        case .tab: "tab"
+        case .delete: "delete"
+        case .upArrow: "upArrow"
+        case .downArrow: "downArrow"
+        case .leftArrow: "leftArrow"
+        case .rightArrow: "rightArrow"
+        default: ""
+        }
+    }
+
     /// AppKit can leave another view (typically the browser's `WKWebView`) as first
     /// responder for one or more run-loop turns after this panel is inserted into the
     /// split view — a single reclaim attempt on appear is not reliable, and was
     /// observed to fail specifically when this panel is created for the first time by
     /// sending the first message in a brand-new chat. Retry across a few turns so the
-    /// TextField wins first responder once the view hierarchy has actually settled.
+    /// terminal surface wins first responder once the view hierarchy has actually settled.
     private func reclaimFocus() {
         for delay in [0, 30, 120, 300] {
             DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(delay)) {
-                inputFocused = true
+                terminalFocused = true
             }
         }
     }
