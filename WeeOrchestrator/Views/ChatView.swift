@@ -501,28 +501,6 @@ struct ChatBrowserWorkspace: View {
                 }
             }
         }
-        .overlay(alignment: .topTrailing) {
-            VStack(spacing: 8) {
-                if !shellVisible {
-                    workspacePanelButton(symbol: "terminal", help: "Show session shell") {
-                        shellVisible = true
-                    }
-                    .accessibilityLabel("Show Shell")
-                }
-                if !browserVisible {
-                    workspacePanelButton(symbol: "globe", help: "Show session browser") {
-                        browserVisible = true
-                    }
-                    .accessibilityLabel("Show Browser")
-                }
-            }
-            // Anchored below both panels' header + status rows (44 + 28pt) so these
-            // floating toggles never sit on top of the shell/browser's own navigation
-            // controls (back/forward/reload/address bar, hide button), regardless of
-            // window height.
-            .padding(.top, 80)
-            .padding(.trailing, 8)
-        }
         .task(id: sessionKey) {
             guard let sessionID = model.currentSessionID else {
                 controller = nil
@@ -564,25 +542,6 @@ struct ChatBrowserWorkspace: View {
             ChatView(model: model)
                 .frame(minWidth: 440)
         }
-    }
-
-    private func workspacePanelButton(symbol: String, help: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: symbol)
-                .weeFont(size: 16, weight: .semibold)
-                .foregroundStyle(WeeTheme.accent)
-                .frame(width: 38, height: 48)
-                .background(
-                    WeeTheme.surfaceRaised,
-                    in: RoundedRectangle(cornerRadius: 10, style: .continuous)
-                )
-                .overlay {
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .stroke(WeeTheme.glassStroke)
-                }
-        }
-        .buttonStyle(.plain)
-        .help(help)
     }
 
     private var browserPlaceholder: some View {
@@ -1303,6 +1262,12 @@ private struct ChatQueuePanel: View {
 private struct HeaderPanel: View {
     @Bindable var model: WeeAppModel
     @Binding var isShowingHistory: Bool
+    // Issue #63: same AppStorage keys ChatBrowserWorkspace's panels use, so
+    // these top-bar toggles and each panel's own "hide" control stay in sync
+    // without prop-drilling a binding through the view hierarchy -- the
+    // established pattern in this file (see isSessionListVisible above).
+    @AppStorage("wee.browser.visible") private var browserVisible = true
+    @AppStorage("wee.shell.visible") private var shellVisible = false
 
     var body: some View {
         HStack(spacing: 10) {
@@ -1330,6 +1295,40 @@ private struct HeaderPanel: View {
             Spacer(minLength: 0)
 
             HStack(spacing: 6) {
+                // Issue #63: relocated here from a floating button stack on the
+                // content edge. Real toggles (not just "show when hidden") so
+                // the active state -- accent tint when the panel is open --
+                // is always visible, matching the issue's "retain current
+                // behavior, including... active-state indication."
+                Button {
+                    shellVisible.toggle()
+                } label: {
+                    // Tinted on the Image itself, inside the label: applying
+                    // foregroundStyle after .buttonStyle() would lose to
+                    // WeeGhostButtonStyle's own internal foregroundStyle call.
+                    Image(systemName: "terminal")
+                        .foregroundStyle(shellVisible ? WeeTheme.accent : WeeTheme.textSecondary)
+                        .frame(width: 20, height: 20)
+                }
+                .buttonStyle(WeeGhostButtonStyle())
+                .help(shellVisible ? "Hide Terminal" : "Show Terminal")
+                .accessibilityLabel(shellVisible ? "Hide Terminal" : "Show Terminal")
+                .accessibilityAddTraits(shellVisible ? .isSelected : [])
+
+                Button {
+                    browserVisible.toggle()
+                } label: {
+                    Image(systemName: "globe")
+                        .foregroundStyle(browserVisible ? WeeTheme.accent : WeeTheme.textSecondary)
+                        .frame(width: 20, height: 20)
+                }
+                .buttonStyle(WeeGhostButtonStyle())
+                .help(browserVisible ? "Hide Browser" : "Show Browser")
+                .accessibilityLabel(browserVisible ? "Hide Browser" : "Show Browser")
+                .accessibilityAddTraits(browserVisible ? .isSelected : [])
+
+                Divider().frame(height: 20).overlay(WeeTheme.divider)
+
                 Button {
                     Task { await model.startNewChat() }
                 } label: {
