@@ -476,8 +476,10 @@ struct ChatBrowserWorkspace: View {
     let shellStore: ShellSessionStore
     @AppStorage("wee.browser.visible") private var browserVisible = true
     @AppStorage("wee.shell.visible") private var shellVisible = false
+    @AppStorage("wee.files.visible") private var filesVisible = false
     @State private var controller: BrowserSessionController?
     @State private var shellController: ShellSessionController?
+    @State private var fileBrowserController: FileBrowserController?
 
     private var sessionKey: String {
         "\(model.activeEnvironment.rawValue):\(model.currentSessionID ?? "none")"
@@ -488,23 +490,16 @@ struct ChatBrowserWorkspace: View {
             // `HSplitView` is stable with two children, but its three-child
             // layout can enter a continuous AttributeGraph layout transaction
             // when both persisted panels are restored. Keep the shell and chat
-            // together in a nested two-child split instead.
+            // together in a nested two-child split instead, and likewise nest
+            // browser+files together rather than adding a third top-level child.
             chatAndShell
-
-            if browserVisible {
-                if let controller {
-                    NativeBrowserPanel(controller: controller, isVisible: $browserVisible)
-                        .frame(minWidth: 300, idealWidth: 500)
-                } else {
-                    browserPlaceholder
-                        .frame(minWidth: 300, idealWidth: 500)
-                }
-            }
+            browserAndFiles
         }
         .task(id: sessionKey) {
             guard let sessionID = model.currentSessionID else {
                 controller = nil
                 shellController = nil
+                fileBrowserController = nil
                 store.deactivateAll()
                 shellStore.deactivateAll()
                 return
@@ -521,7 +516,59 @@ struct ChatBrowserWorkspace: View {
                 sessionID: sessionID,
                 client: model.client
             )
+            fileBrowserController = FileBrowserController(
+                client: model.client,
+                agentName: model.selectedAgent,
+                agentRootPath: model.agents.first(where: { $0.name == model.selectedAgent })?.path ?? "/"
+            )
         }
+    }
+
+    @ViewBuilder private var browserAndFiles: some View {
+        if browserVisible && filesVisible {
+            HSplitView {
+                browserPanelContent.frame(minWidth: 300, idealWidth: 500)
+                fileBrowserPanelContent.frame(minWidth: 240, idealWidth: 320)
+            }
+        } else if browserVisible {
+            browserPanelContent.frame(minWidth: 300, idealWidth: 500)
+        } else if filesVisible {
+            fileBrowserPanelContent.frame(minWidth: 240, idealWidth: 320)
+        }
+    }
+
+    @ViewBuilder private var browserPanelContent: some View {
+        if let controller {
+            NativeBrowserPanel(controller: controller, isVisible: $browserVisible)
+        } else {
+            browserPlaceholder
+        }
+    }
+
+    @ViewBuilder private var fileBrowserPanelContent: some View {
+        if let fileBrowserController {
+            FileBrowserPanel(controller: fileBrowserController, isVisible: $filesVisible)
+        } else {
+            filesPlaceholder
+        }
+    }
+
+    private var filesPlaceholder: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "folder")
+                .weeFont(size: 30)
+                .foregroundStyle(WeeTheme.accent)
+            Text("Session Files")
+                .weeFont(.headline, weight: .bold)
+                .foregroundStyle(WeeTheme.textPrimary)
+            Text("Send a message to create this chat session, then its agent's working files will appear here.")
+                .weeFont(.caption)
+                .foregroundStyle(WeeTheme.textSecondary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 280)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(WeeTheme.background)
     }
 
     @ViewBuilder private var chatAndShell: some View {
@@ -1268,6 +1315,7 @@ private struct HeaderPanel: View {
     // established pattern in this file (see isSessionListVisible above).
     @AppStorage("wee.browser.visible") private var browserVisible = true
     @AppStorage("wee.shell.visible") private var shellVisible = false
+    @AppStorage("wee.files.visible") private var filesVisible = false
 
     var body: some View {
         HStack(spacing: 10) {
@@ -1326,6 +1374,18 @@ private struct HeaderPanel: View {
                 .help(browserVisible ? "Hide Browser" : "Show Browser")
                 .accessibilityLabel(browserVisible ? "Hide Browser" : "Show Browser")
                 .accessibilityAddTraits(browserVisible ? .isSelected : [])
+
+                Button {
+                    filesVisible.toggle()
+                } label: {
+                    Image(systemName: "folder")
+                        .foregroundStyle(filesVisible ? WeeTheme.accent : WeeTheme.textSecondary)
+                        .frame(width: 20, height: 20)
+                }
+                .buttonStyle(WeeGhostButtonStyle())
+                .help(filesVisible ? "Hide Files" : "Show Files")
+                .accessibilityLabel(filesVisible ? "Hide Files" : "Show Files")
+                .accessibilityAddTraits(filesVisible ? .isSelected : [])
 
                 Divider().frame(height: 20).overlay(WeeTheme.divider)
 

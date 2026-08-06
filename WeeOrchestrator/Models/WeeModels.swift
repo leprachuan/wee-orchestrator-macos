@@ -1418,6 +1418,37 @@ struct AgentMemoryContentResponse: Decodable {
     let exists: Bool
 }
 
+// MARK: - Per-session file browser (issue #62)
+
+struct AgentFileEntry: Decodable, Identifiable, Equatable {
+    let name: String
+    let isDirectory: Bool
+    let size: Int?
+    let modifiedAt: String?
+
+    var id: String { name }
+}
+
+struct AgentFileListResponse: Decodable {
+    let agent: String
+    let path: String
+    let entries: [AgentFileEntry]
+}
+
+/// GET /api/v1/files/view's JSON shape for text files. Binary files (images,
+/// PDF) return raw bytes instead -- decoding this model fails for those, and
+/// the file browser treats that failure as "preview not supported" rather
+/// than an error, per issue #62's unsupported/binary state requirement.
+struct FileViewResponse: Decodable {
+    let path: String
+    let name: String
+    let size: Int
+    let mime: String
+    let language: String
+    let content: String
+    let type: String
+}
+
 struct ChatToolActivity: Identifiable, Hashable {
     let id: String
     var name: String

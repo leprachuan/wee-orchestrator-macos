@@ -163,6 +163,28 @@ struct WeeAPIClient {
         return try await request("GET", path: "/api/v1/agents/\(agent)/memories/\(encodedName)")
     }
 
+    func agentFiles(agent: String, path: String = "") async throws -> AgentFileListResponse {
+        var suffix = ""
+        if !path.isEmpty {
+            guard let encoded = path.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else {
+                throw WeeAPIError.invalidBaseURL
+            }
+            suffix = "?path=\(encoded)"
+        }
+        return try await request("GET", path: "/api/v1/agents/\(agent)/files\(suffix)")
+    }
+
+    /// `absolutePath` is the full host path (agent root + relative entry
+    /// path) -- /api/v1/files/view validates against its own broad prefix
+    /// allowlist independent of the per-agent scoping list_agent_files (used
+    /// to build the directory listing this is called from) enforces.
+    func viewFile(absolutePath: String) async throws -> FileViewResponse {
+        guard let encoded = absolutePath.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else {
+            throw WeeAPIError.invalidBaseURL
+        }
+        return try await request("GET", path: "/api/v1/files/view?path=\(encoded)")
+    }
+
     func reloadAgents() async throws {
         let _: EmptyAPIResponse = try await request("POST", path: "/api/v1/reload-agents", body: Optional<String>.none)
     }
