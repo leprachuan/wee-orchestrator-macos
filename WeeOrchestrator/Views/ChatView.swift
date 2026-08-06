@@ -1347,6 +1347,8 @@ private struct HeaderPanel: View {
                 .buttonStyle(WeeGhostButtonStyle())
                 .help("Chat History")
 
+                NotificationBellButton(store: model.notificationStore)
+
                 if model.isLoading {
                     ProgressView()
                         .controlSize(.small)
@@ -1497,6 +1499,129 @@ private struct HeaderPanel: View {
             return entry.label
         }
         return model.selectedModel.isEmpty ? "Model" : model.selectedModel
+    }
+}
+
+// MARK: - Notification center (issue #60)
+
+/// Top-right bell with an unread badge; opens a popover listing Wee's
+/// in-app notification history. Reuses the existing system-notification
+/// sources (task completion, Kanban due reminders) via NotificationCenterStore
+/// rather than introducing a separate notification pipeline.
+private struct NotificationBellButton: View {
+    @Bindable var store: NotificationCenterStore
+    @State private var isShowingPopover = false
+
+    var body: some View {
+        Button {
+            isShowingPopover = true
+        } label: {
+            ZStack(alignment: .topTrailing) {
+                Image(systemName: store.unreadCount > 0 ? "bell.badge.fill" : "bell")
+                    .frame(width: 20, height: 20)
+                if store.unreadCount > 0 {
+                    Text(store.unreadCount > 99 ? "99+" : "\(store.unreadCount)")
+                        .weeFont(.caption2, weight: .bold)
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 4)
+                        .frame(minWidth: 14, minHeight: 14)
+                        .background(WeeTheme.danger, in: Capsule())
+                        .offset(x: 8, y: -6)
+                }
+            }
+        }
+        .buttonStyle(WeeGhostButtonStyle())
+        .help(store.unreadCount > 0 ? "\(store.unreadCount) unread notifications" : "Notifications")
+        .accessibilityLabel(store.unreadCount > 0 ? "Notifications, \(store.unreadCount) unread" : "Notifications")
+        .popover(isPresented: $isShowingPopover, arrowEdge: .top) {
+            NotificationCenterPopover(store: store)
+        }
+    }
+}
+
+private struct NotificationCenterPopover: View {
+    @Bindable var store: NotificationCenterStore
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Text("Notifications")
+                    .weeFont(.headline, weight: .bold)
+                    .foregroundStyle(WeeTheme.textPrimary)
+                Spacer()
+                if store.notifications.contains(where: { !$0.isRead }) {
+                    Button("Mark All Read") { store.markAllRead() }
+                        .buttonStyle(.plain)
+                        .weeFont(.caption, weight: .semibold)
+                        .foregroundStyle(WeeTheme.accent)
+                }
+            }
+            .padding(12)
+
+            Divider().overlay(WeeTheme.divider)
+
+            if store.notifications.isEmpty {
+                VStack(spacing: 8) {
+                    Image(systemName: "bell.slash")
+                        .weeFont(size: 22)
+                        .foregroundStyle(WeeTheme.textMuted)
+                    Text("No notifications yet")
+                        .weeFont(.caption)
+                        .foregroundStyle(WeeTheme.textSecondary)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(28)
+            } else {
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        ForEach(store.notifications) { notification in
+                            NotificationRow(notification: notification) {
+                                store.markRead(id: notification.id)
+                            }
+                            Divider().overlay(WeeTheme.divider)
+                        }
+                    }
+                }
+                .frame(maxHeight: 360)
+            }
+        }
+        .frame(width: 320)
+        .background(WeeTheme.background)
+    }
+}
+
+private struct NotificationRow: View {
+    let notification: AppNotification
+    let onSelect: () -> Void
+
+    var body: some View {
+        Button(action: onSelect) {
+            HStack(alignment: .top, spacing: 8) {
+                Circle()
+                    .fill(notification.isRead ? Color.clear : WeeTheme.accent)
+                    .frame(width: 7, height: 7)
+                    .padding(.top, 5)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(notification.title)
+                        .weeFont(.caption, weight: .semibold)
+                        .foregroundStyle(WeeTheme.textPrimary)
+                    Text(notification.body)
+                        .weeFont(.caption2)
+                        .foregroundStyle(WeeTheme.textSecondary)
+                        .lineLimit(3)
+                    Text(notification.createdAt, format: .relative(presentation: .named))
+                        .weeFont(.caption2)
+                        .foregroundStyle(WeeTheme.textMuted)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(notification.title). \(notification.body). \(notification.isRead ? "Read" : "Unread")")
     }
 }
 

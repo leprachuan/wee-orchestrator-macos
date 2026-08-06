@@ -269,6 +269,12 @@ final class WeeAppModel {
     static let textSizeSteps: [DynamicTypeSize] = [.xSmall, .small, .medium, .large, .xLarge, .xxLarge, .xxxLarge]
     private static let defaultTextSizeIndex = 3
 
+    /// Issue #60: persists Wee's existing system notifications (task
+    /// completion/failure, Kanban due reminders) into an in-app history for
+    /// the top-bar bell icon. Also serves as UNUserNotificationCenter's
+    /// delegate, set in init() below.
+    let notificationStore = NotificationCenterStore()
+
     var activeEnvironment: WeeEnvironment
     var localConfiguration: APIConfiguration
     var remoteConfiguration: APIConfiguration
@@ -462,6 +468,7 @@ final class WeeAppModel {
         remoteSSHCheckoutDirectory = defaults.string(forKey: "wee.remoteSSH.checkoutDirectory") ?? remoteSSHCheckoutDirectory
         userAvatarImagePath = defaults.string(forKey: "wee.userAvatarImagePath") ?? ""
         chatSessionOrganizations = Self.loadChatSessionOrganizations(from: defaults)
+        UNUserNotificationCenter.current().delegate = notificationStore
     }
 
     var client: WeeAPIClient {
@@ -3700,12 +3707,19 @@ final class WeeAppModel {
                 content.sound = UNNotificationSound.defaultCritical
             }
 
+            let identifier = "wee.task.\(task.taskID)"
             let request = UNNotificationRequest(
-                identifier: "wee.task.\(task.taskID)",
+                identifier: identifier,
                 content: content,
                 trigger: nil
             )
             UNUserNotificationCenter.current().add(request)
+            // Recorded directly here rather than via the delegate's
+            // willPresent callback: the result is already known synchronously
+            // at this call site, and "wee.task." notifications are excluded
+            // from willPresent's recording specifically to avoid double-
+            // counting this one.
+            notificationStore.record(id: identifier, title: content.title, body: content.body)
         }
     }
 
