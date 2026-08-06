@@ -14,6 +14,11 @@ struct ChatView: View {
     @State private var isShowingFilePicker = false
     @State private var voice = ChatVoiceController()
     @AppStorage("wee.chat.sessionList.visible") private var isSessionListVisible = true
+    // Issue #59: chat auto-scroll state -- see ChatScrollFollowState.
+    @State private var scrollFollow = ChatScrollFollowState()
+    @State private var viewportHeight: CGFloat = 0
+    fileprivate static let bottomAnchorID = "chat-bottom-anchor"
+    fileprivate static let chatScrollSpace = "chatScrollSpace"
 
     var body: some View {
         VStack(spacing: 0) {
@@ -75,47 +80,130 @@ struct ChatView: View {
         .onDisappear { voice.cancelAll() }
     }
 
+    /// Issue #59: the chat panel only auto-scrolled when a new message was
+    /// *appended* (chatMessages.count changing) -- a streamed response grows
+    /// the last message's text in place, so it could extend below the fold
+    /// with no scroll at all. Track distance-from-bottom continuously (via
+    /// GeometryReader, not message count) so both new messages and streaming
+    /// growth keep following the user down, while an intentional scroll away
+    /// from the bottom is preserved and surfaced as a "new messages" pill
+    /// instead of being forced back down.
     private var chatTranscript: some View {
         ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 12) {
-                    if model.isShowingRecentChatWindow {
-                        Text("Showing the most recent \(model.chatMessages.count) messages")
-                            .weeFont(.caption)
-                            .foregroundStyle(WeeTheme.textMuted)
-                            .frame(maxWidth: .infinity, alignment: .center)
-                    }
-                    ForEach(model.chatMessages) { message in
-                        if message.isContextBoundary {
-                            ContextBoundaryBanner(text: message.text)
-                                .id(message.id)
-                        } else {
-                            ChatBubble(
-                                message: message,
-                                isStreaming: isStreaming(message),
-                                isPreparingSpeech: voice.loadingMessageID == message.id,
-                                isSpeaking: voice.speakingMessageID == message.id,
-                                userAvatarImage: model.userAvatarImage,
-                                mediaBaseURL: URL(string: model.configuration.baseURLString),
-                                onSpeak: {
-                                    Task { await voice.toggleSpeech(for: message, model: model) }
+            ZStack(alignment: .bottom) {
+                ScrollView {
+                    // The bottom anchor lives in a plain VStack, one level
+                    // outside the LazyVStack: PreferenceKey reporting from a
+                    // view inside a LazyVStack is unreliable in SwiftUI and
+                    // triggers "tried to update multiple times per frame" --
+                    // lazy stacks measure/lay out their children incrementally,
+                    // which doesn't play well with a single preference value
+                    // expected once per frame.
+                    VStack(alignment: .leading, spacing: 0) {
+                        LazyVStack(alignment: .leading, spacing: 12) {
+                            if model.isShowingRecentChatWindow {
+                                Text("Showing the most recent \(model.chatMessages.count) messages")
+                                    .weeFont(.caption)
+                                    .foregroundStyle(WeeTheme.textMuted)
+                                    .frame(maxWidth: .infinity, alignment: .center)
+                            }
+                            ForEach(model.chatMessages) { message in
+                                if message.isContextBoundary {
+                                    ContextBoundaryBanner(text: message.text)
+                                        .id(message.id)
+                                } else {
+                                    ChatBubble(
+                                        message: message,
+                                        isStreaming: isStreaming(message),
+                                        isPreparingSpeech: voice.loadingMessageID == message.id,
+                                        isSpeaking: voice.speakingMessageID == message.id,
+                                        userAvatarImage: model.userAvatarImage,
+                                        mediaBaseURL: URL(string: model.configuration.baseURLString),
+                                        onSpeak: {
+                                            Task { await voice.toggleSpeech(for: message, model: model) }
+                                        }
+                                    )
+                                        .id(message.id)
+                                }
+                            }
+                        }
+                        Color.clear
+                            .frame(height: 1)
+                            .id(Self.bottomAnchorID)
+                            .background(
+                                GeometryReader { geo in
+                                    Color.clear.preference(
+                                        key: ChatBottomAnchorKey.self,
+                                        value: geo.frame(in: .named(Self.chatScrollSpace)).maxY
+                                    )
                                 }
                             )
-                                .id(message.id)
-                        }
+                    }
+                    .padding(12)
+                }
+                .coordinateSpace(name: Self.chatScrollSpace)
+                .scrollIndicators(.hidden)
+                .glassPanel()
+                .background(
+                    GeometryReader { geo in
+                        Color.clear.preference(key: ChatViewportHeightKey.self, value: geo.size.height)
+                    }
+                )
+                .onPreferenceChange(ChatViewportHeightKey.self) { newHeight in
+                    // Deferred to the next runloop tick: writing @State directly
+                    // from a preference callback that's itself produced by a
+                    // GeometryReader inside this same view tree re-triggers layout
+                    // within the same frame, which SwiftUI flags as "Bound
+                    // preference tried to update multiple times per frame."
+                    DispatchQueue.main.async { viewportHeight = newHeight }
+                }
+                .onPreferenceChange(ChatBottomAnchorKey.self) { anchorMaxY in
+                    DispatchQueue.main.async {
+                        scrollFollow.updateProximity(anchorMaxY: anchorMaxY, viewportHeight: viewportHeight)
                     }
                 }
-                .padding(12)
-            }
-            .scrollIndicators(.hidden)
-            .glassPanel()
-            .onChange(of: model.chatMessages.count) {
-                if let last = model.chatMessages.last {
-                    withAnimation(.snappy) {
-                        proxy.scrollTo(last.id, anchor: .bottom)
+                .onChange(of: model.chatMessages.count) {
+                    if scrollFollow.contentChanged() {
+                        scrollToBottom(proxy: proxy, animated: true)
                     }
                 }
+                .onChange(of: model.chatMessages.last?.text.count) {
+                    if scrollFollow.contentChanged() {
+                        scrollToBottom(proxy: proxy, animated: true)
+                    }
+                }
+                .task(id: model.currentSessionID) {
+                    // Switching sessions loads an entirely different transcript --
+                    // always land at the bottom rather than preserving whatever
+                    // "following" state happened to be left over.
+                    scrollFollow.jumpToBottom()
+                    scrollToBottom(proxy: proxy, animated: false)
+                }
+
+                if scrollFollow.hasNewContentBelow {
+                    Button {
+                        scrollToBottom(proxy: proxy, animated: true)
+                        scrollFollow.jumpToBottom()
+                    } label: {
+                        Label("New messages", systemImage: "arrow.down.circle.fill")
+                    }
+                    .buttonStyle(WeePrimaryButtonStyle())
+                    .padding(.bottom, 10)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .accessibilityIdentifier("chat-new-messages-pill")
+                }
             }
+        }
+    }
+
+    private func scrollToBottom(proxy: ScrollViewProxy, animated: Bool) {
+        guard model.chatMessages.isEmpty == false else { return }
+        if animated {
+            withAnimation(.snappy) {
+                proxy.scrollTo(Self.bottomAnchorID, anchor: .bottom)
+            }
+        } else {
+            proxy.scrollTo(Self.bottomAnchorID, anchor: .bottom)
         }
     }
 
@@ -317,6 +405,66 @@ struct ChatView: View {
             return utType.preferredMIMEType ?? "application/octet-stream"
         }
         return "application/octet-stream"
+    }
+}
+
+// MARK: - Chat auto-scroll (issue #59)
+
+/// Pure decision logic for "stick to the bottom unless the user
+/// intentionally scrolled away" -- kept separate from the View body so it's
+/// unit-testable without a real window/layout pass. The View feeds it
+/// geometry measurements and content-change events; this struct owns no UI
+/// state itself.
+struct ChatScrollFollowState: Equatable {
+    private(set) var isFollowingBottom = true
+    private(set) var hasNewContentBelow = false
+
+    static let bottomProximityThreshold: CGFloat = 80
+
+    /// Call whenever the transcript's bottom-anchor position is measured
+    /// (on every layout pass, not just content changes) so a user's manual
+    /// scroll away from -- or back to -- the bottom is always reflected.
+    mutating func updateProximity(anchorMaxY: CGFloat, viewportHeight: CGFloat) {
+        let nearBottom = anchorMaxY <= viewportHeight + Self.bottomProximityThreshold
+        isFollowingBottom = nearBottom
+        if nearBottom { hasNewContentBelow = false }
+    }
+
+    /// Call when new content arrives: a message was appended, or the last
+    /// message's streamed text grew. Returns whether the caller should
+    /// scroll to bottom now; when the user has scrolled away, this instead
+    /// records that new content is waiting below without moving them.
+    @discardableResult
+    mutating func contentChanged() -> Bool {
+        guard isFollowingBottom else {
+            hasNewContentBelow = true
+            return false
+        }
+        return true
+    }
+
+    /// Call when the user taps the "new messages" affordance, or a new
+    /// session's transcript loads and should start pinned to the bottom.
+    mutating func jumpToBottom() {
+        isFollowingBottom = true
+        hasNewContentBelow = false
+    }
+}
+
+/// The chat transcript's bottom-anchor position, in the chat scroll view's
+/// own coordinate space -- compared against the viewport height to decide
+/// whether the user is close enough to the bottom to keep auto-following.
+struct ChatBottomAnchorKey: PreferenceKey {
+    static var defaultValue: CGFloat = .greatestFiniteMagnitude
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
+}
+
+struct ChatViewportHeightKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
     }
 }
 

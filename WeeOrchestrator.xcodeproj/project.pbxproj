@@ -33,6 +33,7 @@
 		A10053 /* ContentViewMinimumWidthTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10053; };
 		A10054 /* BrowserCommandCancellationShieldingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10054; };
 		A10055 /* ScheduledJobMutationRequestTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10055; };
+		A10056 /* ChatScrollFollowStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10056; };
 		A10022 /* AppDelegateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10024; };
 		A10023 /* ChatMessageQueueObservationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10025; };
 		A10024 /* ChatStreamTranscriptStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10026; };
@@ -86,6 +87,7 @@
 		B10053 /* ContentViewMinimumWidthTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentViewMinimumWidthTests.swift; sourceTree = "<group>"; };
 		B10054 /* BrowserCommandCancellationShieldingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserCommandCancellationShieldingTests.swift; sourceTree = "<group>"; };
 		B10055 /* ScheduledJobMutationRequestTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScheduledJobMutationRequestTests.swift; sourceTree = "<group>"; };
+		B10056 /* ChatScrollFollowStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatScrollFollowStateTests.swift; sourceTree = "<group>"; };
 		B10024 /* AppDelegateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegateTests.swift; sourceTree = "<group>"; };
 		B10025 /* ChatMessageQueueObservationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatMessageQueueObservationTests.swift; sourceTree = "<group>"; };
 		B10026 /* ChatStreamTranscriptStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatStreamTranscriptStoreTests.swift; sourceTree = "<group>"; };
@@ -219,6 +221,7 @@
 				B10053 /* ContentViewMinimumWidthTests.swift */,
 				B10054 /* BrowserCommandCancellationShieldingTests.swift */,
 				B10055 /* ScheduledJobMutationRequestTests.swift */,
+				B10056 /* ChatScrollFollowStateTests.swift */,
 				B10024 /* AppDelegateTests.swift */,
 				B10025 /* ChatMessageQueueObservationTests.swift */,
 				B10026 /* ChatStreamTranscriptStoreTests.swift */,
@@ -377,6 +380,7 @@
 				A10053,
 				A10054,
 				A10055,
+				A10056,
 				A10022,
 				A10023,
 				A10024,
