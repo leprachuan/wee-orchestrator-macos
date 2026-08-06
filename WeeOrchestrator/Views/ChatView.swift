@@ -726,6 +726,25 @@ final class BrowserSessionController: NSObject, WKNavigationDelegate {
     var isLoading = false
     var bridgeStatus = "Connecting…"
     var lastError: String?
+    /// Issue #64: text-size/zoom for the embedded browser. `allowsMagnification`
+    /// below only enables trackpad pinch, which isn't discoverable, keyboard
+    /// accessible, or available without a trackpad -- this is the explicit,
+    /// visible control. Backed by WKWebView.pageZoom (reflows text, unlike a
+    /// pure visual scale) and persisted across sessions/launches.
+    var zoomLevel: CGFloat {
+        didSet { webView.pageZoom = zoomLevel; BrowserSessionController.persistedZoomLevel = zoomLevel }
+    }
+
+    static let zoomRange: ClosedRange<CGFloat> = 0.5...3.0
+    private static let zoomStep: CGFloat = 0.1
+    private static let zoomDefaultsKey = "wee.browser.zoomLevel"
+    static var persistedZoomLevel: CGFloat {
+        get {
+            let stored = UserDefaults.standard.double(forKey: zoomDefaultsKey)
+            return stored == 0 ? 1.0 : CGFloat(stored)
+        }
+        set { UserDefaults.standard.set(Double(newValue), forKey: zoomDefaultsKey) }
+    }
 
     private let client: WeeAPIClient
     @ObservationIgnored private var pollingTask: Task<Void, Never>?
@@ -738,9 +757,23 @@ final class BrowserSessionController: NSObject, WKNavigationDelegate {
         configuration.websiteDataStore = .nonPersistent()
         configuration.defaultWebpagePreferences.allowsContentJavaScript = true
         self.webView = WKWebView(frame: .zero, configuration: configuration)
+        self.zoomLevel = BrowserSessionController.persistedZoomLevel
         super.init()
         webView.navigationDelegate = self
         webView.allowsMagnification = true
+        webView.pageZoom = zoomLevel
+    }
+
+    func zoomIn() {
+        zoomLevel = min(Self.zoomRange.upperBound, zoomLevel + Self.zoomStep)
+    }
+
+    func zoomOut() {
+        zoomLevel = max(Self.zoomRange.lowerBound, zoomLevel - Self.zoomStep)
+    }
+
+    func resetZoom() {
+        zoomLevel = 1.0
     }
 
     deinit { pollingTask?.cancel() }
@@ -980,6 +1013,8 @@ private struct NativeBrowserPanel: View {
                     .background(WeeTheme.surfaceRaised, in: RoundedRectangle(cornerRadius: 7))
                     .overlay(RoundedRectangle(cornerRadius: 7).stroke(WeeTheme.glassStroke))
 
+                browserZoomControls
+
                 Button { isVisible = false } label: { Image(systemName: "sidebar.trailing") }
                     .help("Hide browser")
             }
@@ -1021,6 +1056,41 @@ private struct NativeBrowserPanel: View {
                 }
         }
         .background(WeeTheme.background)
+    }
+
+    /// Issue #64. Explicit, keyboard-accessible zoom control (Cmd+/Cmd-/Cmd0
+    /// match the standard browser convention) with the current level always
+    /// visible, rather than relying on undiscoverable trackpad pinch alone.
+    private var browserZoomControls: some View {
+        HStack(spacing: 2) {
+            Button(action: controller.zoomOut) {
+                Image(systemName: "minus.magnifyingglass")
+            }
+            .keyboardShortcut("-", modifiers: .command)
+            .disabled(controller.zoomLevel <= BrowserSessionController.zoomRange.lowerBound)
+            .help("Decrease text size (⌘-)")
+            .accessibilityLabel("Decrease browser text size")
+
+            Button {
+                controller.resetZoom()
+            } label: {
+                Text("\(Int((controller.zoomLevel * 100).rounded()))%")
+                    .weeFont(.caption2, weight: .semibold)
+                    .monospacedDigit()
+                    .frame(minWidth: 36)
+            }
+            .keyboardShortcut("0", modifiers: .command)
+            .help("Reset text size (⌘0)")
+            .accessibilityLabel("Reset browser text size to 100 percent")
+
+            Button(action: controller.zoomIn) {
+                Image(systemName: "plus.magnifyingglass")
+            }
+            .keyboardShortcut("=", modifiers: .command)
+            .disabled(controller.zoomLevel >= BrowserSessionController.zoomRange.upperBound)
+            .help("Increase text size (⌘+)")
+            .accessibilityLabel("Increase browser text size")
+        }
     }
 }
 
