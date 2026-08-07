@@ -233,6 +233,10 @@ struct WeeAPIClient {
         )
     }
 
+    func botLogs(agent: String, channel: String, lines: Int = 200) async throws -> BotLogsResponse {
+        try await request("GET", path: "/api/v1/agents/\(agent)/bots/\(channel)/logs?lines=\(lines)")
+    }
+
     func envSettings() async throws -> EnvSettingsResponse {
         try await request("GET", path: "/api/v1/settings/env")
     }

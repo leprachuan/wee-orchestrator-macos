@@ -110,9 +110,8 @@ struct BotTokenUpdateRequest: Encodable {
     }
 }
 
-/// Whether the given agent's bot connector process is running (issue #491).
-/// `supported == false` for channels without service control wired up yet
-/// (only webex today) -- `unit`/`running`/`state` are absent in that case.
+/// Whether the given agent's bot connector process is running (issues #491,
+/// #492 — webex and telegram both wired up).
 struct BotServiceStatus: Decodable, Equatable {
     let agent: String
     let channel: String
@@ -127,6 +126,14 @@ struct BotServiceRestartResponse: Decodable {
     let agent: String
     let channel: String
     let unit: String
+}
+
+/// Recent journalctl output for one agent's bot listener (issue #492).
+struct BotLogsResponse: Decodable {
+    let agent: String
+    let channel: String
+    let unit: String
+    let lines: [String]
 }
 
 struct PairingRequest: Encodable {

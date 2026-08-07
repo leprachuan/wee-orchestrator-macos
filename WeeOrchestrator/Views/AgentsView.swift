@@ -192,14 +192,8 @@ private struct AgentEditorSheet: View {
     @State private var isSavingInstructions = false
     @State private var instructionsStatus: String?
     @State private var instructionsStatusIsError = false
-    @State private var webexTokenInput = ""
-    @State private var webexTokenStatus = BotTokenStatus(agent: "", channel: "webex", configured: false, secretName: nil, allowedUsers: [])
-    @State private var webexServiceStatus: BotServiceStatus?
-    @State private var isLoadingWebex = false
-    @State private var isSavingWebexToken = false
-    @State private var isRestartingWebexService = false
-    @State private var webexStatus: String?
-    @State private var webexStatusIsError = false
+    @State private var webexBotState = BotChannelUIState()
+    @State private var telegramBotState = BotChannelUIState()
     @State private var memoryEntries: [AgentMemoryEntry] = []
     @State private var selectedMemoryName: String?
     @State private var selectedMemoryContent = ""
@@ -233,7 +227,8 @@ private struct AgentEditorSheet: View {
                     permissionsSection
                     instructionsSection
                     memoriesSection
-                    webexSection
+                    botSection(title: "Webex Bot", systemImage: "message.badge", channel: "webex", state: $webexBotState)
+                    botSection(title: "Telegram Bot", systemImage: "paperplane", channel: "telegram", state: $telegramBotState)
                     actionSection
                 }
                 .padding([.horizontal, .bottom], 16)
@@ -248,7 +243,8 @@ private struct AgentEditorSheet: View {
         // on screen — or saved — while another is selected.
         .task(id: selectedAgentName) {
             await loadInstructions(for: selectedAgentName)
-            await loadWebexStatus(for: selectedAgentName)
+            await loadBotStatus(for: selectedAgentName, channel: "webex", state: $webexBotState)
+            await loadBotStatus(for: selectedAgentName, channel: "telegram", state: $telegramBotState)
             await loadMemoryList(for: selectedAgentName)
         }
         .confirmationDialog("Delete Agent?", isPresented: $showDeleteConfirmation, titleVisibility: .visible) {
@@ -547,84 +543,93 @@ private struct AgentEditorSheet: View {
         }
     }
 
-    /// Per-agent Webex bot token + service control (issue #491). Mirrors
-    /// instructionsSection's per-agent reload discipline: token state is
-    /// never shown or acted on for a stale selection.
-    private var webexSection: some View {
-        AgentEditorSection(title: "Webex Bot", systemImage: "message.badge") {
+    /// Per-agent, per-channel bot token + service control + log viewing
+    /// (issues #491, #492). Mirrors instructionsSection's per-agent reload
+    /// discipline: token/service state is never shown or acted on for a
+    /// stale selection. One instance of this per channel (webex, telegram)
+    /// keeps the two near-identical sections from being duplicated by hand.
+    private func botSection(title: String, systemImage: String, channel: String, state: Binding<BotChannelUIState>) -> some View {
+        AgentEditorSection(title: title, systemImage: systemImage) {
             VStack(alignment: .leading, spacing: 8) {
-                if isLoadingWebex {
+                if state.wrappedValue.isLoading {
                     HStack(spacing: 8) {
                         ProgressView().controlSize(.small)
-                        Text("Loading Webex status…")
+                        Text("Loading \(title) status…")
                             .weeFont(.caption)
                             .foregroundStyle(WeeTheme.textSecondary)
                     }
                 } else {
                     HStack(spacing: 8) {
                         StatusPill(
-                            text: webexTokenStatus.configured ? "token configured" : "no token",
-                            color: webexTokenStatus.configured ? WeeTheme.emerald : WeeTheme.textSecondary,
-                            symbol: webexTokenStatus.configured ? "checkmark.circle.fill" : "circle"
+                            text: state.wrappedValue.tokenStatus.configured ? "token configured" : "no token",
+                            color: state.wrappedValue.tokenStatus.configured ? WeeTheme.emerald : WeeTheme.textSecondary,
+                            symbol: state.wrappedValue.tokenStatus.configured ? "checkmark.circle.fill" : "circle"
                         )
-                        if let webexServiceStatus, webexServiceStatus.supported {
+                        if let serviceStatus = state.wrappedValue.serviceStatus, serviceStatus.supported {
                             StatusPill(
-                                text: webexServiceStatus.running == true ? "running" : "stopped",
-                                color: webexServiceStatus.running == true ? WeeTheme.emerald : WeeTheme.gold,
-                                symbol: webexServiceStatus.running == true ? "bolt.fill" : "bolt.slash"
+                                text: serviceStatus.running == true ? "running" : "stopped",
+                                color: serviceStatus.running == true ? WeeTheme.emerald : WeeTheme.gold,
+                                symbol: serviceStatus.running == true ? "bolt.fill" : "bolt.slash"
                             )
                         }
                     }
 
                     AgentEditorFieldRow(title: "Bot Token") {
                         SecureField(
-                            webexTokenStatus.configured ? "•••••••• (saving replaces the existing token)" : "Paste the Webex bot token",
-                            text: $webexTokenInput
+                            state.wrappedValue.tokenStatus.configured ? "•••••••• (saving replaces the existing token)" : "Paste the \(title.replacingOccurrences(of: " Bot", with: "")) bot token",
+                            text: state.tokenInput
                         )
                     }
 
                     HStack(spacing: 10) {
                         Button {
-                            Task { await saveWebexToken() }
+                            Task { await saveBotToken(channel: channel, state: state) }
                         } label: {
                             HStack(spacing: 6) {
-                                if isSavingWebexToken { ProgressView().controlSize(.small) }
+                                if state.wrappedValue.isSavingToken { ProgressView().controlSize(.small) }
                                 Text("Save Token")
                             }
                         }
                         .buttonStyle(WeePrimaryButtonStyle())
-                        .disabled(selectedAgentName.isEmpty || isSavingWebexToken || webexTokenInput.isEmpty)
+                        .disabled(selectedAgentName.isEmpty || state.wrappedValue.isSavingToken || state.wrappedValue.tokenInput.isEmpty)
 
                         Button("Clear Token") {
-                            Task { await clearWebexToken() }
+                            Task { await clearBotToken(channel: channel, state: state) }
                         }
                         .buttonStyle(WeeGhostButtonStyle())
-                        .disabled(selectedAgentName.isEmpty || !webexTokenStatus.configured)
+                        .disabled(selectedAgentName.isEmpty || !state.wrappedValue.tokenStatus.configured)
 
                         Button {
-                            Task { await restartWebexService() }
+                            Task { await restartBotService(channel: channel, state: state) }
                         } label: {
                             HStack(spacing: 6) {
-                                if isRestartingWebexService { ProgressView().controlSize(.small) }
-                                Text(webexServiceStatus?.running == true ? "Restart Service" : "Start Service")
+                                if state.wrappedValue.isRestarting { ProgressView().controlSize(.small) }
+                                Text(state.wrappedValue.serviceStatus?.running == true ? "Restart Service" : "Start Service")
                             }
                         }
                         .buttonStyle(WeeGhostButtonStyle())
                         .disabled(
                             selectedAgentName.isEmpty
-                            || isRestartingWebexService
-                            || (selectedAgentName != "orchestrator" && !webexTokenStatus.configured)
+                            || state.wrappedValue.isRestarting
+                            || (selectedAgentName != "orchestrator" && !state.wrappedValue.tokenStatus.configured)
                         )
                         .help(
-                            selectedAgentName != "orchestrator" && !webexTokenStatus.configured
-                            ? "Save a bot token before starting this agent's Webex service."
+                            selectedAgentName != "orchestrator" && !state.wrappedValue.tokenStatus.configured
+                            ? "Save a bot token before starting this agent's \(title)."
                             : ""
                         )
 
-                        if let webexStatus {
-                            Text(webexStatus)
+                        Button("View Logs") {
+                            state.wrappedValue.showLogs = true
+                            Task { await loadBotLogs(channel: channel, state: state) }
+                        }
+                        .buttonStyle(WeeGhostButtonStyle())
+                        .disabled(selectedAgentName.isEmpty)
+
+                        if let status = state.wrappedValue.status {
+                            Text(status)
                                 .weeFont(.caption)
-                                .foregroundStyle(webexStatusIsError ? WeeTheme.danger : WeeTheme.accent)
+                                .foregroundStyle(state.wrappedValue.statusIsError ? WeeTheme.danger : WeeTheme.accent)
                         }
 
                         Spacer()
@@ -632,75 +637,97 @@ private struct AgentEditorSheet: View {
                 }
             }
         }
+        .sheet(isPresented: state.showLogs) {
+            BotLogsSheet(title: title, channel: channel, state: state) {
+                await loadBotLogs(channel: channel, state: state)
+            }
+        }
     }
 
-    private func loadWebexStatus(for agent: String) async {
+    private func loadBotStatus(for agent: String, channel: String, state: Binding<BotChannelUIState>) async {
         guard agent.isEmpty == false else { return }
-        isLoadingWebex = true
-        webexStatus = nil
-        webexTokenInput = ""
-        defer { isLoadingWebex = false }
+        state.wrappedValue.isLoading = true
+        state.wrappedValue.status = nil
+        state.wrappedValue.tokenInput = ""
+        defer { state.wrappedValue.isLoading = false }
         do {
-            webexTokenStatus = try await model.client.botTokenStatus(agent: agent, channel: "webex")
+            state.wrappedValue.tokenStatus = try await model.client.botTokenStatus(agent: agent, channel: channel)
         } catch {
-            webexTokenStatus = BotTokenStatus(agent: agent, channel: "webex", configured: false, secretName: nil, allowedUsers: [])
+            state.wrappedValue.tokenStatus = BotTokenStatus(agent: agent, channel: channel, configured: false, secretName: nil, allowedUsers: [])
         }
         do {
-            webexServiceStatus = try await model.client.botServiceStatus(agent: agent, channel: "webex")
+            state.wrappedValue.serviceStatus = try await model.client.botServiceStatus(agent: agent, channel: channel)
         } catch {
-            webexServiceStatus = nil
+            state.wrappedValue.serviceStatus = nil
         }
     }
 
-    private func saveWebexToken() async {
+    private func saveBotToken(channel: String, state: Binding<BotChannelUIState>) async {
         let agent = selectedAgentName
-        guard agent.isEmpty == false, webexTokenInput.isEmpty == false else { return }
-        isSavingWebexToken = true
-        defer { isSavingWebexToken = false }
+        guard agent.isEmpty == false, state.wrappedValue.tokenInput.isEmpty == false else { return }
+        state.wrappedValue.isSavingToken = true
+        defer { state.wrappedValue.isSavingToken = false }
         do {
-            try await model.client.saveBotToken(agent: agent, channel: "webex", token: webexTokenInput, allowedUsers: webexTokenStatus.allowedUsers)
+            try await model.client.saveBotToken(agent: agent, channel: channel, token: state.wrappedValue.tokenInput, allowedUsers: state.wrappedValue.tokenStatus.allowedUsers)
             guard agent == selectedAgentName else { return }
-            webexTokenInput = ""
-            webexTokenStatus = try await model.client.botTokenStatus(agent: agent, channel: "webex")
-            webexStatus = "Token saved"
-            webexStatusIsError = false
+            state.wrappedValue.tokenInput = ""
+            state.wrappedValue.tokenStatus = try await model.client.botTokenStatus(agent: agent, channel: channel)
+            state.wrappedValue.status = "Token saved"
+            state.wrappedValue.statusIsError = false
         } catch {
-            webexStatus = "Save failed: \(error.localizedDescription)"
-            webexStatusIsError = true
+            state.wrappedValue.status = "Save failed: \(error.localizedDescription)"
+            state.wrappedValue.statusIsError = true
         }
     }
 
-    private func clearWebexToken() async {
-        let agent = selectedAgentName
-        guard agent.isEmpty == false else { return }
-        isSavingWebexToken = true
-        defer { isSavingWebexToken = false }
-        do {
-            try await model.client.deleteBotToken(agent: agent, channel: "webex")
-            guard agent == selectedAgentName else { return }
-            webexTokenStatus = BotTokenStatus(agent: agent, channel: "webex", configured: false, secretName: nil, allowedUsers: [])
-            webexStatus = "Token removed"
-            webexStatusIsError = false
-        } catch {
-            webexStatus = "Remove failed: \(error.localizedDescription)"
-            webexStatusIsError = true
-        }
-    }
-
-    private func restartWebexService() async {
+    private func clearBotToken(channel: String, state: Binding<BotChannelUIState>) async {
         let agent = selectedAgentName
         guard agent.isEmpty == false else { return }
-        isRestartingWebexService = true
-        defer { isRestartingWebexService = false }
+        state.wrappedValue.isSavingToken = true
+        defer { state.wrappedValue.isSavingToken = false }
         do {
-            try await model.client.restartBotService(agent: agent, channel: "webex")
+            try await model.client.deleteBotToken(agent: agent, channel: channel)
             guard agent == selectedAgentName else { return }
-            webexServiceStatus = try await model.client.botServiceStatus(agent: agent, channel: "webex")
-            webexStatus = "Service restarted"
-            webexStatusIsError = false
+            state.wrappedValue.tokenStatus = BotTokenStatus(agent: agent, channel: channel, configured: false, secretName: nil, allowedUsers: [])
+            state.wrappedValue.status = "Token removed"
+            state.wrappedValue.statusIsError = false
         } catch {
-            webexStatus = "Restart failed: \(error.localizedDescription)"
-            webexStatusIsError = true
+            state.wrappedValue.status = "Remove failed: \(error.localizedDescription)"
+            state.wrappedValue.statusIsError = true
+        }
+    }
+
+    private func restartBotService(channel: String, state: Binding<BotChannelUIState>) async {
+        let agent = selectedAgentName
+        guard agent.isEmpty == false else { return }
+        state.wrappedValue.isRestarting = true
+        defer { state.wrappedValue.isRestarting = false }
+        do {
+            try await model.client.restartBotService(agent: agent, channel: channel)
+            guard agent == selectedAgentName else { return }
+            state.wrappedValue.serviceStatus = try await model.client.botServiceStatus(agent: agent, channel: channel)
+            state.wrappedValue.status = "Service restarted"
+            state.wrappedValue.statusIsError = false
+        } catch {
+            state.wrappedValue.status = "Restart failed: \(error.localizedDescription)"
+            state.wrappedValue.statusIsError = true
+        }
+    }
+
+    private func loadBotLogs(channel: String, state: Binding<BotChannelUIState>) async {
+        let agent = selectedAgentName
+        guard agent.isEmpty == false else { return }
+        state.wrappedValue.isLoadingLogs = true
+        state.wrappedValue.logsError = nil
+        defer { state.wrappedValue.isLoadingLogs = false }
+        do {
+            let response = try await model.client.botLogs(agent: agent, channel: channel)
+            guard agent == selectedAgentName else { return }
+            state.wrappedValue.logLines = response.lines
+        } catch {
+            guard agent == selectedAgentName else { return }
+            state.wrappedValue.logLines = []
+            state.wrappedValue.logsError = "Could not load logs: \(error.localizedDescription)"
         }
     }
 
@@ -1054,6 +1081,95 @@ private struct AgentEditorSheet: View {
             .split(whereSeparator: \.isNewline)
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
+    }
+}
+
+/// Per-channel UI state for botSection (issues #491, #492): one instance
+/// each for webex and telegram, so the two near-identical sections share a
+/// single view/controller implementation instead of being hand-duplicated.
+private struct BotChannelUIState {
+    var tokenInput = ""
+    var tokenStatus = BotTokenStatus(agent: "", channel: "", configured: false, secretName: nil, allowedUsers: [])
+    var serviceStatus: BotServiceStatus?
+    var isLoading = false
+    var isSavingToken = false
+    var isRestarting = false
+    var status: String?
+    var statusIsError = false
+
+    var showLogs = false
+    var isLoadingLogs = false
+    var logLines: [String] = []
+    var logsError: String?
+}
+
+/// Recent journalctl output for one agent's bot listener (issue #492).
+private struct BotLogsSheet: View {
+    let title: String
+    let channel: String
+    @Binding var state: BotChannelUIState
+    let reload: () async -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text("\(title) Logs")
+                    .weeFont(.title3, weight: .bold)
+                    .foregroundStyle(WeeTheme.textPrimary)
+                Spacer()
+                Button {
+                    Task { await reload() }
+                } label: {
+                    HStack(spacing: 6) {
+                        if state.isLoadingLogs { ProgressView().controlSize(.small) }
+                        Image(systemName: "arrow.clockwise")
+                    }
+                }
+                .buttonStyle(WeeGhostButtonStyle())
+                Button("Done") { dismiss() }
+                    .keyboardShortcut(.cancelAction)
+            }
+            .padding()
+
+            Divider().overlay(WeeTheme.divider)
+
+            Group {
+                if state.isLoadingLogs && state.logLines.isEmpty {
+                    ProgressView().controlSize(.small).frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if let logsError = state.logsError {
+                    VStack(spacing: 8) {
+                        Image(systemName: "exclamationmark.triangle")
+                            .weeFont(size: 22)
+                            .foregroundStyle(WeeTheme.danger)
+                        Text(logsError)
+                            .weeFont(.caption)
+                            .foregroundStyle(WeeTheme.textSecondary)
+                            .multilineTextAlignment(.center)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .padding(20)
+                } else if state.logLines.isEmpty {
+                    Text("No recent log output.")
+                        .weeFont(.caption)
+                        .foregroundStyle(WeeTheme.textMuted)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    ScrollView {
+                        Text(state.logLines.joined(separator: "\n"))
+                            .weeFont(.caption, design: .monospaced)
+                            .foregroundStyle(WeeTheme.textPrimary)
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(12)
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color.black.opacity(0.85))
+        }
+        .frame(width: 640, height: 440)
+        .background(WeeTheme.background)
     }
 }
 
