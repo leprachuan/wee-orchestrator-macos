@@ -402,6 +402,13 @@ private struct KanbanColumnView: View {
 private struct KanbanCardRow: View {
     let card: KanbanCard
 
+    // Issue #494: local to this row rather than routed through WeeAppModel --
+    // the reminder action has no networking/session dependency, and a
+    // per-card status keeps one card's "Added" confirmation from being
+    // clobbered by another card's action landing moments later.
+    @State private var isAddingReminder = false
+    @State private var reminderStatus: String?
+
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
             HStack(spacing: 8) {
@@ -453,10 +460,44 @@ private struct KanbanCardRow: View {
                     .foregroundStyle(WeeTheme.accent)
                 }
             }
+
+            if let reminderStatus {
+                Text(reminderStatus)
+                    .weeFont(.caption2, weight: .semibold)
+                    .foregroundStyle(WeeTheme.accent)
+            }
         }
         .padding(9)
         .background(WeeTheme.surfaceRaised, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(WeeTheme.glassStroke))
+        .contextMenu {
+            Button {
+                Task { await addToReminders() }
+            } label: {
+                if isAddingReminder {
+                    Label("Adding…", systemImage: "hourglass")
+                } else {
+                    Label("Add to Reminders", systemImage: "checklist")
+                }
+            }
+            .disabled(isAddingReminder)
+        }
+    }
+
+    private func addToReminders() async {
+        isAddingReminder = true
+        reminderStatus = nil
+        defer { isAddingReminder = false }
+        switch await KanbanReminderService.addReminder(for: card) {
+        case .created:
+            reminderStatus = "Added to Reminders"
+        case .alreadyExists:
+            reminderStatus = "Already in Reminders"
+        case .accessDenied:
+            reminderStatus = "Reminders access denied — enable it in System Settings."
+        case .failed(let message):
+            reminderStatus = "Couldn't add reminder: \(message)"
+        }
     }
 
     private var dueColor: Color {

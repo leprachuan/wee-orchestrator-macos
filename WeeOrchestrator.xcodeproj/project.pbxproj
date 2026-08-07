@@ -42,6 +42,7 @@
 		A10062 /* FileBrowserPathTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10062; };
 		A10063 /* TerminalKeyTranslator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10063; };
 		A10064 /* TerminalKeyTranslatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10064; };
+		A10065 /* KanbanReminderService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10065; };
 		A10022 /* AppDelegateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10024; };
 		A10023 /* ChatMessageQueueObservationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10025; };
 		A10024 /* ChatStreamTranscriptStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10026; };
@@ -104,6 +105,7 @@
 		B10062 /* FileBrowserPathTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileBrowserPathTests.swift; sourceTree = "<group>"; };
 		B10063 /* TerminalKeyTranslator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalKeyTranslator.swift; sourceTree = "<group>"; };
 		B10064 /* TerminalKeyTranslatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalKeyTranslatorTests.swift; sourceTree = "<group>"; };
+		B10065 /* KanbanReminderService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KanbanReminderService.swift; sourceTree = "<group>"; };
 		B10024 /* AppDelegateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegateTests.swift; sourceTree = "<group>"; };
 		B10025 /* ChatMessageQueueObservationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatMessageQueueObservationTests.swift; sourceTree = "<group>"; };
 		B10026 /* ChatStreamTranscriptStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatStreamTranscriptStoreTests.swift; sourceTree = "<group>"; };
@@ -192,6 +194,7 @@
 				B10020 /* OllamaRegistryClient.swift */,
 				B10022 /* SessionResetDetector.swift */,
 				B10040 /* WeeCLIInstaller.swift */,
+				B10065 /* KanbanReminderService.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -379,6 +382,7 @@
 				A10059,
 				A10061,
 				A10063,
+				A10065,
 				A10006,
 				A10007,
 				A10008,

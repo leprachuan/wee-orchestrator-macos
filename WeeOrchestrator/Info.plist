@@ -4,6 +4,8 @@
 <dict>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Wee Orchestrator uses the microphone to transcribe spoken chat messages.</string>
+	<key>NSRemindersFullAccessUsageDescription</key>
+	<string>Wee Orchestrator adds Kanban items to Reminders when you choose "Add to Reminders".</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsArbitraryLoads</key>
