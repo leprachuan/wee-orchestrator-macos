@@ -1,3 +1,25 @@
+# Wee Orchestrator for macOS v0.10.8
+
+Released August 7, 2026.
+
+## Added
+
+- Telegram Bot section on the agent card (#492): configure a per-agent
+  Telegram bot token, start/restart its listener service, and view that
+  listener's recent log output — the same controls the Webex Bot section
+  already had, now available for both channels. Webex also gained a
+  "View Logs" control alongside its existing token/restart controls.
+- "Add to Reminders" on Kanban cards (#494): right-click a card for a
+  context menu action that creates an Apple Reminder for it (title, notes,
+  due date), using EventKit directly. Re-running it on the same card reports
+  "Already in Reminders" instead of creating a duplicate.
+
+## Changed
+
+- The agent memories viewer is now editable (#461): the durable MEMORY.md
+  and daily notes shown on the agent card can be edited and saved, not just
+  viewed.
+
 # Wee Orchestrator for macOS v0.10.7
 
 Released August 6, 2026.
