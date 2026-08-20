@@ -1,3 +1,26 @@
+# Wee Orchestrator for macOS v0.10.9
+
+Released August 20, 2026.
+
+## Added
+
+- Multi-tab browsing in the session browser (#69): open, switch between, and
+  close multiple tabs within a chat session's browser, each with its own
+  address, navigation history, and loading state. Closing the last tab is
+  disabled so a session's browser always has at least one tab.
+- Certificate exceptions for the session browser (#68): an untrusted TLS
+  certificate now shows a dialog naming the host instead of silently
+  blocking the page. Choosing to trust it applies only to that host for the
+  current browser session — it is never persisted and never extends to
+  other hosts or later sessions — and a lock indicator stays visible next to
+  the page title while the exception is in effect.
+
+## Fixed
+
+- The model picker could show a stale runtime's models (e.g. Codex) after
+  switching to another runtime (e.g. Claude), when that prior runtime's
+  catalog request finished after the switch (#67).
+
 # Wee Orchestrator for macOS v0.10.8
 
 Released August 7, 2026.
