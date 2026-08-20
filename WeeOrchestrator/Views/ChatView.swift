@@ -4,6 +4,7 @@ import UniformTypeIdentifiers
 import AVFoundation
 import Observation
 import WebKit
+import Security
 
 struct ChatView: View {
     @Bindable var model: WeeAppModel
@@ -720,25 +721,56 @@ final class BrowserSessionStore {
     }
 }
 
+/// One open tab in a session's browser. Each tab owns its own `WKWebView` so
+/// navigation history, loading state, and page content stay independent —
+/// `@Observable` so a background tab's title/loading updates refresh the tab
+/// strip even while another tab is active.
+@MainActor
+@Observable
+final class BrowserTab: Identifiable {
+    let id = UUID()
+    let webView: WKWebView
+    var address = ""
+    var title = "New Tab"
+    var isLoading = false
+    var lastError: String?
+
+    init(webView: WKWebView) {
+        self.webView = webView
+    }
+}
+
+/// A certificate challenge waiting on the user's explicit trust/cancel
+/// decision, surfaced by `NativeBrowserPanel` as a confirmation dialog.
+struct PendingCertificateChallenge {
+    let host: String
+    let serverTrust: SecTrust
+    let completionHandler: (URLSession.AuthChallengeDisposition, URLCredential?) -> Void
+}
+
 @MainActor
 @Observable
 final class BrowserSessionController: NSObject, WKNavigationDelegate {
     let sessionKey: String
     let sessionID: String
     let clientID = UUID().uuidString
-    let webView: WKWebView
-    var address = ""
-    var title = "New Tab"
-    var isLoading = false
+    var tabs: [BrowserTab]
+    var activeTabID: BrowserTab.ID
     var bridgeStatus = "Connecting…"
-    var lastError: String?
+    /// Hosts the user has explicitly trusted despite a certificate error, for
+    /// this browser session only. In-memory and never persisted, so the
+    /// exception does not survive past this chat session's controller and
+    /// never applies to other hosts or other sessions.
+    var trustedCertificateHosts: Set<String> = []
+    var pendingCertificateChallenge: PendingCertificateChallenge?
     /// Issue #64: text-size/zoom for the embedded browser. `allowsMagnification`
     /// below only enables trackpad pinch, which isn't discoverable, keyboard
     /// accessible, or available without a trackpad -- this is the explicit,
     /// visible control. Backed by WKWebView.pageZoom (reflows text, unlike a
-    /// pure visual scale) and persisted across sessions/launches.
+    /// pure visual scale) and persisted across sessions/launches. Shared by
+    /// every tab in this session, matching the single persisted preference.
     var zoomLevel: CGFloat {
-        didSet { webView.pageZoom = zoomLevel; BrowserSessionController.persistedZoomLevel = zoomLevel }
+        didSet { activeTab.webView.pageZoom = zoomLevel; BrowserSessionController.persistedZoomLevel = zoomLevel }
     }
 
     static let zoomRange: ClosedRange<CGFloat> = 0.5...3.0
@@ -755,19 +787,85 @@ final class BrowserSessionController: NSObject, WKNavigationDelegate {
     private let client: WeeAPIClient
     @ObservationIgnored private var pollingTask: Task<Void, Never>?
 
+    /// The tab driving the address bar, remote-control bridge, and zoom.
+    /// `tabs` is never emptied (closing the last tab is a no-op), so this is
+    /// always a real tab rather than an optional the rest of the class has to
+    /// keep unwrapping.
+    var activeTab: BrowserTab {
+        tabs.first(where: { $0.id == activeTabID }) ?? tabs[0]
+    }
+
+    var webView: WKWebView { activeTab.webView }
+    var address: String {
+        get { activeTab.address }
+        set { activeTab.address = newValue }
+    }
+    var title: String { activeTab.title }
+    var isLoading: Bool { activeTab.isLoading }
+    var lastError: String? {
+        get { activeTab.lastError }
+        set { activeTab.lastError = newValue }
+    }
+
+    /// Whether the page currently shown in the active tab is being displayed
+    /// under a user-granted certificate exception, so the panel can keep that
+    /// visible for as long as the exception is in effect.
+    var isActiveTabUnderCertificateException: Bool {
+        guard let host = URL(string: address)?.host else { return false }
+        return trustedCertificateHosts.contains(host)
+    }
+
     init(sessionKey: String, sessionID: String, client: WeeAPIClient) {
         self.sessionKey = sessionKey
         self.sessionID = sessionID
         self.client = client
+        let initialTab = BrowserTab(webView: Self.makeWebView())
+        self.tabs = [initialTab]
+        self.activeTabID = initialTab.id
+        self.zoomLevel = BrowserSessionController.persistedZoomLevel
+        super.init()
+        configure(initialTab.webView)
+    }
+
+    private static func makeWebView() -> WKWebView {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
         configuration.defaultWebpagePreferences.allowsContentJavaScript = true
-        self.webView = WKWebView(frame: .zero, configuration: configuration)
-        self.zoomLevel = BrowserSessionController.persistedZoomLevel
-        super.init()
+        return WKWebView(frame: .zero, configuration: configuration)
+    }
+
+    private func configure(_ webView: WKWebView) {
         webView.navigationDelegate = self
         webView.allowsMagnification = true
         webView.pageZoom = zoomLevel
+    }
+
+    @discardableResult
+    func newTab() -> BrowserTab {
+        let tab = BrowserTab(webView: Self.makeWebView())
+        configure(tab.webView)
+        tabs.append(tab)
+        activeTabID = tab.id
+        return tab
+    }
+
+    func selectTab(_ id: BrowserTab.ID) {
+        guard tabs.contains(where: { $0.id == id }) else { return }
+        activeTabID = id
+        activeTab.webView.pageZoom = zoomLevel
+    }
+
+    /// At least one tab always stays open, so the panel never has to
+    /// represent a tab-less session; closing the last remaining tab is a
+    /// no-op and the UI disables that control.
+    func closeTab(_ id: BrowserTab.ID) {
+        guard tabs.count > 1, let index = tabs.firstIndex(where: { $0.id == id }) else { return }
+        let wasActive = id == activeTabID
+        tabs.remove(at: index)
+        if wasActive {
+            activeTabID = tabs[min(index, tabs.count - 1)].id
+            activeTab.webView.pageZoom = zoomLevel
+        }
     }
 
     func zoomIn() {
@@ -780,6 +878,25 @@ final class BrowserSessionController: NSObject, WKNavigationDelegate {
 
     func resetZoom() {
         zoomLevel = 1.0
+    }
+
+    /// Grants a certificate exception for the pending challenge's host, for
+    /// this browser session only, and lets the blocked navigation proceed.
+    func trustPendingCertificate() {
+        guard let pending = pendingCertificateChallenge else { return }
+        trustedCertificateHosts.insert(pending.host)
+        print("[Browser] Certificate exception granted for \(pending.host) (session \(sessionKey))")
+        pending.completionHandler(.useCredential, URLCredential(trust: pending.serverTrust))
+        pendingCertificateChallenge = nil
+    }
+
+    /// Declines the pending certificate challenge; the navigation is blocked
+    /// exactly as it would be with no exception handling at all.
+    func cancelPendingCertificate() {
+        guard let pending = pendingCertificateChallenge else { return }
+        print("[Browser] Certificate exception declined for \(pending.host) (session \(sessionKey))")
+        pending.completionHandler(.cancelAuthenticationChallenge, nil)
+        pendingCertificateChallenge = nil
     }
 
     deinit { pollingTask?.cancel() }
@@ -820,14 +937,16 @@ final class BrowserSessionController: NSObject, WKNavigationDelegate {
     func reload() { webView.reload() }
 
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
-        isLoading = true
-        lastError = nil
+        guard let tab = tabs.first(where: { $0.webView === webView }) else { return }
+        tab.isLoading = true
+        tab.lastError = nil
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-        isLoading = false
-        address = webView.url?.absoluteString ?? address
-        title = webView.title?.isEmpty == false ? webView.title! : "Browser"
+        guard let tab = tabs.first(where: { $0.webView === webView }) else { return }
+        tab.isLoading = false
+        tab.address = webView.url?.absoluteString ?? tab.address
+        tab.title = webView.title?.isEmpty == false ? webView.title! : "Browser"
     }
 
     func webView(
@@ -835,8 +954,36 @@ final class BrowserSessionController: NSObject, WKNavigationDelegate {
         didFailProvisionalNavigation navigation: WKNavigation!,
         withError error: Error
     ) {
-        isLoading = false
-        lastError = error.localizedDescription
+        guard let tab = tabs.first(where: { $0.webView === webView }) else { return }
+        tab.isLoading = false
+        tab.lastError = error.localizedDescription
+    }
+
+    /// Certificate/server-trust challenges only — everything else (basic
+    /// auth, client certs, etc.) keeps WebKit's default handling untouched.
+    /// The default disposition blocks the untrusted cert; a user-visible
+    /// exception is the only path to `.useCredential`, and it is remembered
+    /// only for this host, in this session's `trustedCertificateHosts`.
+    func webView(
+        _ webView: WKWebView,
+        didReceive challenge: URLAuthenticationChallenge,
+        completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void
+    ) {
+        guard challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust,
+              let serverTrust = challenge.protectionSpace.serverTrust else {
+            completionHandler(.performDefaultHandling, nil)
+            return
+        }
+        let host = challenge.protectionSpace.host
+        if trustedCertificateHosts.contains(host) {
+            completionHandler(.useCredential, URLCredential(trust: serverTrust))
+            return
+        }
+        pendingCertificateChallenge = PendingCertificateChallenge(
+            host: host,
+            serverTrust: serverTrust,
+            completionHandler: completionHandler
+        )
     }
 
     private func pollCommands() async {
@@ -1002,6 +1149,8 @@ private struct NativeBrowserPanel: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            tabStrip
+
             HStack(spacing: 7) {
                 Button(action: controller.goBack) { Image(systemName: "chevron.left") }
                     .disabled(!controller.webView.canGoBack)
@@ -1029,13 +1178,20 @@ private struct NativeBrowserPanel: View {
             .padding(8)
             .background(WeeTheme.sidebar)
 
-            HStack {
+            HStack(spacing: 5) {
                 Image(systemName: "circle.fill")
                     .weeFont(size: 6)
                     .foregroundStyle(controller.bridgeStatus == "Wee connected" ? WeeTheme.emerald : WeeTheme.gold)
                 Text(controller.title)
                     .weeFont(.caption, weight: .semibold)
                     .lineLimit(1)
+                if controller.isActiveTabUnderCertificateException {
+                    Image(systemName: "exclamationmark.lock.fill")
+                        .weeFont(size: 10)
+                        .foregroundStyle(WeeTheme.gold)
+                        .help("Showing this page under a certificate exception you approved for this session")
+                        .accessibilityLabel("Certificate exception in effect for this page")
+                }
                 Spacer()
                 Text(controller.bridgeStatus)
                     .weeFont(.caption2)
@@ -1049,7 +1205,7 @@ private struct NativeBrowserPanel: View {
             .background(WeeTheme.surface)
 
             NativeWebView(webView: controller.webView)
-                .id(controller.sessionKey)
+                .id("\(controller.sessionKey):\(controller.activeTabID)")
                 .overlay(alignment: .bottomLeading) {
                     if let error = controller.lastError {
                         Text(error)
@@ -1062,6 +1218,92 @@ private struct NativeBrowserPanel: View {
                 }
         }
         .background(WeeTheme.background)
+        .confirmationDialog(
+            "Untrusted Certificate",
+            isPresented: Binding(
+                get: { controller.pendingCertificateChallenge != nil },
+                set: { if !$0 { controller.cancelPendingCertificate() } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Trust and Continue", role: .destructive) {
+                controller.trustPendingCertificate()
+            }
+            Button("Cancel", role: .cancel) {
+                controller.cancelPendingCertificate()
+            }
+        } message: {
+            if let pending = controller.pendingCertificateChallenge {
+                Text("“\(pending.host)” presented a certificate that could not be verified. This is expected for local or self-signed development servers, but could also mean the connection is not private. Trusting it applies only to \(pending.host) for this browser session.")
+            }
+        }
+    }
+
+    /// Issue #69: a lightweight Safari-style tab strip. Each tab is an
+    /// independent `WKWebView` owned by the controller; this view only
+    /// renders the strip and forwards taps to select/close/create tabs.
+    private var tabStrip: some View {
+        HStack(spacing: 4) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 4) {
+                    ForEach(controller.tabs) { tab in
+                        tabChip(tab)
+                    }
+                }
+            }
+
+            Button {
+                controller.newTab()
+            } label: {
+                Image(systemName: "plus")
+            }
+            .buttonStyle(.borderless)
+            .foregroundStyle(WeeTheme.textSecondary)
+            .help("New tab")
+            .accessibilityLabel("Open new browser tab")
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 8)
+        .padding(.top, 6)
+        .background(WeeTheme.sidebar)
+    }
+
+    private func tabChip(_ tab: BrowserTab) -> some View {
+        let isActive = tab.id == controller.activeTabID
+        return HStack(spacing: 5) {
+            if tab.isLoading {
+                ProgressView().controlSize(.mini)
+            } else {
+                Image(systemName: "globe")
+                    .weeFont(size: 9)
+                    .foregroundStyle(WeeTheme.textMuted)
+            }
+            Text(tab.title)
+                .weeFont(.caption2, weight: isActive ? .semibold : .regular)
+                .foregroundStyle(isActive ? WeeTheme.textPrimary : WeeTheme.textSecondary)
+                .lineLimit(1)
+                .frame(maxWidth: 120, alignment: .leading)
+            Button {
+                controller.closeTab(tab.id)
+            } label: {
+                Image(systemName: "xmark")
+                    .weeFont(size: 8)
+            }
+            .buttonStyle(.borderless)
+            .disabled(controller.tabs.count <= 1)
+            .opacity(controller.tabs.count <= 1 ? 0.3 : 1)
+            .help("Close tab")
+            .accessibilityLabel("Close tab \(tab.title)")
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 5)
+        .background(isActive ? WeeTheme.surfaceRaised : Color.clear, in: RoundedRectangle(cornerRadius: 6))
+        .contentShape(Rectangle())
+        .onTapGesture { controller.selectTab(tab.id) }
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(isActive ? [.isSelected] : [])
+        .accessibilityLabel("Tab: \(tab.title)")
     }
 
     /// Issue #64. Explicit, keyboard-accessible zoom control (Cmd+/Cmd-/Cmd0

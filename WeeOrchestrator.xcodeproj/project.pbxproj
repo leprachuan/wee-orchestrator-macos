@@ -65,6 +65,8 @@
 		A10049 /* ChatFolderActivityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10049; };
 		A10050 /* LocalServiceSupervisionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10050; };
 		A10045 /* ScalableTypographyCoverageTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10045; };
+		A10066 /* BrowserTabsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10066; };
+		A10067 /* BrowserCertificateExceptionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10067; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -128,6 +130,8 @@
 		B10049 /* ChatFolderActivityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatFolderActivityTests.swift; sourceTree = "<group>"; };
 		B10050 /* LocalServiceSupervisionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalServiceSupervisionTests.swift; sourceTree = "<group>"; };
 		B10045 /* ScalableTypographyCoverageTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScalableTypographyCoverageTests.swift; sourceTree = "<group>"; };
+		B10066 /* BrowserTabsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserTabsTests.swift; sourceTree = "<group>"; };
+		B10067 /* BrowserCertificateExceptionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserCertificateExceptionTests.swift; sourceTree = "<group>"; };
 		P10001 /* WeeOrchestrator.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = WeeOrchestrator.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		P10002 /* WeeOrchestratorTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = WeeOrchestratorTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -270,6 +274,8 @@
 				B10049 /* ChatFolderActivityTests.swift */,
 				B10050 /* LocalServiceSupervisionTests.swift */,
 				B10045 /* ScalableTypographyCoverageTests.swift */,
+				B10066 /* BrowserTabsTests.swift */,
+				B10067 /* BrowserCertificateExceptionTests.swift */,
 			);
 			path = WeeOrchestratorTests;
 			sourceTree = "<group>";
@@ -438,6 +444,8 @@
 				A10048,
 				A10049,
 				A10050,
+				A10066,
+				A10067,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
