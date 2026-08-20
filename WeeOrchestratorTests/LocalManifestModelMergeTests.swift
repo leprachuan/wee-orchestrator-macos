@@ -95,4 +95,22 @@ final class LocalManifestModelMergeTests: XCTestCase {
 
         XCTAssertEqual(merged.map(\.id), ["ollama/qwen3:8b"])
     }
+
+    /// A prior runtime's response may complete after the user switches the
+    /// picker to a new runtime. The stale result must be discarded.
+    @MainActor
+    func testStaleRuntimeCatalogIsNotAppliedAfterRuntimeChanges() {
+        XCTAssertFalse(
+            WeeAppModel.shouldApplyModelCatalog(
+                requestedRuntime: "codex",
+                selectedRuntime: "claude"
+            )
+        )
+        XCTAssertTrue(
+            WeeAppModel.shouldApplyModelCatalog(
+                requestedRuntime: " Claude ",
+                selectedRuntime: "claude"
+            )
+        )
+    }
 }

@@ -3319,6 +3319,13 @@ final class WeeAppModel {
             models = []
         }
 
+        // A catalog request can finish after the user (or a restored session)
+        // selects another runtime. Do not let that stale response replace the
+        // picker contents for the newer selection.
+        guard Self.shouldApplyModelCatalog(requestedRuntime: trimmed, selectedRuntime: selectedRuntime) else {
+            return
+        }
+
         // Issue #23: fold in anything the user configured for this runtime in
         // Local Settings that the API did not report back.
         if activeEnvironment == .local {
@@ -3332,6 +3339,11 @@ final class WeeAppModel {
 
         applySelectionDefaults(forceModelRefresh: true)
         saveConfiguration()
+    }
+
+    static func shouldApplyModelCatalog(requestedRuntime: String, selectedRuntime: String) -> Bool {
+        requestedRuntime.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            == selectedRuntime.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
 
     private func refreshSessionStatus(sessionID: String, onlyIfViewing expectedKey: ChatTranscriptKey? = nil) async {
