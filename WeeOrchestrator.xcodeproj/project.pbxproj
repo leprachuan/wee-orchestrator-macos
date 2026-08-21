@@ -510,7 +510,7 @@
 				CODE_SIGN_ENTITLEMENTS = WeeOrchestrator/WeeOrchestrator.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 30;
+				CURRENT_PROJECT_VERSION = 31;
 				DEVELOPMENT_TEAM = R365ZMKGT6;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = WeeOrchestrator/Info.plist;
@@ -518,7 +518,7 @@
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright 2026 Lipkey Family";
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 0.10.9;
+				MARKETING_VERSION = 0.10.10;
 				PRODUCT_BUNDLE_IDENTIFIER = com.lipkey.weeorchestrator.macos;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = macosx;
@@ -534,7 +534,7 @@
 				CODE_SIGN_ENTITLEMENTS = WeeOrchestrator/WeeOrchestrator.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 30;
+				CURRENT_PROJECT_VERSION = 31;
 				DEVELOPMENT_TEAM = R365ZMKGT6;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = WeeOrchestrator/Info.plist;
@@ -542,7 +542,7 @@
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright 2026 Lipkey Family";
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 0.10.9;
+				MARKETING_VERSION = 0.10.10;
 				PRODUCT_BUNDLE_IDENTIFIER = com.lipkey.weeorchestrator.macos;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = macosx;
@@ -556,11 +556,11 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 30;
+				CURRENT_PROJECT_VERSION = 31;
 				DEVELOPMENT_TEAM = R365ZMKGT6;
 				GENERATE_INFOPLIST_FILE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 0.10.9;
+				MARKETING_VERSION = 0.10.10;
 				PRODUCT_BUNDLE_IDENTIFIER = com.lipkey.weeorchestrator.macos.tests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = macosx;
@@ -574,11 +574,11 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 30;
+				CURRENT_PROJECT_VERSION = 31;
 				DEVELOPMENT_TEAM = R365ZMKGT6;
 				GENERATE_INFOPLIST_FILE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 0.10.9;
+				MARKETING_VERSION = 0.10.10;
 				PRODUCT_BUNDLE_IDENTIFIER = com.lipkey.weeorchestrator.macos.tests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = macosx;

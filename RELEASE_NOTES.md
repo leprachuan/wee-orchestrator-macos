@@ -1,3 +1,15 @@
+# Wee Orchestrator for macOS v0.10.10
+
+Released August 21, 2026.
+
+## Fixed
+
+- Chat attachments were silently ignored by the agent whenever the prompt
+  also had text (the common case) -- the upload endpoint only stages a file
+  on disk and returns its path, and that path was being dropped instead of
+  included in the query sent to the runtime. The agent would ask the user to
+  resend the content instead of reading the attached file (#70).
+
 # Wee Orchestrator for macOS v0.10.9
 
 Released August 20, 2026.
