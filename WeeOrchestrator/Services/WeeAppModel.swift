@@ -2460,16 +2460,20 @@ final class WeeAppModel {
             sourceTranscriptKey = transcriptKey
             streamTranscripts.retainTranscript(for: transcriptKey, messages: sourceMessages)
 
+            var uploadedFilePaths: [String] = []
             for attachment in attachments {
-                _ = try await streamClient.uploadFile(
+                let uploaded = try await streamClient.uploadFile(
                     sessionID: sessionID,
                     data: attachment.data,
                     filename: attachment.filename,
                     mimeType: attachment.mimeType
                 )
+                if let filePath = uploaded.filePath, !filePath.isEmpty {
+                    uploadedFilePaths.append(filePath)
+                }
             }
 
-            let query = attachments.isEmpty ? trimmed : (trimmed.isEmpty ? "[Attached \(attachments.count) file(s)]" : trimmed)
+            let query = Self.buildQuery(prompt: trimmed, uploadedFilePaths: uploadedFilePaths)
             let streamKey = transcriptKey
             activeStreamKey = streamKey
 
@@ -3344,6 +3348,18 @@ final class WeeAppModel {
     static func shouldApplyModelCatalog(requestedRuntime: String, selectedRuntime: String) -> Bool {
         requestedRuntime.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
             == selectedRuntime.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+
+    /// Builds the text actually sent to the runtime. `/api/v1/sessions/{id}/upload`
+    /// only stages a file on disk and returns its path -- it never touches the
+    /// prompt or the session itself. Without the path appended here, the agent
+    /// has no way to know an attachment exists or where to read it, and silently
+    /// ignores it even when the user's own text asks it to look at the file.
+    /// Mirrors the WebUI's `sendMessage()`, which appends the same
+    /// "Files attached:" block for the same reason.
+    static func buildQuery(prompt: String, uploadedFilePaths: [String]) -> String {
+        guard !uploadedFilePaths.isEmpty else { return prompt }
+        return prompt + "\n\nFiles attached:\n" + uploadedFilePaths.joined(separator: "\n")
     }
 
     private func refreshSessionStatus(sessionID: String, onlyIfViewing expectedKey: ChatTranscriptKey? = nil) async {

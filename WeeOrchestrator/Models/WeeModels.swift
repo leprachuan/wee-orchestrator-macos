@@ -1479,10 +1479,16 @@ struct UploadResponse: Decodable {
     let url: String?
     let uploadId: String?
     let message: String?
+    /// The server-side path the uploaded file was written to (e.g.
+    /// `/tmp/webui_uploads/{session_id}/{filename}`). This is what must be
+    /// referenced in the chat query so the agent's file tools can read the
+    /// attachment -- the upload endpoint itself does not touch the prompt.
+    let filePath: String?
 
     enum CodingKeys: String, CodingKey {
         case success, filename, url, message
         case uploadId = "upload_id"
+        case filePath = "file_path"
     }
 }
 
