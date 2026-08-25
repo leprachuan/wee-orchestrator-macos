@@ -899,6 +899,16 @@ final class BrowserSessionController: NSObject, WKNavigationDelegate {
         pendingCertificateChallenge = nil
     }
 
+    /// Retain at most one deferred certificate decision. WebKit requires every
+    /// authentication-challenge completion handler to be called exactly once;
+    /// replacing a pending challenge without resolving it aborts the app.
+    func deferCertificateChallenge(_ challenge: PendingCertificateChallenge) {
+        if let pending = pendingCertificateChallenge {
+            pending.completionHandler(.cancelAuthenticationChallenge, nil)
+        }
+        pendingCertificateChallenge = challenge
+    }
+
     deinit { pollingTask?.cancel() }
 
     var isPolling: Bool { pollingTask != nil }
@@ -979,11 +989,18 @@ final class BrowserSessionController: NSObject, WKNavigationDelegate {
             completionHandler(.useCredential, URLCredential(trust: serverTrust))
             return
         }
-        pendingCertificateChallenge = PendingCertificateChallenge(
+        // A normally valid certificate should use WebKit's standard handling,
+        // without ever presenting an exception dialog. Sites such as Fidelity
+        // can issue several normal TLS challenges while loading their assets.
+        if SecTrustEvaluateWithError(serverTrust, nil) {
+            completionHandler(.performDefaultHandling, nil)
+            return
+        }
+        deferCertificateChallenge(PendingCertificateChallenge(
             host: host,
             serverTrust: serverTrust,
             completionHandler: completionHandler
-        )
+        ))
     }
 
     private func pollCommands() async {

@@ -1,3 +1,14 @@
+# Wee Orchestrator for macOS v0.10.11
+
+Released August 25, 2026.
+
+## Fixed
+
+- Fixed a crash in the embedded browser when a website issued overlapping TLS
+  certificate challenges during page loading. Valid certificates now use
+  WebKit's standard handling; deferred certificate decisions are always
+  completed safely (#510).
+
 # Wee Orchestrator for macOS v0.10.10
 
 Released August 21, 2026.

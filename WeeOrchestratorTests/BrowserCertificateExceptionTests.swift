@@ -95,6 +95,27 @@ final class BrowserCertificateExceptionTests: XCTestCase {
         XCTAssertNil(controller.pendingCertificateChallenge)
     }
 
+    func test_replacingAPendingChallengeCompletesThePreviousHandler() {
+        let controller = makeController()
+        var firstDisposition: URLSession.AuthChallengeDisposition?
+        var secondDisposition: URLSession.AuthChallengeDisposition?
+
+        controller.deferCertificateChallenge(PendingCertificateChallenge(
+            host: "first.example",
+            serverTrust: makeServerTrust(),
+            completionHandler: { disposition, _ in firstDisposition = disposition }
+        ))
+        controller.deferCertificateChallenge(PendingCertificateChallenge(
+            host: "second.example",
+            serverTrust: makeServerTrust(),
+            completionHandler: { disposition, _ in secondDisposition = disposition }
+        ))
+
+        XCTAssertEqual(firstDisposition, .cancelAuthenticationChallenge)
+        XCTAssertNil(secondDisposition, "The new challenge must remain available for a user decision")
+        XCTAssertEqual(controller.pendingCertificateChallenge?.host, "second.example")
+    }
+
     func test_trustingOneHostDoesNotTrustAnUnrelatedHost() {
         let controller = makeController()
         controller.pendingCertificateChallenge = PendingCertificateChallenge(
