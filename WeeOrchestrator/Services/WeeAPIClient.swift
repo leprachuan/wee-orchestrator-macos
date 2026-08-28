@@ -275,6 +275,22 @@ struct WeeAPIClient {
         return response.models
     }
 
+    func routerConfig() async throws -> RouterConfigResponse {
+        try await request("GET", path: "/api/v1/router-config")
+    }
+
+    func saveRouterConfig(_ config: RouterConfig) async throws -> RouterConfigSaveResponse {
+        try await request("PUT", path: "/api/v1/router-config", body: RouterConfigUpdateRequest(config: config))
+    }
+
+    func testRouter(prompt: String) async throws -> RouterTestResponse {
+        try await request("POST", path: "/api/v1/router/test", body: RouterTestRequest(prompt: prompt))
+    }
+
+    func routerStatus() async throws -> RouterStatusResponse {
+        try await request("GET", path: "/api/v1/router/status")
+    }
+
     func requestPairing(identity: String, channel: String) async throws -> PairingRequestResponse {
         let body = PairingRequest(identity: identity, channel: channel)
         return try await request("POST", path: "/api/v1/auth/request-pairing", body: body)

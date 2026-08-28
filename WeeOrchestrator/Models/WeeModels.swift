@@ -453,6 +453,152 @@ struct ModelCatalogEntry: Decodable, Identifiable, Hashable {
     let group: String?
 }
 
+// MARK: - LLM Router (issue #506)
+
+struct RouterRuntimeModel: Codable, Equatable {
+    var runtime: String
+    var model: String
+}
+
+struct RouterAllowlistEntry: Codable, Equatable, Identifiable {
+    var id = UUID()
+    var runtime: String
+    var model: String
+    var hint: String?
+
+    enum CodingKeys: String, CodingKey {
+        case runtime, model, hint
+    }
+
+    init(runtime: String = "", model: String = "", hint: String? = nil) {
+        self.runtime = runtime
+        self.model = model
+        self.hint = hint
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        runtime = try container.decode(String.self, forKey: .runtime)
+        model = try container.decode(String.self, forKey: .model)
+        hint = try container.decodeIfPresent(String.self, forKey: .hint)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(runtime, forKey: .runtime)
+        try container.encode(model, forKey: .model)
+        try container.encodeIfPresent(hint, forKey: .hint)
+    }
+}
+
+struct RouterStickiness: Codable, Equatable {
+    var enabled: Bool
+    var preferSameRuntime: Bool
+    var windowSeconds: Double
+
+    enum CodingKeys: String, CodingKey {
+        case enabled
+        case preferSameRuntime = "prefer_same_runtime"
+        case windowSeconds = "window_seconds"
+    }
+}
+
+struct RouterConfig: Codable, Equatable {
+    var enabled: Bool
+    var brain: RouterRuntimeModel
+    var timeoutSeconds: Double
+    var promptTemplate: String
+    var allowlist: [RouterAllowlistEntry]
+    var fallback: RouterRuntimeModel
+    var stickiness: RouterStickiness
+    var cooldownSeconds: Double
+
+    enum CodingKeys: String, CodingKey {
+        case enabled, brain
+        case timeoutSeconds = "timeout_seconds"
+        case promptTemplate = "prompt_template"
+        case allowlist, fallback, stickiness
+        case cooldownSeconds = "cooldown_seconds"
+    }
+}
+
+struct RouterConfigResponse: Decodable {
+    let config: RouterConfig
+    let enabledEffective: Bool
+    let validationErrors: [String]
+
+    enum CodingKeys: String, CodingKey {
+        case config
+        case enabledEffective = "enabled_effective"
+        case validationErrors = "validation_errors"
+    }
+}
+
+struct RouterConfigUpdateRequest: Encodable {
+    let config: RouterConfig
+}
+
+/// PUT /api/v1/router-config's response shape: `{saved, config}` — no
+/// `enabled_effective`/`validation_errors`, unlike GET's `RouterConfigResponse`.
+/// Callers should re-fetch `routerConfig()` after a successful save if they
+/// need the effective-enabled state.
+struct RouterConfigSaveResponse: Decodable {
+    let saved: Bool
+    let config: RouterConfig
+}
+
+struct RouterTestRequest: Encodable {
+    let prompt: String
+}
+
+struct RouterDecision: Decodable, Equatable {
+    let runtime: String
+    let model: String
+    let reason: String
+    let source: String
+    let latencyMs: Int
+
+    enum CodingKeys: String, CodingKey {
+        case runtime, model, reason, source
+        case latencyMs = "latency_ms"
+    }
+}
+
+struct RouterTestResponse: Decodable {
+    let decision: RouterDecision
+    let eligiblePairs: [RouterAllowlistEntry]
+    let totalMs: Int
+
+    enum CodingKeys: String, CodingKey {
+        case decision
+        case eligiblePairs = "eligible_pairs"
+        case totalMs = "total_ms"
+    }
+}
+
+struct RouterCooldownEntry: Decodable, Equatable {
+    let reason: String
+    let secondsRemaining: Int
+
+    enum CodingKeys: String, CodingKey {
+        case reason
+        case secondsRemaining = "seconds_remaining"
+    }
+}
+
+struct RouterStatusResponse: Decodable {
+    let enabled: Bool
+    let brain: RouterRuntimeModel
+    let brainAvailable: Bool
+    let cooldowns: [String: RouterCooldownEntry]
+
+    enum CodingKeys: String, CodingKey {
+        case enabled, brain
+        case brainAvailable = "brain_available"
+        case cooldowns
+    }
+}
+
 struct AgentSummary: Decodable, Identifiable, Hashable {
     var id: String { name }
     let name: String

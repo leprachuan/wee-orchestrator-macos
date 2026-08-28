@@ -33,7 +33,24 @@ struct SettingsView: View {
     @State private var localCatalogModelText = ""
     @State private var showAvatarPicker = false
 
-    private let runtimeFallbacks = ["wee", "copilot", "copilot-sdk", "claude", "claude-sdk", "gemini", "opencode", "codex", "devin"]
+    private let runtimeFallbacks = ["wee", "copilot", "copilot-sdk", "claude", "claude-sdk", "gemini", "opencode", "codex", "devin", "router"]
+
+    @State private var routerDraft = RouterConfig(
+        enabled: false,
+        brain: RouterRuntimeModel(runtime: "wee", model: ""),
+        timeoutSeconds: 30,
+        promptTemplate: "",
+        allowlist: [],
+        fallback: RouterRuntimeModel(runtime: "copilot", model: "auto"),
+        stickiness: RouterStickiness(enabled: true, preferSameRuntime: true, windowSeconds: 900),
+        cooldownSeconds: 300
+    )
+    @State private var routerEnabledEffective = false
+    @State private var routerStatus: String?
+    @State private var routerStatusIsError = false
+    @State private var routerTestPrompt = ""
+    @State private var routerTestResult: RouterTestResponse?
+    @State private var routerTesting = false
 
     var body: some View {
         VStack(spacing: 8) {
@@ -62,6 +79,7 @@ struct SettingsView: View {
                         remoteSSHDeploymentSection
                     }
                     advancedTokenSection
+                    routerSection
                     environmentSection
                     connectionSummary
                 }
@@ -963,6 +981,164 @@ struct SettingsView: View {
         }
     }
 
+    private var routerSection: some View {
+        SettingsSectionBox(title: "LLM Router", systemImage: "arrow.triangle.branch") {
+            VStack(alignment: .leading, spacing: 10) {
+                Toggle("Enable routing", isOn: $routerDraft.enabled)
+
+                HStack {
+                    StatusPill(
+                        text: routerEnabledEffective ? "Active" : "Inactive",
+                        color: routerEnabledEffective ? WeeTheme.accent : WeeTheme.textMuted
+                    )
+                    if !routerDraft.enabled && routerEnabledEffective {
+                        Text("(enabled via server env override)")
+                            .weeFont(.caption)
+                            .foregroundStyle(WeeTheme.textMuted)
+                    }
+                }
+
+                Text("When enabled, a session with runtime \"router\" picks its target runtime/model per message. Switch away with /runtime set <name>, and back with /runtime set router.")
+                    .weeFont(.caption)
+                    .foregroundStyle(WeeTheme.textSecondary)
+
+                FieldRow(title: "Brain Runtime") {
+                    TextField("e.g. wee, copilot", text: $routerDraft.brain.runtime)
+                }
+                FieldRow(title: "Brain Model") {
+                    TextField("e.g. ollama/qwen3:8b", text: $routerDraft.brain.model)
+                }
+                FieldRow(title: "Brain Timeout (seconds)") {
+                    TextField("30", value: $routerDraft.timeoutSeconds, format: .number)
+                }
+
+                Text("Allowlist")
+                    .weeFont(.caption, weight: .semibold)
+                    .foregroundStyle(WeeTheme.textMuted)
+                    .textCase(.uppercase)
+                    .padding(.top, 4)
+
+                ForEach($routerDraft.allowlist) { $entry in
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            TextField("runtime", text: $entry.runtime)
+                                .textFieldStyle(.plain)
+                            TextField("model", text: $entry.model)
+                                .textFieldStyle(.plain)
+                            Button(role: .destructive) {
+                                routerDraft.allowlist.removeAll { $0.id == entry.id }
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                            }
+                            .buttonStyle(.plain)
+                            .foregroundStyle(WeeTheme.danger)
+                        }
+                        TextField("hint — when to pick this pair", text: Binding(
+                            get: { entry.hint ?? "" },
+                            set: { entry.hint = $0 }
+                        ))
+                        .textFieldStyle(.plain)
+                        .weeFont(.caption)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(WeeTheme.sunken, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(WeeTheme.glassStroke))
+                }
+
+                Button {
+                    routerDraft.allowlist.append(RouterAllowlistEntry())
+                } label: {
+                    Label("Add Pair", systemImage: "plus")
+                }
+                .buttonStyle(WeeGhostButtonStyle())
+
+                FieldRow(title: "Fallback Runtime") {
+                    TextField("e.g. copilot", text: $routerDraft.fallback.runtime)
+                }
+                FieldRow(title: "Fallback Model") {
+                    TextField("e.g. auto", text: $routerDraft.fallback.model)
+                }
+
+                Toggle("Prefer reusing last-routed pair (stickiness)", isOn: $routerDraft.stickiness.enabled)
+                FieldRow(title: "Stickiness Window (seconds)") {
+                    TextField("900", value: $routerDraft.stickiness.windowSeconds, format: .number)
+                }
+                FieldRow(title: "Cooldown After Infra Failure (seconds)") {
+                    TextField("300", value: $routerDraft.cooldownSeconds, format: .number)
+                }
+
+                TextAreaRow(title: "Routing Prompt", text: $routerDraft.promptTemplate, minHeight: 160)
+                Text("Must include {allowlist_table} and {user_message}; {stickiness_hint} is optional.")
+                    .weeFont(.caption)
+                    .foregroundStyle(WeeTheme.gold)
+
+                HStack {
+                    Button {
+                        Task { await loadRouterConfig() }
+                    } label: {
+                        Label("Reload", systemImage: "arrow.clockwise")
+                    }
+                    .buttonStyle(WeeGhostButtonStyle())
+
+                    Button {
+                        Task { await saveRouterConfig() }
+                    } label: {
+                        Label("Save", systemImage: "square.and.arrow.down")
+                    }
+                    .buttonStyle(WeePrimaryButtonStyle())
+                }
+
+                if let routerStatus {
+                    Text(routerStatus)
+                        .weeFont(.caption)
+                        .foregroundStyle(routerStatusIsError ? WeeTheme.danger : WeeTheme.accent)
+                }
+
+                Divider().overlay(WeeTheme.glassStroke)
+
+                Text("Test Route")
+                    .weeFont(.caption, weight: .semibold)
+                    .foregroundStyle(WeeTheme.textMuted)
+                    .textCase(.uppercase)
+
+                HStack {
+                    TextField("Try a prompt, e.g. 'write me a quicksort'", text: $routerTestPrompt)
+                        .textFieldStyle(.plain)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(WeeTheme.sunken, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(WeeTheme.glassStroke))
+
+                    Button {
+                        Task { await testRouterPrompt() }
+                    } label: {
+                        Text(routerTesting ? "Routing…" : "Test")
+                    }
+                    .buttonStyle(WeeGhostButtonStyle())
+                    .disabled(routerTesting || routerTestPrompt.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+
+                if let result = routerTestResult {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("\(result.decision.runtime)/\(result.decision.model) (\(result.decision.source))")
+                            .weeFont(.caption, weight: .semibold)
+                            .foregroundStyle(WeeTheme.textPrimary)
+                        Text(result.decision.reason)
+                            .weeFont(.caption)
+                            .foregroundStyle(WeeTheme.textSecondary)
+                        Text("\(result.decision.latencyMs) ms · \(result.eligiblePairs.count) eligible")
+                            .weeFont(.caption2)
+                            .foregroundStyle(WeeTheme.textMuted)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(WeeTheme.sunken, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                }
+            }
+        }
+    }
+
     private var environmentSection: some View {
         SettingsSectionBox(title: "Advanced Service Configuration", systemImage: "wrench.and.screwdriver") {
             DisclosureGroup("Edit API environment and restart services", isExpanded: $advancedServiceExpanded) {
@@ -1131,6 +1307,7 @@ struct SettingsView: View {
         guard force || !hasLoadedWebSettings else { return }
         hasLoadedWebSettings = true
         await loadNotificationToggle()
+        await loadRouterConfig()
     }
 
     private func loadConnectorStatus() async {
@@ -1313,6 +1490,45 @@ struct SettingsView: View {
         } catch {
             envStatus = "Failed to save .env: \(error.localizedDescription)"
             envStatusIsError = true
+        }
+    }
+
+    private func loadRouterConfig() async {
+        do {
+            let response = try await model.client.routerConfig()
+            routerDraft = response.config
+            routerEnabledEffective = response.enabledEffective
+            routerStatus = response.validationErrors.isEmpty ? nil : response.validationErrors.joined(separator: "\n")
+            routerStatusIsError = !response.validationErrors.isEmpty
+        } catch {
+            routerStatus = "Failed to load router config: \(error.localizedDescription)"
+            routerStatusIsError = true
+        }
+    }
+
+    private func saveRouterConfig() async {
+        do {
+            _ = try await model.client.saveRouterConfig(routerDraft)
+            routerStatus = "Router config saved."
+            routerStatusIsError = false
+            await loadRouterConfig()
+            await model.refreshAll()
+        } catch {
+            routerStatus = "Failed to save router config: \(error.localizedDescription)"
+            routerStatusIsError = true
+        }
+    }
+
+    private func testRouterPrompt() async {
+        let prompt = routerTestPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !prompt.isEmpty else { return }
+        routerTesting = true
+        defer { routerTesting = false }
+        do {
+            routerTestResult = try await model.client.testRouter(prompt: prompt)
+        } catch {
+            routerStatus = "Test route failed: \(error.localizedDescription)"
+            routerStatusIsError = true
         }
     }
 
