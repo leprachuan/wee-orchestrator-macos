@@ -3345,6 +3345,30 @@ final class WeeAppModel {
         saveConfiguration()
     }
 
+    func refreshModelCatalogAfterFavorites() async {
+        guard selectedRuntime == "wee" else { return }
+        let runtime = selectedRuntime
+        do {
+            let updated = try await client.models(runtime: runtime)
+            guard Self.shouldApplyModelCatalog(requestedRuntime: runtime, selectedRuntime: selectedRuntime) else { return }
+            // Preserve the selected model while changing only catalog ordering.
+            availableModels = updated
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    static func modelGroups(_ entries: [ModelCatalogEntry]) -> [(key: String, value: [ModelCatalogEntry])] {
+        Dictionary(grouping: entries) { entry in
+            let name = (entry.group ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            return name.isEmpty ? "Models" : name
+        }.sorted { lhs, rhs in
+            if lhs.key == "Favorites" { return rhs.key != "Favorites" }
+            if rhs.key == "Favorites" { return false }
+            return lhs.key < rhs.key
+        }
+    }
+
     static func shouldApplyModelCatalog(requestedRuntime: String, selectedRuntime: String) -> Bool {
         requestedRuntime.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
             == selectedRuntime.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()

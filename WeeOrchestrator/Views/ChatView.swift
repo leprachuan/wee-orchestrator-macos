@@ -1806,11 +1806,7 @@ private struct HeaderPanel: View {
     }
 
     private var groupedModels: [(key: String, value: [ModelCatalogEntry])] {
-        Dictionary(grouping: model.availableModels) { entry in
-            let trimmed = (entry.group ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            return trimmed.isEmpty ? "Models" : trimmed
-        }
-        .sorted { $0.key < $1.key }
+        WeeAppModel.modelGroups(model.availableModels)
     }
 
     private var selectedModelLabel: String {

@@ -1,3 +1,7 @@
+# v0.12.0
+
+Adds Favorite Models to Local and Remote Settings. Star, remove and reorder Ollama and OpenRouter models in a list shared with WebUI Settings. Favorites appear before provider groups in the Wee chat model picker. Requires Wee API 1.5.0.
+
 # v0.11.0
 
 Adds LLM Router configuration, status and test controls in Settings for Wee API 1.4.0.
