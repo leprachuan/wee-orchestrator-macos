@@ -137,6 +137,19 @@ final class LocalManifestModelMergeTests: XCTestCase {
 }
 
 final class AutonomyContractTests: XCTestCase {
+    func testRuntimeModelSettingsPreserveIndependentSelections() throws {
+        let data = Data(#"{"routine_runtime":"codex","routine_model":"gpt-6-luna","escalation_runtime":"claude-sdk","escalation_models":["sonnet"],"max_requests_per_run":3,"max_output_tokens":1024,"daily_requests":20,"daily_token_budget":40000}"#.utf8)
+        var config = try JSONDecoder().decode(AutonomyModelConfig.self, from: data)
+        XCTAssertEqual(config.routineRuntime, "codex")
+        XCTAssertEqual(config.routineModel, "gpt-6-luna")
+        config.dailyRequests = 12
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(config)) as? [String:Any])
+        XCTAssertEqual(object["routine_runtime"] as? String, "codex")
+        XCTAssertEqual(object["routine_model"] as? String, "gpt-6-luna")
+        XCTAssertEqual(object["escalation_runtime"] as? String, "claude-sdk")
+        XCTAssertEqual(object["daily_requests"] as? Int, 12)
+    }
+
     func testSharedApprovalContractBindsReviewedFingerprint() throws {
         let data = Data(#"{"requests":[{"id":"request-1","responsibility":"review","fingerprint":"immutable-reviewed-hash","status":"pending","preview":{"summary":"Review report"},"scope":{"agent":"wee-dev","operation":"file.write","host":"dev","resource":"/workspace/report.md"}}]}"#.utf8)
         let list = try JSONDecoder().decode(AutonomyApprovalList.self, from: data)

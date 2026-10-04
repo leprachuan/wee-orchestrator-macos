@@ -1923,6 +1923,8 @@ struct AutonomyControl: Encodable { let command: String }
 struct AutonomyRevision: Encodable { let goal: String }
 
 struct AutonomyModelConfig: Codable {
+    var routineRuntime = "wee"
+    var escalationRuntime = "wee"
     var routineModel = "openrouter/openai/gpt-4.1-mini"
     var escalationModels: [String] = []
     var maxRequestsPerRun = 3
@@ -1930,6 +1932,7 @@ struct AutonomyModelConfig: Codable {
     var dailyRequests = 20
     var dailyTokenBudget = 40000
     enum CodingKeys: String, CodingKey {
+        case routineRuntime = "routine_runtime", escalationRuntime = "escalation_runtime"
         case routineModel = "routine_model", escalationModels = "escalation_models", maxRequestsPerRun = "max_requests_per_run", maxOutputTokens = "max_output_tokens", dailyRequests = "daily_requests", dailyTokenBudget = "daily_token_budget"
     }
 }
@@ -1940,3 +1943,13 @@ struct AutonomyModelUsage: Decodable {
     enum CodingKeys: String, CodingKey { case requests; case reservedTokens = "reserved_tokens", unknownUsage = "unknown_usage" }
 }
 struct AutonomyModelSettings: Decodable { let config: AutonomyModelConfig; let usage: AutonomyModelUsage }
+
+struct AutonomyRuntimeEntry: Decodable, Identifiable {
+    let id: String
+    let label: String
+    let available: Bool
+}
+struct AutonomyRuntimeCatalog: Decodable {
+    let runtimes: [AutonomyRuntimeEntry]
+    let models: [ModelCatalogEntry]
+}
