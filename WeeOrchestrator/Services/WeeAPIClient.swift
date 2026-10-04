@@ -726,6 +726,10 @@ struct WeeAPIClient {
         try await request("PUT", path: "/api/v1/autonomy/responsibilities/\(id)", body: AutonomyRevision(goal: goal))
     }
 
+    func autonomyRuntimeCatalog(runtime: String = "") async throws -> AutonomyRuntimeCatalog {
+        try await request("GET", path: "/api/v1/autonomy/runtime-catalog?runtime=\(runtime)")
+    }
+
     func autonomyModelSettings() async throws -> AutonomyModelSettings {
         try await request("GET", path: "/api/v1/autonomy/model-settings")
     }

@@ -1811,6 +1811,9 @@ struct AutonomyPanel: View {
     @Bindable var model: WeeAppModel
     @Environment(\.dismiss) private var dismiss
     @State private var modelConfig = AutonomyModelConfig()
+    @State private var runtimeCatalog: [AutonomyRuntimeEntry] = []
+    @State private var routineCatalogModels: [ModelCatalogEntry] = []
+    @State private var escalationCatalogModels: [ModelCatalogEntry] = []
     @State private var escalationModelText = ""
     @State private var modelSettingsLoaded = false
     @State private var modelUsageText = ""
@@ -1923,14 +1926,36 @@ struct AutonomyPanel: View {
     private var modelBudgetSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Routine model and budgets").font(.headline)
-            TextField("Inexpensive routine model (provider-qualified)", text: $modelConfig.routineModel)
+            Picker("Routine runtime", selection: $modelConfig.routineRuntime) {
+                Text(modelConfig.routineRuntime).tag(modelConfig.routineRuntime)
+                ForEach(runtimeCatalog.filter { $0.id != modelConfig.routineRuntime }) { runtime in
+                    Text(runtime.label + (runtime.available ? "" : " (unavailable on API host)")).tag(runtime.id)
+                }
+            }
+            TextField("Default model for selected runtime", text: $modelConfig.routineModel)
+            Menu("Choose routine model from API host") {
+                ForEach(Array(Set(routineCatalogModels.map(\.id))).sorted(), id: \.self) { id in
+                    Button(id) { modelConfig.routineModel = id }
+                }
+            }
+            Picker("Escalation runtime", selection: $modelConfig.escalationRuntime) {
+                Text(modelConfig.escalationRuntime).tag(modelConfig.escalationRuntime)
+                ForEach(runtimeCatalog.filter { $0.id != modelConfig.escalationRuntime }) { runtime in
+                    Text(runtime.label + (runtime.available ? "" : " (unavailable on API host)")).tag(runtime.id)
+                }
+            }
+            Menu("Add permitted escalation model from API host") {
+                ForEach(Array(Set(escalationCatalogModels.map(\.id))).sorted(), id: \.self) { id in
+                    Button(id) { escalationModelText = escalationModelText.isEmpty ? id : escalationModelText + ", " + id }
+                }
+            }
             TextField("Permitted escalation models (comma-separated, optional)", text: $escalationModelText)
             Stepper("Requests per run: \(modelConfig.maxRequestsPerRun)", value: $modelConfig.maxRequestsPerRun, in: 1...3)
-            Stepper("Output tokens: \(modelConfig.maxOutputTokens)", value: $modelConfig.maxOutputTokens, in: 128...2048, step: 128)
+            Stepper("Requested output tokens: \(modelConfig.maxOutputTokens)", value: $modelConfig.maxOutputTokens, in: 128...2048, step: 128)
             Stepper("Daily requests: \(modelConfig.dailyRequests)", value: $modelConfig.dailyRequests, in: 1...100)
             Stepper("Daily reserved tokens: \(modelConfig.dailyTokenBudget)", value: $modelConfig.dailyTokenBudget, in: 1024...200000, step: 1024)
             Text(modelUsageText).font(.caption)
-            Text("Escalation requires two failed checks, an allowed model, remaining budget and shared approval. Each new run returns to the routine model. Dollar cost is unavailable.").font(.caption)
+            Text("Escalation requires two failed checks, an allowed runtime/model, remaining budget and shared approval. Each new run returns to the routine model. CLI/SDK token limits are best effort; time/report bounds are enforced. Dollar cost is unavailable.").font(.caption)
             Button("Save model budgets") {
                 Task { await mutate {
                     modelConfig.escalationModels = escalationModelText.split(separator: ",").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
@@ -1939,6 +1964,24 @@ struct AutonomyPanel: View {
                 } }
             }
             Divider()
+        }
+        .task(id: AutonomyRuntimeCatalogKey(runtime: modelConfig.routineRuntime, configuration: model.configuration)) {
+            let runtime = modelConfig.routineRuntime
+            let configuration = model.configuration
+            do {
+                let catalog = try await model.client.autonomyRuntimeCatalog(runtime: runtime)
+                guard runtime == modelConfig.routineRuntime, configuration == model.configuration, !Task.isCancelled else { return }
+                runtimeCatalog = catalog.runtimes; routineCatalogModels = catalog.models
+            } catch { if !Task.isCancelled { status = "Routine runtime catalog: \(error.localizedDescription)" } }
+        }
+        .task(id: AutonomyRuntimeCatalogKey(runtime: modelConfig.escalationRuntime, configuration: model.configuration)) {
+            let runtime = modelConfig.escalationRuntime
+            let configuration = model.configuration
+            do {
+                let catalog = try await model.client.autonomyRuntimeCatalog(runtime: runtime)
+                guard runtime == modelConfig.escalationRuntime, configuration == model.configuration, !Task.isCancelled else { return }
+                runtimeCatalog = catalog.runtimes; escalationCatalogModels = catalog.models
+            } catch { if !Task.isCancelled { status = "Escalation runtime catalog: \(error.localizedDescription)" } }
         }
     }
     private var responsibilitySection: some View {
