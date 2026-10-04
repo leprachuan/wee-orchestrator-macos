@@ -135,3 +135,24 @@ final class LocalManifestModelMergeTests: XCTestCase {
     }
 
 }
+
+final class AutonomyContractTests: XCTestCase {
+    func testSharedApprovalContractBindsReviewedFingerprint() throws {
+        let data = Data(#"{"requests":[{"id":"request-1","responsibility":"review","fingerprint":"immutable-reviewed-hash","status":"pending","preview":{"summary":"Review report"},"scope":{"agent":"wee-dev","operation":"file.write","host":"dev","resource":"/workspace/report.md"}}]}"#.utf8)
+        let list = try JSONDecoder().decode(AutonomyApprovalList.self, from: data)
+        let approval = try XCTUnwrap(list.requests.first)
+        XCTAssertEqual(approval.fingerprint, "immutable-reviewed-hash")
+        XCTAssertEqual(approval.scope.resource, "/workspace/report.md")
+        let body = try JSONEncoder().encode(AutonomyDecision(decision: "approve_always", fingerprint: approval.fingerprint))
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String:String])
+        XCTAssertEqual(object["fingerprint"], approval.fingerprint)
+    }
+    func testRuleContractPreservesRevocationAndPrefixScope() throws {
+        let data = Data(#"{"enabled":false,"rules":[{"id":"rule-1","agent":"a","operation":"file.read","host":"dev","resource":"/workspace","decision":"allow","enabled":false,"path_prefix":true}]}"#.utf8)
+        let policy = try JSONDecoder().decode(AutonomyRules.self, from: data)
+        XCTAssertFalse(policy.enabled)
+        XCTAssertFalse(policy.rules[0].enabled)
+        XCTAssertTrue(policy.rules[0].pathPrefix)
+        XCTAssertFalse(AutonomyScope(agent:"a",operation:"shell.execute",host:"dev",resource:"shell").supportsPermanentGrant)
+    }
+}
