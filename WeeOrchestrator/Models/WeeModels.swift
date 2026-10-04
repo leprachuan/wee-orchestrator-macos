@@ -1942,7 +1942,16 @@ struct AutonomyModelUsage: Decodable {
     let unknownUsage: Int
     enum CodingKeys: String, CodingKey { case requests; case reservedTokens = "reserved_tokens", unknownUsage = "unknown_usage" }
 }
-struct AutonomyModelSettings: Decodable { let config: AutonomyModelConfig; let usage: AutonomyModelUsage }
+struct AutonomyModelSettings: Decodable {
+    let config: AutonomyModelConfig
+    let usage: AutonomyModelUsage
+    let costNote: String?
+    enum CodingKeys: String, CodingKey { case config, usage; case costNote = "cost_note" }
+}
+struct AutonomyRuntimeCatalogKey: Equatable {
+    let runtime: String
+    let configuration: APIConfiguration
+}
 
 struct AutonomyRuntimeEntry: Decodable, Identifiable {
     let id: String
