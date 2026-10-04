@@ -1,3 +1,7 @@
+# v0.11.0
+
+Adds LLM Router configuration, status and test controls in Settings for Wee API 1.4.0.
+
 # Wee Orchestrator for macOS v0.10.11
 
 Released August 25, 2026.
