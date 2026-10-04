@@ -1792,6 +1792,7 @@ struct AutonomyInboxButton: View {
         .disabled(!model.isAuthenticated)
         .sheet(isPresented: $presented) { AutonomyPanel(model: model) }
         .task(id: model.configuration) {
+            guard ProcessInfo.processInfo.environment["XCTestBundlePath"] == nil else { return }
             count = 0
             let configuration = model.configuration
             let client = model.client
