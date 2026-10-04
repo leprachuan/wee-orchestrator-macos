@@ -697,6 +697,22 @@ struct WeeAPIClient {
         return data
     }
 
+    func autonomyApprovals() async throws -> AutonomyApprovalList {
+        try await request("GET", path: "/api/v1/autonomy/approvals")
+    }
+    func autonomyRules() async throws -> AutonomyRules {
+        try await request("GET", path: "/api/v1/autonomy/rules")
+    }
+    func decideAutonomy(_ approval: AutonomyApproval, decision: String) async throws -> AutonomyDecisionResult {
+        try await request("POST", path: "/api/v1/autonomy/approvals/\(approval.id)/decision", body: AutonomyDecision(decision: decision, fingerprint: approval.fingerprint))
+    }
+    func saveAutonomyRule(_ rule: AutonomyRuleInput, replacing id: String?) async throws -> AutonomyRule {
+        try await request(id == nil ? "POST" : "PUT", path: "/api/v1/autonomy/rules" + (id.map { "/\($0)" } ?? ""), body: rule)
+    }
+    func revokeAutonomyRule(_ id: String) async throws -> AutonomyRule {
+        try await request("DELETE", path: "/api/v1/autonomy/rules/\(id)")
+    }
+
     private func request<T: Decodable>(
         _ method: String,
         path: String,

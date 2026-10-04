@@ -1857,3 +1857,46 @@ struct ModelFavoritesConfig: Codable, Equatable {
     var version: Int = 1
     var models: [String]
 }
+
+struct AutonomyScope: Codable, Equatable {
+    var agent: String
+    var operation: String
+    var host: String
+    var resource: String
+    var label: String { "\(agent) · \(operation) · \(host) · \(resource)" }
+    var supportsPermanentGrant: Bool { !["shell.execute", "python.execute", "browser.execute", "delegate.execute"].contains(operation) }
+}
+struct AutonomyPreview: Decodable { let summary: String }
+struct AutonomyApproval: Decodable, Identifiable {
+    let id: String
+    let responsibility: String
+    let fingerprint: String
+    let status: String
+    let preview: AutonomyPreview
+    let scope: AutonomyScope
+}
+struct AutonomyApprovalList: Decodable { let requests: [AutonomyApproval] }
+struct AutonomyDecision: Encodable { let decision: String; let fingerprint: String }
+struct AutonomyDecisionResult: Decodable { let request: AutonomyApproval; let won: Bool }
+struct AutonomyRule: Decodable, Identifiable {
+    let id: String
+    let agent: String
+    let operation: String
+    let host: String
+    let resource: String
+    let decision: String
+    let enabled: Bool
+    let pathPrefix: Bool
+    enum CodingKeys: String, CodingKey { case id, agent, operation, host, resource, decision, enabled; case pathPrefix = "path_prefix" }
+    var scope: AutonomyScope { .init(agent: agent, operation: operation, host: host, resource: resource) }
+}
+struct AutonomyRules: Decodable { let enabled: Bool; let rules: [AutonomyRule] }
+struct AutonomyRuleInput: Encodable {
+    var agent: String = ""
+    var operation: String = "file.read"
+    var host: String = ""
+    var resource: String = ""
+    var decision: String = "ask"
+    var pathPrefix = false
+    enum CodingKeys: String, CodingKey { case agent, operation, host, resource, decision; case pathPrefix = "path_prefix" }
+}

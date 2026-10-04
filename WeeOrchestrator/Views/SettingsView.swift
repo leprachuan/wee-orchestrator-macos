@@ -86,6 +86,7 @@ struct SettingsView: View {
                         remoteSSHDeploymentSection
                     }
                     advancedTokenSection
+                    AutonomyInboxButton(model: model)
                     favoriteModelsSection
                     routerSection
                     environmentSection
@@ -1776,5 +1777,157 @@ private struct TextAreaRow: View {
                 .background(WeeTheme.sunken, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(WeeTheme.glassStroke))
         }
+    }
+}
+
+@MainActor
+struct AutonomyInboxButton: View {
+    @Bindable var model: WeeAppModel
+    @State private var count = 0
+    @State private var presented = false
+    var body: some View {
+        Button { presented = true } label: {
+            Label("Approvals (\(count))", systemImage: "checkmark.shield")
+        }
+        .disabled(!model.isAuthenticated)
+        .sheet(isPresented: $presented) { AutonomyPanel(model: model) }
+        .task(id: model.configuration) {
+            count = 0
+            let configuration = model.configuration
+            let client = model.client
+            while !Task.isCancelled {
+                if model.isAuthenticated, let response = try? await client.autonomyApprovals(), configuration == model.configuration {
+                    count = response.requests.filter { $0.status == "pending" || $0.status == "rule_pending" }.count
+                }
+                do { try await Task.sleep(for: .seconds(3)) } catch { break }
+            }
+        }
+    }
+}
+
+@MainActor
+struct AutonomyPanel: View {
+    @Bindable var model: WeeAppModel
+    @Environment(\.dismiss) private var dismiss
+    @State private var approvals: [AutonomyApproval] = []
+    @State private var rules: [AutonomyRule] = []
+    @State private var enabled = false
+    @State private var status = ""
+    @State private var busy = false
+    @State private var permanent: AutonomyApproval?
+    @State private var showPermanent = false
+    @State private var editor = false
+    @State private var replacing: String?
+    @State private var draft = AutonomyRuleInput()
+    @State private var confirmRule = false
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    Text("Requests are shared with every authorized client connected to this API.").font(.callout)
+                    if !status.isEmpty { Text(status).font(.callout).accessibilityLabel(status) }
+                    if approvals.isEmpty { Text("No approval requests.") }
+                    ForEach(approvals) { approval in
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(approval.preview.summary).font(.headline)
+                            Text(approval.scope.label).font(.caption).textSelection(.enabled)
+                            Text(approval.status).font(.caption)
+                            if approval.status == "pending" {
+                                ViewThatFits {
+                                    HStack { decisionButtons(approval) }
+                                    VStack(alignment: .leading) { decisionButtons(approval) }
+                                }
+                            }
+                        }.padding(12).background(.quaternary, in: RoundedRectangle(cornerRadius: 10))
+                    }
+                    Divider()
+                    Text("Saved action rules").font(.headline)
+                    Text(enabled ? "Always-On policy enabled" : "Always-On execution disabled").font(.caption)
+                    Button("Create explicit rule") { replacing = nil; draft = AutonomyRuleInput(); editor = true }
+                    ForEach(rules) { rule in
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("\(rule.enabled ? rule.decision : "revoked") · \(rule.scope.label)").font(.caption)
+                            if rule.pathPrefix { Text("Applies to this path and its children").font(.caption) }
+                            if rule.enabled {
+                                HStack {
+                                    Button("Edit") {
+                                        replacing = rule.id
+                                        draft = AutonomyRuleInput(agent: rule.agent, operation: rule.operation, host: rule.host, resource: rule.resource, decision: rule.decision, pathPrefix: rule.pathPrefix)
+                                        editor = true
+                                    }
+                                    Button("Revoke", role: .destructive) { Task { await mutate { _ = try await model.client.revokeAutonomyRule(rule.id) } } }
+                                }
+                            }
+                        }
+                    }
+                }.padding(20)
+            }
+            .navigationTitle("Shared approvals")
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+            .disabled(busy)
+        }
+        .frame(minWidth: 320, minHeight: 440)
+        .task(id: model.configuration) {
+            approvals = []; rules = []
+            while !Task.isCancelled {
+                await reload()
+                do { try await Task.sleep(for: .seconds(3)) } catch { break }
+            }
+        }
+        .confirmationDialog("Always allow this exact scope?", isPresented: $showPermanent, titleVisibility: .visible) {
+            Button("Approve and save rule") { if let approval = permanent { decide(approval, "approve_always") } }
+            Button("Cancel", role: .cancel) { permanent = nil }
+        } message: { Text(permanent?.scope.label ?? "") }
+        .sheet(isPresented: $editor) {
+            NavigationStack {
+                Form {
+                    TextField("Agent", text: $draft.agent)
+                    TextField("Operation", text: $draft.operation)
+                    TextField("Host", text: $draft.host)
+                    TextField("Resource", text: $draft.resource)
+                    Picker("Decision", selection: $draft.decision) { Text("Ask").tag("ask"); Text("Allow").tag("allow"); Text("Deny").tag("deny") }
+                    Toggle("Include child paths (file operations only)", isOn: $draft.pathPrefix)
+                    Text("Rules are scoped to this agent, operation, host and resource. Revocation remains available in this panel.").font(.caption)
+                    Button("Review and save") { confirmRule = true }
+                }
+                .navigationTitle("Action rule")
+                .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { editor = false } } }
+                .confirmationDialog("Save this explicit rule?", isPresented: $confirmRule, titleVisibility: .visible) {
+                    Button("Save rule") {
+                        Task { await mutate { _ = try await model.client.saveAutonomyRule(draft, replacing: replacing); editor = false } }
+                    }
+                } message: { Text("\(draft.decision) · \(draft.agent) · \(draft.operation) · \(draft.host) · \(draft.resource)\(draft.pathPrefix ? " and child paths" : "")") }
+            }.frame(minWidth: 320, minHeight: 420)
+        }
+    }
+    @ViewBuilder private func decisionButtons(_ approval: AutonomyApproval) -> some View {
+        Button("Approve once") { decide(approval, "approve_once") }
+        Button("Reject", role: .destructive) { decide(approval, "reject") }
+        Button("Request revision") { decide(approval, "revise") }
+        if approval.scope.supportsPermanentGrant {
+            Button("Always allow…") { permanent = approval; showPermanent = true }
+        }
+    }
+    private func decide(_ approval: AutonomyApproval, _ decision: String) {
+        Task { await mutate {
+            let result = try await model.client.decideAutonomy(approval, decision: decision)
+            status = result.won ? "Decision saved for all connected clients." : "Another client already resolved this request."
+        } }
+    }
+    private func mutate(_ operation: () async throws -> Void) async {
+        guard !busy else { return }; busy = true
+        do { try await operation() } catch { status = error.localizedDescription }
+        busy = false; await reload()
+    }
+    private func reload() async {
+        guard model.isAuthenticated, !busy else { return }
+        let configuration = model.configuration; let client = model.client
+        do {
+            async let requests = client.autonomyApprovals(); async let policy = client.autonomyRules()
+            let (response, saved) = try await (requests, policy)
+            guard configuration == model.configuration, !Task.isCancelled else { return }
+            approvals = response.requests; rules = saved.rules; enabled = saved.enabled
+        } catch { if configuration == model.configuration { status = error.localizedDescription } }
     }
 }

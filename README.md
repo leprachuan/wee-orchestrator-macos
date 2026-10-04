@@ -1,0 +1,2 @@
+
+Always-On approval support (development): an app-wide Approvals button and a Settings entry connect to the shared `/api/v1/autonomy` service. Online authorized macOS/iOS/WebUI clients see the same durable requests and winning decisions. Permanent grants show their exact scope before saving; saved rules can be edited or revoked. Requires the matching API feature release. Offline catch-up uses authoritative state; background iOS push is not included.
