@@ -1809,10 +1809,22 @@ struct AutonomyInboxButton: View {
 struct AutonomyPanel: View {
     @Bindable var model: WeeAppModel
     @Environment(\.dismiss) private var dismiss
+    @State private var modelConfig = AutonomyModelConfig()
+    @State private var escalationModelText = ""
+    @State private var modelSettingsLoaded = false
+    @State private var modelUsageText = ""
+    @State private var responsibilities: [AutonomyResponsibility] = []
+    @State private var responsibilityAgent = ""
+    @State private var responsibilityGoal = ""
+    @State private var responsibilityInterval = 3600
+    @State private var revisingResponsibility: String?
+    @State private var reconciling: AutonomyResponsibility?
+    @State private var showReconcile = false
     @State private var approvals: [AutonomyApproval] = []
     @State private var rules: [AutonomyRule] = []
     @State private var enabled = false
     @State private var status = ""
+    @State private var statusIsError = false
     @State private var busy = false
     @State private var permanent: AutonomyApproval?
     @State private var showPermanent = false
@@ -1831,6 +1843,7 @@ struct AutonomyPanel: View {
                     ForEach(approvals) { approval in
                         VStack(alignment: .leading, spacing: 8) {
                             Text(approval.preview.summary).font(.headline)
+                            if let details = approval.preview.details { Text(details).font(.callout).textSelection(.enabled) }
                             Text(approval.scope.label).font(.caption).textSelection(.enabled)
                             Text(approval.status).font(.caption)
                             if approval.status == "pending" {
@@ -1842,6 +1855,8 @@ struct AutonomyPanel: View {
                         }.padding(12).background(.quaternary, in: RoundedRectangle(cornerRadius: 10))
                     }
                     Divider()
+                    responsibilitySection
+                    modelBudgetSection
                     Text("Saved action rules").font(.headline)
                     Text(enabled ? "Always-On policy enabled" : "Always-On execution disabled").font(.caption)
                     Button("Create explicit rule") { replacing = nil; draft = AutonomyRuleInput(); editor = true }
@@ -1869,12 +1884,15 @@ struct AutonomyPanel: View {
         }
         .frame(minWidth: 320, minHeight: 440)
         .task(id: model.configuration) {
-            approvals = []; rules = []
+            approvals = []; rules = []; responsibilities = []; modelSettingsLoaded = false
             while !Task.isCancelled {
                 await reload()
                 do { try await Task.sleep(for: .seconds(3)) } catch { break }
             }
         }
+        .confirmationDialog("Acknowledge interrupted or uncertain work?", isPresented: $showReconcile, titleVisibility: .visible) {
+            Button("Acknowledge and leave paused") { if let row = reconciling { Task { await mutate { _ = try await model.client.controlAutonomyResponsibility(row.id, command: "reconcile") } } } }
+        } message: { Text("Inspect the report and action history before starting another run. Uncertain actions are never retried automatically.") }
         .confirmationDialog("Always allow this exact scope?", isPresented: $showPermanent, titleVisibility: .visible) {
             Button("Approve and save rule") { if let approval = permanent { decide(approval, "approve_always") } }
             Button("Cancel", role: .cancel) { permanent = nil }
@@ -1901,6 +1919,68 @@ struct AutonomyPanel: View {
             }.frame(minWidth: 320, minHeight: 420)
         }
     }
+    private var modelBudgetSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Routine model and budgets").font(.headline)
+            TextField("Inexpensive routine model (provider-qualified)", text: $modelConfig.routineModel)
+            TextField("Permitted escalation models (comma-separated, optional)", text: $escalationModelText)
+            Stepper("Requests per run: \(modelConfig.maxRequestsPerRun)", value: $modelConfig.maxRequestsPerRun, in: 1...3)
+            Stepper("Output tokens: \(modelConfig.maxOutputTokens)", value: $modelConfig.maxOutputTokens, in: 128...2048, step: 128)
+            Stepper("Daily requests: \(modelConfig.dailyRequests)", value: $modelConfig.dailyRequests, in: 1...100)
+            Stepper("Daily reserved tokens: \(modelConfig.dailyTokenBudget)", value: $modelConfig.dailyTokenBudget, in: 1024...200000, step: 1024)
+            Text(modelUsageText).font(.caption)
+            Text("Escalation requires two failed checks, an allowed model, remaining budget and shared approval. Each new run returns to the routine model. Dollar cost is unavailable.").font(.caption)
+            Button("Save model budgets") {
+                Task { await mutate {
+                    modelConfig.escalationModels = escalationModelText.split(separator: ",").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+                    let saved = try await model.client.saveAutonomyModelSettings(modelConfig)
+                    modelConfig = saved.config; status = "Model budgets saved."
+                } }
+            }
+            Divider()
+        }
+    }
+    private var responsibilitySection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Always-On responsibilities").font(.headline)
+            Text("Opt-in agents draft reports in isolated workspaces. New responsibilities start paused.").font(.caption)
+            ForEach(responsibilities) { row in
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("\(row.agent) · \(row.goal)").font(.headline)
+                    Text("\(row.status) · \(row.phase) · every \(row.intervalSeconds) seconds").font(.caption)
+                    if !row.report.isEmpty { Text(row.report).textSelection(.enabled) }
+                    if !row.error.isEmpty { Text(row.error).font(.caption) }
+                    if row.status != "cancelled" {
+                        ViewThatFits {
+                            HStack { responsibilityControls(row) }
+                            VStack(alignment: .leading) { responsibilityControls(row) }
+                        }
+                        Button("Revise goal") { revisingResponsibility = row.id; responsibilityAgent = row.agent; responsibilityGoal = row.goal }
+                    }
+                }.padding(10).background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
+            }
+            TextField("Agent name", text: $responsibilityAgent)
+            TextField("Responsibility", text: $responsibilityGoal, axis: .vertical)
+            Stepper("Interval: \(responsibilityInterval) seconds", value: $responsibilityInterval, in: 300...604800, step: 300)
+            Button(revisingResponsibility == nil ? "Create paused responsibility" : "Save revised goal (pauses agent)") {
+                Task { await mutate {
+                    if let id = revisingResponsibility { _ = try await model.client.reviseAutonomyResponsibility(id, goal: responsibilityGoal) }
+                    else { _ = try await model.client.createAutonomyResponsibility(agent: responsibilityAgent, goal: responsibilityGoal, interval: responsibilityInterval) }
+                    revisingResponsibility = nil; responsibilityGoal = ""
+                } }
+            }.disabled(responsibilityAgent.isEmpty || responsibilityGoal.isEmpty)
+            if revisingResponsibility != nil { Button("Cancel revision") { revisingResponsibility = nil; responsibilityGoal = "" } }
+            Divider()
+        }
+    }
+    @ViewBuilder private func responsibilityControls(_ row: AutonomyResponsibility) -> some View {
+        ForEach(["resume", "pause", "cancel"], id: \.self) { command in
+            Button(command.capitalized) { Task { await mutate { _ = try await model.client.controlAutonomyResponsibility(row.id, command: command) } } }
+        }
+        if row.phase == "attention" {
+            Button("Reconcile…") { reconciling = row; showReconcile = true }
+        }
+    }
     @ViewBuilder private func decisionButtons(_ approval: AutonomyApproval) -> some View {
         Button("Approve once") { decide(approval, "approve_once") }
         Button("Reject", role: .destructive) { decide(approval, "reject") }
@@ -1916,18 +1996,23 @@ struct AutonomyPanel: View {
         } }
     }
     private func mutate(_ operation: () async throws -> Void) async {
-        guard !busy else { return }; busy = true
-        do { try await operation() } catch { status = error.localizedDescription }
+        guard !busy else { return }; busy = true; status = ""; statusIsError = false
+        do { try await operation() } catch { status = error.localizedDescription; statusIsError = true }
         busy = false; await reload()
     }
     private func reload() async {
         guard model.isAuthenticated, !busy else { return }
         let configuration = model.configuration; let client = model.client
         do {
+            async let budget = client.autonomyModelSettings()
+            async let work = client.autonomyResponsibilities()
             async let requests = client.autonomyApprovals(); async let policy = client.autonomyRules()
-            let (response, saved) = try await (requests, policy)
+            let (response, saved, workResponse, modelSettings) = try await (requests, policy, work, budget)
             guard configuration == model.configuration, !Task.isCancelled else { return }
-            approvals = response.requests; rules = saved.rules; enabled = saved.enabled
-        } catch { if configuration == model.configuration { status = error.localizedDescription } }
+            if statusIsError { status = ""; statusIsError = false }
+            if !modelSettingsLoaded { modelConfig = modelSettings.config; escalationModelText = modelSettings.config.escalationModels.joined(separator: ", "); modelSettingsLoaded = true }
+            modelUsageText = "Today: \(modelSettings.usage.requests) requests · \(modelSettings.usage.reservedTokens) reserved tokens · \(modelSettings.usage.unknownUsage) unknown usage readings"
+            responsibilities = workResponse.responsibilities; approvals = response.requests; rules = saved.rules; enabled = saved.enabled
+        } catch { if configuration == model.configuration { status = error.localizedDescription; statusIsError = true } }
     }
 }

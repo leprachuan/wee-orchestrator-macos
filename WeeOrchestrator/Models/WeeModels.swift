@@ -1866,7 +1866,7 @@ struct AutonomyScope: Codable, Equatable {
     var label: String { "\(agent) · \(operation) · \(host) · \(resource)" }
     var supportsPermanentGrant: Bool { !["shell.execute", "python.execute", "browser.execute", "delegate.execute"].contains(operation) }
 }
-struct AutonomyPreview: Decodable { let summary: String }
+struct AutonomyPreview: Decodable { let summary: String; let details: String? }
 struct AutonomyApproval: Decodable, Identifiable {
     let id: String
     let responsibility: String
@@ -1900,3 +1900,43 @@ struct AutonomyRuleInput: Encodable {
     var pathPrefix = false
     enum CodingKeys: String, CodingKey { case agent, operation, host, resource, decision; case pathPrefix = "path_prefix" }
 }
+
+struct AutonomyResponsibility: Decodable, Identifiable {
+    let id: String
+    let agent: String
+    let goal: String
+    let status: String
+    let phase: String
+    let intervalSeconds: Int
+    let report: String
+    let error: String
+    enum CodingKeys: String, CodingKey { case id, agent, goal, status, phase, report, error; case intervalSeconds = "interval_seconds" }
+}
+struct AutonomyResponsibilities: Decodable { let responsibilities: [AutonomyResponsibility] }
+struct AutonomyResponsibilityInput: Encodable {
+    let agent: String
+    let goal: String
+    let intervalSeconds: Int
+    enum CodingKeys: String, CodingKey { case agent, goal; case intervalSeconds = "interval_seconds" }
+}
+struct AutonomyControl: Encodable { let command: String }
+struct AutonomyRevision: Encodable { let goal: String }
+
+struct AutonomyModelConfig: Codable {
+    var routineModel = "openrouter/openai/gpt-4.1-mini"
+    var escalationModels: [String] = []
+    var maxRequestsPerRun = 3
+    var maxOutputTokens = 1024
+    var dailyRequests = 20
+    var dailyTokenBudget = 40000
+    enum CodingKeys: String, CodingKey {
+        case routineModel = "routine_model", escalationModels = "escalation_models", maxRequestsPerRun = "max_requests_per_run", maxOutputTokens = "max_output_tokens", dailyRequests = "daily_requests", dailyTokenBudget = "daily_token_budget"
+    }
+}
+struct AutonomyModelUsage: Decodable {
+    let requests: Int
+    let reservedTokens: Int
+    let unknownUsage: Int
+    enum CodingKeys: String, CodingKey { case requests; case reservedTokens = "reserved_tokens", unknownUsage = "unknown_usage" }
+}
+struct AutonomyModelSettings: Decodable { let config: AutonomyModelConfig; let usage: AutonomyModelUsage }
