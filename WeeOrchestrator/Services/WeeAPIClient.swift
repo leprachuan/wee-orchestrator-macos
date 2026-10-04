@@ -275,6 +275,14 @@ struct WeeAPIClient {
         return response.models
     }
 
+    func modelFavorites() async throws -> ModelFavoritesConfig {
+        try await request("GET", path: "/api/v1/model-favorites")
+    }
+
+    func saveModelFavorites(_ models: [String]) async throws -> ModelFavoritesConfig {
+        try await request("PUT", path: "/api/v1/model-favorites", body: ModelFavoritesConfig(models: models))
+    }
+
     func routerConfig() async throws -> RouterConfigResponse {
         try await request("GET", path: "/api/v1/router-config")
     }

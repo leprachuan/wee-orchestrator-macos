@@ -113,4 +113,25 @@ final class LocalManifestModelMergeTests: XCTestCase {
             )
         )
     }
+    @MainActor
+    func testIssue516FavoritesGroupPrecedesAllProvidersAndPreservesOrder() {
+        let catalog = [
+            ModelCatalogEntry(id: "ollama/a", label: "Local", group: "Ollama"),
+            ModelCatalogEntry(id: "openrouter/b", label: "Cloud", group: "Favorites"),
+            ModelCatalogEntry(id: "ollama/c", label: "Local favorite", group: "Favorites"),
+            ModelCatalogEntry(id: "openrouter/d", label: "Other cloud", group: "AAA Cloud")
+        ]
+        let groups = WeeAppModel.modelGroups(catalog)
+        XCTAssertEqual(groups.map(\.key), ["Favorites", "AAA Cloud", "Ollama"])
+        XCTAssertEqual(groups[0].value.map(\.id), ["openrouter/b", "ollama/c"])
+        XCTAssertEqual(catalog[0].group, "Ollama")
+    }
+
+    func testIssue516FavoritesSettingsDecodeAndEncodeQualifiedIDs() throws {
+        let data = Data(#"{"version":1,"models":["openrouter/openai/gpt-4.1-mini","ollama/qwen3:8b"]}"#.utf8)
+        let config = try JSONDecoder().decode(ModelFavoritesConfig.self, from: data)
+        XCTAssertEqual(config.models, ["openrouter/openai/gpt-4.1-mini", "ollama/qwen3:8b"])
+        XCTAssertEqual(try JSONDecoder().decode(ModelFavoritesConfig.self, from: JSONEncoder().encode(config)), config)
+    }
+
 }

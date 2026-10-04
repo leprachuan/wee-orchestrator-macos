@@ -35,6 +35,13 @@ struct SettingsView: View {
 
     private let runtimeFallbacks = ["wee", "copilot", "copilot-sdk", "claude", "claude-sdk", "gemini", "opencode", "codex", "devin", "router"]
 
+    @State private var favoriteModelIDs: [String] = []
+    @State private var favoriteCatalog: [ModelCatalogEntry] = []
+    @State private var favoriteSearch = ""
+    @State private var favoritesStatus: String?
+    @State private var favoritesBusy = false
+    @State private var favoritesLoaded = false
+
     @State private var routerDraft = RouterConfig(
         enabled: false,
         brain: RouterRuntimeModel(runtime: "wee", model: ""),
@@ -79,6 +86,7 @@ struct SettingsView: View {
                         remoteSSHDeploymentSection
                     }
                     advancedTokenSection
+                    favoriteModelsSection
                     routerSection
                     environmentSection
                     connectionSummary
@@ -981,6 +989,100 @@ struct SettingsView: View {
         }
     }
 
+    private var favoriteModelsSection: some View {
+        SettingsSectionBox(title: "Favorite Models", systemImage: "star.fill") {
+            Text("Keep your preferred Ollama and OpenRouter models at the top of Wee model lists. Shared with the WebUI for this environment.")
+                .weeFont(.caption)
+                .foregroundStyle(WeeTheme.textSecondary)
+            ForEach(Array(favoriteModelIDs.enumerated()), id: \.element) { index, id in
+                HStack {
+                    Image(systemName: "star.fill").foregroundStyle(WeeTheme.gold)
+                    Text(favoriteCatalog.first(where: { $0.id == id })?.label ?? id)
+                        .lineLimit(1).help(id)
+                    Spacer()
+                    Button { favoriteModelIDs.swapAt(index, index - 1) } label: {
+                        Image(systemName: "arrow.up")
+                    }.disabled(index == 0).help("Move favorite up")
+                    Button { favoriteModelIDs.swapAt(index, index + 1) } label: {
+                        Image(systemName: "arrow.down")
+                    }.disabled(index == favoriteModelIDs.count - 1).help("Move favorite down")
+                    Button { favoriteModelIDs.removeAll { $0 == id } } label: {
+                        Image(systemName: "star.slash")
+                    }.help("Remove favorite")
+                }
+            }
+            TextField("Search Ollama and OpenRouter models", text: $favoriteSearch)
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 6) {
+                    ForEach(favoriteCandidates.prefix(50)) { entry in
+                        Button {
+                            favoriteModelIDs.append(entry.id)
+                        } label: {
+                            HStack {
+                                Image(systemName: "star")
+                                Text(entry.label).lineLimit(1)
+                                Spacer()
+                                Text(entry.id.hasPrefix("ollama/") ? "Ollama" : "OpenRouter")
+                                    .weeFont(.caption).foregroundStyle(WeeTheme.textSecondary)
+                            }
+                        }.buttonStyle(.plain).help(entry.id).disabled(favoriteModelIDs.count >= 100)
+                    }
+                }
+            }.frame(maxHeight: 180)
+            if favoriteCandidates.count > 50 {
+                Text("Showing 50 models. Search to find more.").weeFont(.caption).foregroundStyle(WeeTheme.textSecondary)
+            }
+            HStack {
+                Button("Reload") { Task { await loadModelFavorites() } }
+                    .buttonStyle(WeeGhostButtonStyle())
+                Button("Save Favorites") { Task { await saveModelFavorites() } }
+                    .buttonStyle(WeePrimaryButtonStyle())
+                    .disabled(!favoritesLoaded)
+                if favoritesBusy { ProgressView().controlSize(.small) }
+            }.disabled(favoritesBusy || !model.isAuthenticated)
+            if let favoritesStatus {
+                Text(favoritesStatus).weeFont(.caption).foregroundStyle(WeeTheme.textSecondary)
+            }
+        }
+    }
+
+    private var favoriteCandidates: [ModelCatalogEntry] {
+        favoriteCatalog.filter { entry in
+            !favoriteModelIDs.contains(entry.id) &&
+            (favoriteSearch.isEmpty || entry.id.localizedCaseInsensitiveContains(favoriteSearch) || entry.label.localizedCaseInsensitiveContains(favoriteSearch))
+        }
+    }
+
+    private func loadModelFavorites() async {
+        favoritesLoaded = false
+        favoritesBusy = true
+        defer { favoritesBusy = false }
+        do {
+            let response = try await model.client.modelFavorites()
+            favoriteModelIDs = response.models
+            favoriteCatalog = try await model.client.models(runtime: "wee")
+            favoritesLoaded = true
+            favoritesStatus = nil
+            await model.refreshModelCatalogAfterFavorites()
+        } catch {
+            favoritesStatus = "Unable to load favorites: \(error.localizedDescription)"
+        }
+    }
+
+    private func saveModelFavorites() async {
+        guard favoritesLoaded else { return }
+        favoritesBusy = true
+        defer { favoritesBusy = false }
+        do {
+            let response = try await model.client.saveModelFavorites(favoriteModelIDs)
+            favoriteModelIDs = response.models
+            favoritesStatus = "Favorites saved."
+            await model.refreshModelCatalogAfterFavorites()
+        } catch {
+            favoritesStatus = "Unable to save favorites: \(error.localizedDescription)"
+        }
+    }
+
     private var routerSection: some View {
         SettingsSectionBox(title: "LLM Router", systemImage: "arrow.triangle.branch") {
             VStack(alignment: .leading, spacing: 10) {
@@ -1308,6 +1410,7 @@ struct SettingsView: View {
         hasLoadedWebSettings = true
         await loadNotificationToggle()
         await loadRouterConfig()
+        await loadModelFavorites()
     }
 
     private func loadConnectorStatus() async {

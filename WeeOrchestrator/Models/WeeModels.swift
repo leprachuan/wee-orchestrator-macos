@@ -1851,3 +1851,9 @@ struct ShellCommandResultRequest: Encodable {
 struct ShellResultAcceptedResponse: Decodable {
     let accepted: Bool
 }
+
+// Shared Wee model favorites (core issue #516).
+struct ModelFavoritesConfig: Codable, Equatable {
+    var version: Int = 1
+    var models: [String]
+}
