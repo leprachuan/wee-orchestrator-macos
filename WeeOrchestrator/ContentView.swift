@@ -75,8 +75,6 @@ struct ContentView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .safeAreaInset(edge: .top) {
-        }
         .background(WindowAccessor(window: $thisWindow))
         .background(WeeTheme.background)
         .preferredColorScheme(.dark)
