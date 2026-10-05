@@ -729,6 +729,10 @@ struct WeeAPIClient {
     func controlAutonomyResponsibility(_ id: String, command: String, agent: String = "") async throws -> AutonomyResponsibility {
         try await request("POST", path: autonomyAgentPath("/api/v1/autonomy/responsibilities/\(id)/control", agent: agent), body: AutonomyControl(command: command))
     }
+    func deleteAutonomyResponsibility(_ id: String, agent: String = "") async throws -> AutonomyResponsibility {
+        try await request("DELETE", path: autonomyAgentPath("/api/v1/autonomy/responsibilities/\(id)", agent: agent))
+    }
+
     func reviseAutonomyResponsibility(_ id: String, goal: String, agent: String = "") async throws -> AutonomyResponsibility {
         try await request("PUT", path: autonomyAgentPath("/api/v1/autonomy/responsibilities/\(id)", agent: agent), body: AutonomyRevision(goal: goal))
     }

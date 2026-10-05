@@ -1978,6 +1978,11 @@ struct AutonomyPanel: View {
                             VStack(alignment: .leading) { responsibilityControls(row) }
                         }
                         Button("Revise goal") { revisingResponsibility = row.id; responsibilityAgent = row.agent; responsibilityGoal = row.goal }
+                    } else {
+                        Button("Delete goal", role: .destructive) {
+                            Task { await mutate { _ = try await model.client.deleteAutonomyResponsibility(row.id, agent: agentName) } }
+                        }
+                        Text("Deleting retains the action history.").font(.caption)
                     }
                 }.padding(10).background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
             }
