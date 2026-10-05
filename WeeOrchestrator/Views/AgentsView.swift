@@ -3,6 +3,7 @@ import SwiftUI
 struct AgentsView: View {
     @Bindable var model: WeeAppModel
     @State private var editorContext: AgentEditorContext?
+    @State private var alwaysOnContext: AgentEditorContext?
 
     var body: some View {
         VStack(spacing: 8) {
@@ -43,6 +44,12 @@ struct AgentsView: View {
             .glassPanel(fill: WeeTheme.background)
         }
         .padding(10)
+        .sheet(item: $alwaysOnContext) { context in
+            if let name = context.agentName {
+                AutonomyPanel(model: model, agentName: name).id(name)
+                    .frame(width: 760, height: 720)
+            }
+        }
         .sheet(item: $editorContext) { context in
             AgentEditorSheet(model: model, agentName: context.agentName)
                 .frame(width: 760, height: 720)
@@ -93,6 +100,12 @@ struct AgentsView: View {
                         AgentCard(
                             agent: agent,
                             isSelected: model.activeEnvironment == environment && agent.name == model.selectedAgent,
+                            onAlwaysOn: {
+                                Task {
+                                    await model.switchEnvironment(to: environment)
+                                    alwaysOnContext = AgentEditorContext(agentName: agent.name)
+                                }
+                            },
                             onEdit: {
                                 Task {
                                     await model.switchEnvironment(to: environment)
@@ -123,6 +136,7 @@ private struct AgentEditorContext: Identifiable {
 private struct AgentCard: View {
     let agent: AgentSummary
     let isSelected: Bool
+    let onAlwaysOn: () -> Void
     let onEdit: () -> Void
 
     var body: some View {
@@ -141,6 +155,11 @@ private struct AgentCard: View {
                         .foregroundStyle(isSelected ? WeeTheme.accent : WeeTheme.textPrimary)
                 }
                 Spacer()
+                Button(action: onAlwaysOn) {
+                    Label("Always-On", systemImage: "clock.arrow.circlepath")
+                }
+                .buttonStyle(WeeGhostButtonStyle())
+                .accessibilityLabel("Always-On for \(agent.name)")
                 Button(action: onEdit) {
                     Image(systemName: "pencil")
                         .frame(width: 18, height: 18)
@@ -185,6 +204,7 @@ private struct AgentEditorSheet: View {
     @State private var statusIsError = false
     @State private var showDeleteConfirmation = false
     @State private var isLoaded = false
+    @State private var showAlwaysOn = false
     @State private var instructions = ""
     @State private var loadedInstructions = ""
     @State private var instructionsExists = false
@@ -224,6 +244,15 @@ private struct AgentEditorSheet: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
                     agentDetailsSection
+                    if !originalAgent.name.isEmpty {
+                        AgentEditorSection(title: "Always-On", systemImage: "clock.arrow.circlepath") {
+                            Text("Responsibilities, runtime and model, budgets, approvals and saved rules for this agent.")
+                            Button("Configure Always-On for \(originalAgent.name)") { showAlwaysOn = true }
+                                .sheet(isPresented: $showAlwaysOn) {
+                                    AutonomyPanel(model: model, agentName: originalAgent.name).id(originalAgent.name)
+                                }
+                        }
+                    }
                     permissionsSection
                     instructionsSection
                     memoriesSection

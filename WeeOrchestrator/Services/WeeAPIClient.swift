@@ -697,44 +697,51 @@ struct WeeAPIClient {
         return data
     }
 
-    func autonomyApprovals() async throws -> AutonomyApprovalList {
-        try await request("GET", path: "/api/v1/autonomy/approvals")
-    }
-    func autonomyRules() async throws -> AutonomyRules {
-        try await request("GET", path: "/api/v1/autonomy/rules")
-    }
-    func decideAutonomy(_ approval: AutonomyApproval, decision: String) async throws -> AutonomyDecisionResult {
-        try await request("POST", path: "/api/v1/autonomy/approvals/\(approval.id)/decision", body: AutonomyDecision(decision: decision, fingerprint: approval.fingerprint))
-    }
-    func saveAutonomyRule(_ rule: AutonomyRuleInput, replacing id: String?) async throws -> AutonomyRule {
-        try await request(id == nil ? "POST" : "PUT", path: "/api/v1/autonomy/rules" + (id.map { "/\($0)" } ?? ""), body: rule)
-    }
-    func revokeAutonomyRule(_ id: String) async throws -> AutonomyRule {
-        try await request("DELETE", path: "/api/v1/autonomy/rules/\(id)")
+    private func autonomyAgentPath(_ path: String, agent: String) -> String {
+        guard !agent.isEmpty else { return path }
+        var parts = URLComponents()
+        parts.queryItems = [URLQueryItem(name: "agent", value: agent)]
+        return path + "?" + (parts.percentEncodedQuery ?? "")
     }
 
-    func autonomyResponsibilities() async throws -> AutonomyResponsibilities {
-        try await request("GET", path: "/api/v1/autonomy/responsibilities")
+    func autonomyApprovals(agent: String = "") async throws -> AutonomyApprovalList {
+        try await request("GET", path: autonomyAgentPath("/api/v1/autonomy/approvals", agent: agent))
+    }
+    func autonomyRules(agent: String = "") async throws -> AutonomyRules {
+        try await request("GET", path: autonomyAgentPath("/api/v1/autonomy/rules", agent: agent))
+    }
+    func decideAutonomy(_ approval: AutonomyApproval, decision: String, agent: String = "") async throws -> AutonomyDecisionResult {
+        try await request("POST", path: autonomyAgentPath("/api/v1/autonomy/approvals/\(approval.id)/decision", agent: agent), body: AutonomyDecision(decision: decision, fingerprint: approval.fingerprint))
+    }
+    func saveAutonomyRule(_ rule: AutonomyRuleInput, replacing id: String?, agent: String = "") async throws -> AutonomyRule {
+        try await request(id == nil ? "POST" : "PUT", path: autonomyAgentPath("/api/v1/autonomy/rules" + (id.map { "/\($0)" } ?? ""), agent: agent), body: rule)
+    }
+    func revokeAutonomyRule(_ id: String, agent: String = "") async throws -> AutonomyRule {
+        try await request("DELETE", path: autonomyAgentPath("/api/v1/autonomy/rules/\(id)", agent: agent))
+    }
+
+    func autonomyResponsibilities(agent: String = "") async throws -> AutonomyResponsibilities {
+        try await request("GET", path: autonomyAgentPath("/api/v1/autonomy/responsibilities", agent: agent))
     }
     func createAutonomyResponsibility(agent: String, goal: String, interval: Int) async throws -> AutonomyResponsibility {
-        try await request("POST", path: "/api/v1/autonomy/responsibilities", body: AutonomyResponsibilityInput(agent: agent, goal: goal, intervalSeconds: interval))
+        try await request("POST", path: autonomyAgentPath("/api/v1/autonomy/responsibilities", agent: agent), body: AutonomyResponsibilityInput(agent: agent, goal: goal, intervalSeconds: interval))
     }
-    func controlAutonomyResponsibility(_ id: String, command: String) async throws -> AutonomyResponsibility {
-        try await request("POST", path: "/api/v1/autonomy/responsibilities/\(id)/control", body: AutonomyControl(command: command))
+    func controlAutonomyResponsibility(_ id: String, command: String, agent: String = "") async throws -> AutonomyResponsibility {
+        try await request("POST", path: autonomyAgentPath("/api/v1/autonomy/responsibilities/\(id)/control", agent: agent), body: AutonomyControl(command: command))
     }
-    func reviseAutonomyResponsibility(_ id: String, goal: String) async throws -> AutonomyResponsibility {
-        try await request("PUT", path: "/api/v1/autonomy/responsibilities/\(id)", body: AutonomyRevision(goal: goal))
+    func reviseAutonomyResponsibility(_ id: String, goal: String, agent: String = "") async throws -> AutonomyResponsibility {
+        try await request("PUT", path: autonomyAgentPath("/api/v1/autonomy/responsibilities/\(id)", agent: agent), body: AutonomyRevision(goal: goal))
     }
 
     func autonomyRuntimeCatalog(runtime: String = "") async throws -> AutonomyRuntimeCatalog {
         try await request("GET", path: "/api/v1/autonomy/runtime-catalog?runtime=\(runtime)")
     }
 
-    func autonomyModelSettings() async throws -> AutonomyModelSettings {
-        try await request("GET", path: "/api/v1/autonomy/model-settings")
+    func autonomyModelSettings(agent: String = "") async throws -> AutonomyModelSettings {
+        try await request("GET", path: autonomyAgentPath("/api/v1/autonomy/model-settings", agent: agent))
     }
-    func saveAutonomyModelSettings(_ config: AutonomyModelConfig) async throws -> AutonomyModelSettings {
-        try await request("PUT", path: "/api/v1/autonomy/model-settings", body: config)
+    func saveAutonomyModelSettings(_ config: AutonomyModelConfig, agent: String = "") async throws -> AutonomyModelSettings {
+        try await request("PUT", path: autonomyAgentPath("/api/v1/autonomy/model-settings", agent: agent), body: config)
     }
 
     private func request<T: Decodable>(
