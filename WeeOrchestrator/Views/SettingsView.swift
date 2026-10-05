@@ -86,7 +86,6 @@ struct SettingsView: View {
                         remoteSSHDeploymentSection
                     }
                     advancedTokenSection
-                    AutonomyInboxButton(model: model)
                     favoriteModelsSection
                     routerSection
                     environmentSection
@@ -1781,34 +1780,10 @@ private struct TextAreaRow: View {
 }
 
 @MainActor
-struct AutonomyInboxButton: View {
-    @Bindable var model: WeeAppModel
-    @State private var count = 0
-    @State private var presented = false
-    var body: some View {
-        Button { presented = true } label: {
-            Label("Approvals (\(count))", systemImage: "checkmark.shield")
-        }
-        .disabled(!model.isAuthenticated)
-        .sheet(isPresented: $presented) { AutonomyPanel(model: model) }
-        .task(id: model.configuration) {
-            guard ProcessInfo.processInfo.environment["XCTestBundlePath"] == nil else { return }
-            count = 0
-            let configuration = model.configuration
-            let client = model.client
-            while !Task.isCancelled {
-                if model.isAuthenticated, let response = try? await client.autonomyApprovals(), configuration == model.configuration {
-                    count = response.requests.filter { $0.status == "pending" || $0.status == "rule_pending" }.count
-                }
-                do { try await Task.sleep(for: .seconds(3)) } catch { break }
-            }
-        }
-    }
-}
-
-@MainActor
 struct AutonomyPanel: View {
     @Bindable var model: WeeAppModel
+    let agentName: String
+    @State private var openedConfiguration: APIConfiguration?
     @Environment(\.dismiss) private var dismiss
     @State private var modelConfig = AutonomyModelConfig()
     @State private var runtimeCatalog: [AutonomyRuntimeEntry] = []
@@ -1841,7 +1816,7 @@ struct AutonomyPanel: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    Text("Requests are shared with every authorized client connected to this API.").font(.callout)
+                    Text("Approvals for \(agentName) are shared with every authorized client connected to this API.").font(.callout)
                     if !status.isEmpty { Text(status).font(.callout).accessibilityLabel(status) }
                     if approvals.isEmpty { Text("No approval requests.") }
                     ForEach(approvals) { approval in
@@ -1862,8 +1837,8 @@ struct AutonomyPanel: View {
                     responsibilitySection
                     modelBudgetSection
                     Text("Saved action rules").font(.headline)
-                    Text(enabled ? "Always-On policy enabled" : "Always-On execution disabled").font(.caption)
-                    Button("Create explicit rule") { replacing = nil; draft = AutonomyRuleInput(); editor = true }
+                    Text("Resume a responsibility to run this agent. Pause stops new work; cancelling also cancels its pending approvals.").font(.caption)
+                    Button("Create explicit rule") { replacing = nil; draft = AutonomyRuleInput(agent: agentName); editor = true }
                     ForEach(rules) { rule in
                         VStack(alignment: .leading, spacing: 6) {
                             Text("\(rule.enabled ? rule.decision : "revoked") · \(rule.scope.label)").font(.caption)
@@ -1875,19 +1850,22 @@ struct AutonomyPanel: View {
                                         draft = AutonomyRuleInput(agent: rule.agent, operation: rule.operation, host: rule.host, resource: rule.resource, decision: rule.decision, pathPrefix: rule.pathPrefix)
                                         editor = true
                                     }
-                                    Button("Revoke", role: .destructive) { Task { await mutate { _ = try await model.client.revokeAutonomyRule(rule.id) } } }
+                                    Button("Revoke", role: .destructive) { Task { await mutate { _ = try await model.client.revokeAutonomyRule(rule.id, agent: agentName) } } }
                                 }
                             }
                         }
                     }
                 }.padding(20)
             }
-            .navigationTitle("Shared approvals")
+            .navigationTitle("\(agentName) · Always-On")
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
             .disabled(busy)
         }
         .frame(minWidth: 320, minHeight: 440)
+        .onChange(of: model.configuration) { _, _ in dismiss() }
         .task(id: model.configuration) {
+            guard openedConfiguration == nil || openedConfiguration == model.configuration else { return }
+            openedConfiguration = model.configuration
             approvals = []; rules = []; responsibilities = []; modelSettingsLoaded = false
             while !Task.isCancelled {
                 await reload()
@@ -1895,7 +1873,7 @@ struct AutonomyPanel: View {
             }
         }
         .confirmationDialog("Acknowledge interrupted or uncertain work?", isPresented: $showReconcile, titleVisibility: .visible) {
-            Button("Acknowledge and leave paused") { if let row = reconciling { Task { await mutate { _ = try await model.client.controlAutonomyResponsibility(row.id, command: "reconcile") } } } }
+            Button("Acknowledge and leave paused") { if let row = reconciling { Task { await mutate { _ = try await model.client.controlAutonomyResponsibility(row.id, command: "reconcile", agent: agentName) } } } }
         } message: { Text("Inspect the report and action history before starting another run. Uncertain actions are never retried automatically.") }
         .confirmationDialog("Always allow this exact scope?", isPresented: $showPermanent, titleVisibility: .visible) {
             Button("Approve and save rule") { if let approval = permanent { decide(approval, "approve_always") } }
@@ -1904,7 +1882,7 @@ struct AutonomyPanel: View {
         .sheet(isPresented: $editor) {
             NavigationStack {
                 Form {
-                    TextField("Agent", text: $draft.agent)
+                    Text("Agent: \(agentName)")
                     TextField("Operation", text: $draft.operation)
                     TextField("Host", text: $draft.host)
                     TextField("Resource", text: $draft.resource)
@@ -1917,7 +1895,7 @@ struct AutonomyPanel: View {
                 .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { editor = false } } }
                 .confirmationDialog("Save this explicit rule?", isPresented: $confirmRule, titleVisibility: .visible) {
                     Button("Save rule") {
-                        Task { await mutate { _ = try await model.client.saveAutonomyRule(draft, replacing: replacing); editor = false } }
+                        Task { await mutate { _ = try await model.client.saveAutonomyRule(draft, replacing: replacing, agent: agentName); editor = false } }
                     }
                 } message: { Text("\(draft.decision) · \(draft.agent) · \(draft.operation) · \(draft.host) · \(draft.resource)\(draft.pathPrefix ? " and child paths" : "")") }
             }.frame(minWidth: 320, minHeight: 420)
@@ -1959,7 +1937,7 @@ struct AutonomyPanel: View {
             Button("Save model budgets") {
                 Task { await mutate {
                     modelConfig.escalationModels = escalationModelText.split(separator: ",").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
-                    let saved = try await model.client.saveAutonomyModelSettings(modelConfig)
+                    let saved = try await model.client.saveAutonomyModelSettings(modelConfig, agent: agentName)
                     modelConfig = saved.config; status = "Model budgets saved."
                 } }
             }
@@ -2003,23 +1981,23 @@ struct AutonomyPanel: View {
                     }
                 }.padding(10).background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
             }
-            TextField("Agent name", text: $responsibilityAgent)
+            Text("Agent: \(agentName)").font(.caption)
             TextField("Responsibility", text: $responsibilityGoal, axis: .vertical)
             Stepper("Interval: \(responsibilityInterval) seconds", value: $responsibilityInterval, in: 300...604800, step: 300)
             Button(revisingResponsibility == nil ? "Create paused responsibility" : "Save revised goal (pauses agent)") {
                 Task { await mutate {
-                    if let id = revisingResponsibility { _ = try await model.client.reviseAutonomyResponsibility(id, goal: responsibilityGoal) }
-                    else { _ = try await model.client.createAutonomyResponsibility(agent: responsibilityAgent, goal: responsibilityGoal, interval: responsibilityInterval) }
+                    if let id = revisingResponsibility { _ = try await model.client.reviseAutonomyResponsibility(id, goal: responsibilityGoal, agent: agentName) }
+                    else { _ = try await model.client.createAutonomyResponsibility(agent: agentName, goal: responsibilityGoal, interval: responsibilityInterval) }
                     revisingResponsibility = nil; responsibilityGoal = ""
                 } }
-            }.disabled(responsibilityAgent.isEmpty || responsibilityGoal.isEmpty)
+            }.disabled(responsibilityGoal.isEmpty)
             if revisingResponsibility != nil { Button("Cancel revision") { revisingResponsibility = nil; responsibilityGoal = "" } }
             Divider()
         }
     }
     @ViewBuilder private func responsibilityControls(_ row: AutonomyResponsibility) -> some View {
         ForEach(["resume", "pause", "cancel"], id: \.self) { command in
-            Button(command.capitalized) { Task { await mutate { _ = try await model.client.controlAutonomyResponsibility(row.id, command: command) } } }
+            Button(command.capitalized) { Task { await mutate { _ = try await model.client.controlAutonomyResponsibility(row.id, command: command, agent: agentName) } } }
         }
         if row.phase == "attention" {
             Button("Reconcile…") { reconciling = row; showReconcile = true }
@@ -2035,12 +2013,12 @@ struct AutonomyPanel: View {
     }
     private func decide(_ approval: AutonomyApproval, _ decision: String) {
         Task { await mutate {
-            let result = try await model.client.decideAutonomy(approval, decision: decision)
+            let result = try await model.client.decideAutonomy(approval, decision: decision, agent: agentName)
             status = result.won ? "Decision saved for all connected clients." : "Another client already resolved this request."
         } }
     }
     private func mutate(_ operation: () async throws -> Void) async {
-        guard !busy else { return }; busy = true; status = ""; statusIsError = false
+        guard !busy, openedConfiguration == model.configuration else { return }; busy = true; status = ""; statusIsError = false
         do { try await operation() } catch { status = error.localizedDescription; statusIsError = true }
         busy = false; await reload()
     }
@@ -2048,9 +2026,9 @@ struct AutonomyPanel: View {
         guard model.isAuthenticated, !busy else { return }
         let configuration = model.configuration; let client = model.client
         do {
-            async let budget = client.autonomyModelSettings()
-            async let work = client.autonomyResponsibilities()
-            async let requests = client.autonomyApprovals(); async let policy = client.autonomyRules()
+            async let budget = client.autonomyModelSettings(agent: agentName)
+            async let work = client.autonomyResponsibilities(agent: agentName)
+            async let requests = client.autonomyApprovals(agent: agentName); async let policy = client.autonomyRules(agent: agentName)
             let (response, saved, workResponse, modelSettings) = try await (requests, policy, work, budget)
             guard configuration == model.configuration, !Task.isCancelled else { return }
             if statusIsError { status = ""; statusIsError = false }

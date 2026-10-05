@@ -76,7 +76,6 @@ struct ContentView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .safeAreaInset(edge: .top) {
-            HStack { Spacer(); AutonomyInboxButton(model: model) }.padding(.horizontal, 12).padding(.vertical, 4)
         }
         .background(WindowAccessor(window: $thisWindow))
         .background(WeeTheme.background)
