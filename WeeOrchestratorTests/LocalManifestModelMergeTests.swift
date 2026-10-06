@@ -169,3 +169,26 @@ final class AutonomyContractTests: XCTestCase {
         XCTAssertFalse(AutonomyScope(agent:"a",operation:"shell.execute",host:"dev",resource:"shell").supportsPermanentGrant)
     }
 }
+
+final class AutonomyRepositoryGoalContractTests: XCTestCase {
+    func testLinkedAndLegacyGoalsDecodeFromServerContract() throws {
+        let data = Data(#"{"responsibilities":[{"id":"linked","agent":"a","goal":"Watch health","status":"paused","phase":"idle","interval_seconds":3600,"next_at":1000,"report":"","error":"","source":{"repo":"owner/work","number":7,"url":"https://github.com/owner/work/issues/7","title":"Watch health","body":"- [ ] Check","mode":"recurring","eligible":1,"sync_at":900,"sync_error":""}},{"id":"legacy","agent":"a","goal":"Old goal","status":"paused","phase":"idle","interval_seconds":300,"report":"history","error":""}]}"#.utf8)
+        let goals = try JSONDecoder().decode(AutonomyResponsibilities.self, from: data).responsibilities
+        XCTAssertEqual(goals[0].source?.number, 7)
+        XCTAssertEqual(goals[0].source?.eligible, 1)
+        XCTAssertEqual(goals[0].nextAt, 1000)
+        XCTAssertNil(goals[1].source)
+        XCTAssertEqual(goals[1].report, "history")
+    }
+    func testIssueRequestEncodesStableIdentityAndMigration() throws {
+        var input = AutonomyRepositoryOperationInput(agent: "a", repository: "owner/work", kind: "link")
+        input.requestId = "00000000-0000-4000-8000-000000000001"
+        input.number = 7; input.responsibility = "legacy"; input.mode = "finite"; input.intervalSeconds = 300
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(input)) as? [String: Any])
+        XCTAssertEqual(object["request_id"] as? String, input.requestId)
+        XCTAssertEqual(object["interval_seconds"] as? Int, 300)
+        XCTAssertEqual(object["responsibility"] as? String, "legacy")
+        XCTAssertEqual(object["number"] as? Int, 7)
+        XCTAssertNil(object["requestId"])
+    }
+}

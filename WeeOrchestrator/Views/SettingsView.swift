@@ -1797,6 +1797,20 @@ struct AutonomyPanel: View {
     @State private var responsibilityGoal = ""
     @State private var responsibilityInterval = 3600
     @State private var revisingResponsibility: String?
+    @State private var repositorySettingsLoaded = false
+    @State private var workRepositories: [AutonomyWorkRepository] = []
+    @State private var repositoryAttention: [AutonomyRepositoryAttention] = []
+    @State private var repositoryText = ""
+    @State private var defaultRepository = ""
+    @State private var goalRepository = ""
+    @State private var issueNumber = ""
+    @State private var issueBody = ""
+    @State private var goalMode = "recurring"
+    @State private var migratingResponsibility: String?
+    @State private var goalRequestId = UUID().uuidString
+    @State private var repositoryOperations: [AutonomyRepositoryOperation] = []
+    @State private var allAgentGoals: [AutonomyResponsibility] = []
+
     @State private var reconciling: AutonomyResponsibility?
     @State private var showReconcile = false
     @State private var approvals: [AutonomyApproval] = []
@@ -1866,12 +1880,18 @@ struct AutonomyPanel: View {
         .task(id: model.configuration) {
             guard openedConfiguration == nil || openedConfiguration == model.configuration else { return }
             openedConfiguration = model.configuration
-            approvals = []; rules = []; responsibilities = []; modelSettingsLoaded = false
+            approvals = []; rules = []; responsibilities = []; modelSettingsLoaded = false; repositorySettingsLoaded = false
             while !Task.isCancelled {
                 await reload()
                 do { try await Task.sleep(for: .seconds(3)) } catch { break }
             }
         }
+        .onChange(of: responsibilityGoal) { _, _ in goalRequestId = UUID().uuidString }
+        .onChange(of: issueBody) { _, _ in goalRequestId = UUID().uuidString }
+        .onChange(of: issueNumber) { _, _ in goalRequestId = UUID().uuidString }
+        .onChange(of: goalRepository) { _, _ in goalRequestId = UUID().uuidString }
+        .onChange(of: responsibilityInterval) { _, _ in goalRequestId = UUID().uuidString }
+        .onChange(of: goalMode) { _, _ in goalRequestId = UUID().uuidString }
         .confirmationDialog("Acknowledge interrupted or uncertain work?", isPresented: $showReconcile, titleVisibility: .visible) {
             Button("Acknowledge and leave paused") { if let row = reconciling { Task { await mutate { _ = try await model.client.controlAutonomyResponsibility(row.id, command: "reconcile", agent: agentName) } } } }
         } message: { Text("Inspect the report and action history before starting another run. Uncertain actions are never retried automatically.") }
@@ -1965,11 +1985,13 @@ struct AutonomyPanel: View {
     private var responsibilitySection: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Always-On responsibilities").font(.headline)
-            Text("Opt-in agents draft reports in isolated workspaces. New responsibilities start paused.").font(.caption)
+            Text("Goals are GitHub issues labeled always-on and agent:\(agentName). New or changed goals start paused.").font(.caption)
+            repositorySection
             ForEach(responsibilities) { row in
                 VStack(alignment: .leading, spacing: 6) {
                     Text("\(row.agent) · \(row.goal)").font(.headline)
                     Text("\(row.status) · \(row.phase) · every \(row.intervalSeconds) seconds").font(.caption)
+                    sourceDetails(row)
                     if !row.report.isEmpty { Text(row.report).textSelection(.enabled) }
                     if !row.error.isEmpty { Text(row.error).font(.caption) }
                     if row.status != "cancelled" {
@@ -1977,7 +1999,10 @@ struct AutonomyPanel: View {
                             HStack { responsibilityControls(row) }
                             VStack(alignment: .leading) { responsibilityControls(row) }
                         }
-                        Button("Revise goal") { revisingResponsibility = row.id; responsibilityAgent = row.agent; responsibilityGoal = row.goal }
+                        if row.source == nil {
+                            Button("Revise unlinked goal") { revisingResponsibility = row.id; responsibilityAgent = row.agent; responsibilityGoal = row.goal }
+                            Button("Link to GitHub issue") { migratingResponsibility = row.id; responsibilityGoal = row.goal; responsibilityInterval = row.intervalSeconds; issueNumber = "" }
+                        }
                     } else {
                         Button("Delete goal", role: .destructive) {
                             Task { await mutate { _ = try await model.client.deleteAutonomyResponsibility(row.id, agent: agentName) } }
@@ -1987,18 +2012,82 @@ struct AutonomyPanel: View {
                 }.padding(10).background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
             }
             Text("Agent: \(agentName)").font(.caption)
-            TextField("Responsibility", text: $responsibilityGoal, axis: .vertical)
+            TextField("Issue title", text: $responsibilityGoal, axis: .vertical)
+            if revisingResponsibility == nil {
+                TextField("Configured owner/repository", text: $goalRepository)
+                TextField("Existing issue number (optional)", text: $issueNumber)
+                TextField("Description and task checklist", text: $issueBody, axis: .vertical)
+                Picker("Goal mode", selection: $goalMode) { Text("Recurring").tag("recurring"); Text("Finite").tag("finite") }
+                if migratingResponsibility != nil { Text("Linking preserves this legacy goal’s history.").font(.caption) }
+            }
             Stepper("Interval: \(responsibilityInterval) seconds", value: $responsibilityInterval, in: 300...604800, step: 300)
-            Button(revisingResponsibility == nil ? "Create paused responsibility" : "Save revised goal (pauses agent)") {
+            Button(revisingResponsibility == nil ? "Request create / link issue" : "Save revised unlinked goal") {
                 Task { await mutate {
                     if let id = revisingResponsibility { _ = try await model.client.reviseAutonomyResponsibility(id, goal: responsibilityGoal, agent: agentName) }
-                    else { _ = try await model.client.createAutonomyResponsibility(agent: agentName, goal: responsibilityGoal, interval: responsibilityInterval) }
+                    else {
+                        var input = AutonomyRepositoryOperationInput(agent: agentName, repository: goalRepository, kind: issueNumber.isEmpty ? "create" : "link")
+                        input.requestId = goalRequestId; input.title = responsibilityGoal; input.body = issueBody
+                        input.number = Int(issueNumber); input.responsibility = migratingResponsibility
+                        input.intervalSeconds = responsibilityInterval; input.mode = goalMode
+                        let operation = try await model.client.submitAutonomyRepositoryOperation(input)
+                        status = "Issue request: \(operation.status). Review shared approvals above."
+                        goalRequestId = UUID().uuidString; migratingResponsibility = nil; issueNumber = ""; issueBody = ""
+                    }
                     revisingResponsibility = nil; responsibilityGoal = ""
                 } }
-            }.disabled(responsibilityGoal.isEmpty)
-            if revisingResponsibility != nil { Button("Cancel revision") { revisingResponsibility = nil; responsibilityGoal = "" } }
+            }.disabled(revisingResponsibility == nil ? (goalRepository.isEmpty || (issueNumber.isEmpty && responsibilityGoal.isEmpty) || (!issueNumber.isEmpty && (Int(issueNumber) ?? 0) < 1)) : responsibilityGoal.isEmpty)
+            if revisingResponsibility != nil || migratingResponsibility != nil { Button("Cancel edit / migration") { revisingResponsibility = nil; migratingResponsibility = nil; responsibilityGoal = ""; goalRequestId = UUID().uuidString } }
             Divider()
         }
+    }
+    private var repositorySection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Work repositories").font(.headline)
+            Text("Shared configured repositories, one owner/name per line. The default belongs to this agent.").font(.caption)
+            TextField("owner/repository", text: $repositoryText, axis: .vertical)
+            TextField("Default repository for this agent", text: $defaultRepository)
+            Button("Save repositories and default") {
+                Task { await mutate {
+                    let names = repositoryText.split(whereSeparator: { $0.isWhitespace }).map(String.init)
+                    let input = AutonomyRepositorySettingsInput(repositories: names.map { .init(repository: $0, enabled: true) }, defaultRepository: defaultRepository)
+                    _ = try await model.client.saveAutonomyRepositories(input, agent: agentName)
+                    goalRepository = defaultRepository
+                } }
+            }
+            ForEach(repositoryAttention) { issue in
+                Text("\(issue.repo) #\(issue.number) · \(issue.title): \(issue.reason)").font(.caption)
+            }
+            ForEach(workRepositories) { repo in
+                if let error = repo.sync?.error, !error.isEmpty { Text("\(repo.repository): \(error)").font(.caption) }
+            }
+            Button("Sync GitHub goals") { Task { await mutate { _ = try await model.client.syncAutonomyRepositories(agent: agentName) } } }
+            Button("View goals across all agents") { Task { await mutate { allAgentGoals = try await model.client.autonomyResponsibilities().responsibilities } } }
+            ForEach(allAgentGoals) { row in
+                Text("\(row.agent) · \(row.goal) · \(row.status)").font(.caption)
+                if let source = row.source, let url = URL(string: source.url) { Link("\(source.repo) #\(source.number)", destination: url) }
+            }
+            ForEach(repositoryOperations) { operation in
+                Text("\(operation.kind) · \(operation.repo) · \(operation.status)").font(.caption)
+                if !operation.error.isEmpty { Text(operation.error).font(.caption) }
+                if let link = operation.result.url, let url = URL(string: link) { Link("Open issue", destination: url) }
+            }
+        }
+    }
+    @ViewBuilder private func sourceDetails(_ row: AutonomyResponsibility) -> some View {
+        if let source = row.source {
+            if let url = URL(string: source.url) { Link("\(source.repo) #\(source.number) · \(source.mode)", destination: url) }
+            if let next = row.nextAt { Text("Next run: \(Date(timeIntervalSince1970: next).formatted())").font(.caption) }
+            Text("Last sync: \(Date(timeIntervalSince1970: source.syncAt).formatted())").font(.caption)
+            if !source.syncError.isEmpty { Text(source.syncError).font(.caption) }
+            if !source.body.isEmpty { Text(source.body).font(.caption).textSelection(.enabled) }
+            if source.mode == "finite", source.eligible == 1, row.status != "cancelled" {
+                Button("Request completion (closes issue)") { Task { await mutate {
+                    var input = AutonomyRepositoryOperationInput(agent: agentName, repository: source.repo, kind: "complete")
+                    input.responsibility = row.id
+                    _ = try await model.client.submitAutonomyRepositoryOperation(input)
+                } } }
+            }
+        } else { Text("Unlinked legacy goal").font(.caption) }
     }
     @ViewBuilder private func responsibilityControls(_ row: AutonomyResponsibility) -> some View {
         ForEach(["resume", "pause", "cancel"], id: \.self) { command in
@@ -2031,14 +2120,22 @@ struct AutonomyPanel: View {
         guard model.isAuthenticated, !busy else { return }
         let configuration = model.configuration; let client = model.client
         do {
+            async let repositoryConfig = client.autonomyRepositories(agent: agentName)
+            async let operations = client.autonomyRepositoryOperations(agent: agentName)
             async let budget = client.autonomyModelSettings(agent: agentName)
             async let work = client.autonomyResponsibilities(agent: agentName)
             async let requests = client.autonomyApprovals(agent: agentName); async let policy = client.autonomyRules(agent: agentName)
-            let (response, saved, workResponse, modelSettings) = try await (requests, policy, work, budget)
+            let (response, saved, workResponse, modelSettings, repoSettings, repoOperations) = try await (requests, policy, work, budget, repositoryConfig, operations)
             guard configuration == model.configuration, !Task.isCancelled else { return }
             if statusIsError { status = ""; statusIsError = false }
             if !modelSettingsLoaded { modelConfig = modelSettings.config; escalationModelText = modelSettings.config.escalationModels.joined(separator: ", "); modelSettingsLoaded = true }
             modelUsageText = "Today: \(modelSettings.usage.requests) requests · \(modelSettings.usage.reservedTokens) reserved tokens · \(modelSettings.usage.unknownUsage) unknown usage readings"
+            repositoryAttention = repoSettings.attention ?? []
+            workRepositories = repoSettings.repositories; repositoryOperations = repoOperations.operations
+            if !repositorySettingsLoaded {
+                repositoryText = repoSettings.repositories.filter { $0.enabled }.map { $0.repository }.joined(separator: "\n")
+                defaultRepository = repoSettings.defaultRepository; goalRepository = repoSettings.defaultRepository; repositorySettingsLoaded = true
+            }
             responsibilities = workResponse.responsibilities; approvals = response.requests; rules = saved.rules; enabled = saved.enabled
         } catch { if configuration == model.configuration { status = error.localizedDescription; statusIsError = true } }
     }

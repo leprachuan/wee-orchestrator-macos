@@ -741,6 +741,22 @@ struct WeeAPIClient {
         try await request("GET", path: "/api/v1/autonomy/runtime-catalog?runtime=\(runtime)")
     }
 
+    func autonomyRepositories(agent: String = "") async throws -> AutonomyRepositorySettings {
+        try await request("GET", path: autonomyAgentPath("/api/v1/autonomy/repositories", agent: agent))
+    }
+    func saveAutonomyRepositories(_ input: AutonomyRepositorySettingsInput, agent: String) async throws -> AutonomyRepositorySettings {
+        try await request("PUT", path: autonomyAgentPath("/api/v1/autonomy/repositories", agent: agent), body: input)
+    }
+    func syncAutonomyRepositories(agent: String) async throws -> AutonomySyncResult {
+        try await request("POST", path: autonomyAgentPath("/api/v1/autonomy/repositories/sync", agent: agent))
+    }
+    func autonomyRepositoryOperations(agent: String) async throws -> AutonomyRepositoryOperations {
+        try await request("GET", path: autonomyAgentPath("/api/v1/autonomy/repository-operations", agent: agent))
+    }
+    func submitAutonomyRepositoryOperation(_ input: AutonomyRepositoryOperationInput) async throws -> AutonomyRepositoryOperation {
+        try await request("POST", path: autonomyAgentPath("/api/v1/autonomy/repository-operations", agent: input.agent), body: input)
+    }
+
     func autonomyModelSettings(agent: String = "") async throws -> AutonomyModelSettings {
         try await request("GET", path: autonomyAgentPath("/api/v1/autonomy/model-settings", agent: agent))
     }

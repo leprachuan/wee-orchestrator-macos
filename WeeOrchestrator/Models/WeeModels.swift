@@ -1908,9 +1908,11 @@ struct AutonomyResponsibility: Decodable, Identifiable {
     let status: String
     let phase: String
     let intervalSeconds: Int
+    let source: AutonomyGoalSource?
+    let nextAt: Double?
     let report: String
     let error: String
-    enum CodingKeys: String, CodingKey { case id, agent, goal, status, phase, report, error; case intervalSeconds = "interval_seconds" }
+    enum CodingKeys: String, CodingKey { case id, agent, goal, status, phase, report, error, source; case nextAt = "next_at"; case intervalSeconds = "interval_seconds" }
 }
 struct AutonomyResponsibilities: Decodable { let responsibilities: [AutonomyResponsibility] }
 struct AutonomyResponsibilityInput: Encodable {
@@ -1961,4 +1963,72 @@ struct AutonomyRuntimeEntry: Decodable, Identifiable {
 struct AutonomyRuntimeCatalog: Decodable {
     let runtimes: [AutonomyRuntimeEntry]
     let models: [ModelCatalogEntry]
+}
+
+
+struct AutonomyGoalSource: Decodable {
+    let repo: String
+    let number: Int
+    let url: String
+    let title: String
+    let body: String
+    let mode: String
+    let eligible: Int
+    let syncAt: Double
+    let syncError: String
+    enum CodingKeys: String, CodingKey {
+        case repo, number, url, title, body, mode, eligible
+        case syncAt = "sync_at", syncError = "sync_error"
+    }
+}
+struct AutonomyRepositorySync: Decodable { let error: String }
+struct AutonomyWorkRepository: Decodable, Identifiable {
+    let repository: String
+    let enabled: Bool
+    let sync: AutonomyRepositorySync?
+    var id: String { repository }
+}
+struct AutonomyRepositorySettings: Decodable {
+    let repositories: [AutonomyWorkRepository]
+    let defaultRepository: String
+    let attention: [AutonomyRepositoryAttention]?
+    enum CodingKeys: String, CodingKey { case repositories, attention; case defaultRepository = "default_repository" }
+}
+struct AutonomyWorkRepositoryInput: Encodable { let repository: String; let enabled: Bool }
+struct AutonomyRepositorySettingsInput: Encodable {
+    let repositories: [AutonomyWorkRepositoryInput]
+    let defaultRepository: String
+    enum CodingKeys: String, CodingKey { case repositories; case defaultRepository = "default_repository" }
+}
+struct AutonomyRepositoryOperationResult: Decodable { let url: String?; let responsibility: String? }
+struct AutonomyRepositoryOperation: Decodable, Identifiable {
+    let id: String
+    let kind: String
+    let repo: String
+    let status: String
+    let result: AutonomyRepositoryOperationResult
+    let error: String
+}
+struct AutonomyRepositoryOperations: Decodable { let operations: [AutonomyRepositoryOperation] }
+struct AutonomyRepositoryOperationInput: Encodable {
+    let agent: String
+    let repository: String
+    let kind: String
+    var requestId = UUID().uuidString
+    var title = ""
+    var body = ""
+    var number: Int?
+    var responsibility: String?
+    var intervalSeconds = 3600
+    var mode = "recurring"
+    enum CodingKeys: String, CodingKey {
+        case agent, repository, kind, title, body, number, responsibility, mode
+        case requestId = "request_id", intervalSeconds = "interval_seconds"
+    }
+}
+struct AutonomySyncResult: Decodable { let synced: Bool }
+
+struct AutonomyRepositoryAttention: Decodable, Identifiable {
+    let repo: String; let number: Int; let title: String; let reason: String
+    var id: String { "\(repo)#\(number)" }
 }
