@@ -1866,8 +1866,8 @@ struct AutonomyScope: Codable, Equatable {
     var label: String { "\(agent) · \(operation) · \(host) · \(resource)" }
     var supportsPermanentGrant: Bool { !["shell.execute", "python.execute", "browser.execute", "delegate.execute"].contains(operation) }
 }
-struct AutonomyPreview: Decodable { let summary: String; let details: String? }
-struct AutonomyApproval: Decodable, Identifiable {
+struct AutonomyPreview: Codable { let summary: String; let details: String? }
+struct AutonomyApproval: Codable, Identifiable {
     let id: String
     let responsibility: String
     let fingerprint: String
@@ -1908,11 +1908,14 @@ struct AutonomyResponsibility: Decodable, Identifiable {
     let status: String
     let phase: String
     let intervalSeconds: Int
+    let autonomousInstructions: String?
+    let permissionRequiredInstructions: String?
+    let heartbeat: AutonomyHeartbeat?
     let source: AutonomyGoalSource?
     let nextAt: Double?
     let report: String
     let error: String
-    enum CodingKeys: String, CodingKey { case id, agent, goal, status, phase, report, error, source; case nextAt = "next_at"; case intervalSeconds = "interval_seconds" }
+    enum CodingKeys: String, CodingKey { case id, agent, goal, status, phase, report, error, source; case nextAt = "next_at"; case intervalSeconds = "interval_seconds"; case autonomousInstructions = "autonomous_instructions", permissionRequiredInstructions = "permission_required_instructions", heartbeat }
 }
 struct AutonomyResponsibilities: Decodable { let responsibilities: [AutonomyResponsibility] }
 struct AutonomyResponsibilityInput: Encodable {
@@ -2032,3 +2035,46 @@ struct AutonomyRepositoryAttention: Decodable, Identifiable {
     let repo: String; let number: Int; let title: String; let reason: String
     var id: String { "\(repo)#\(number)" }
 }
+
+
+// Issue #542: global, origin-aware requests are independent of selected agent.
+struct AutonomyHeartbeat: Decodable {
+    let agent: String
+    let nextAt: Double
+    let delaySeconds: Int
+    let reason: String
+    enum CodingKeys: String, CodingKey { case agent, reason; case nextAt = "next_at", delaySeconds = "delay_seconds" }
+}
+struct AutonomySteering: Codable, Identifiable {
+    let id: String
+    let agent: String
+    let goalID: String
+    let question: String
+    let revision: String
+    let status: String
+    enum CodingKeys: String, CodingKey { case id, agent, question, revision, status; case goalID = "goal_id" }
+}
+struct AutonomyInbox: Codable {
+    let instanceID: String
+    let approvals: [AutonomyApproval]
+    let steering: [AutonomySteering]
+    let peers: [AutonomyInbox]?
+    enum CodingKeys: String, CodingKey { case approvals, steering, peers; case instanceID = "instance_id" }
+    var directSnapshot: AutonomyInbox { .init(instanceID: instanceID, approvals: approvals, steering: steering, peers: nil) }
+}
+struct AutonomyInboxDecision: Codable {
+    let kind: String
+    var decision: String? = nil
+    var fingerprint: String? = nil
+    var answer: String? = nil
+    var revision: String? = nil
+}
+struct AutonomyInstructions: Encodable {
+    let autonomousInstructions: String
+    let permissionRequiredInstructions: String
+    enum CodingKeys: String, CodingKey { case autonomousInstructions = "autonomous_instructions", permissionRequiredInstructions = "permission_required_instructions" }
+}
+struct AutonomyRelayDecision: Decodable { let id: String; let requestID: String; let payload: String
+    enum CodingKeys: String, CodingKey { case id, payload; case requestID = "request_id" }
+}
+struct AutonomyRelayDecisions: Decodable { let decisions: [AutonomyRelayDecision] }
