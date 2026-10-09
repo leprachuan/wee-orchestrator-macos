@@ -1990,8 +1990,12 @@ struct AutonomyPanel: View {
             ForEach(responsibilities) { row in
                 VStack(alignment: .leading, spacing: 6) {
                     Text("\(row.agent) · \(row.goal)").font(.headline)
-                    Text("\(row.status) · \(row.phase) · every \(row.intervalSeconds) seconds").font(.caption)
+                    Text("\(row.status) · \(row.phase) · adaptive heartbeat (5 minutes–4 hours)").font(.caption)
                     sourceDetails(row)
+                    if let heartbeat = row.heartbeat {
+                        Text("Next heartbeat: \(Date(timeIntervalSince1970: heartbeat.nextAt).formatted()) · \(heartbeat.reason)").font(.caption)
+                    }
+                    if row.status != "cancelled" { GoalInstructionEditor(row: row, client: model.client) }
                     if !row.report.isEmpty { Text(row.report).textSelection(.enabled) }
                     if !row.error.isEmpty { Text(row.error).font(.caption) }
                     if row.status != "cancelled" {
@@ -2020,7 +2024,7 @@ struct AutonomyPanel: View {
                 Picker("Goal mode", selection: $goalMode) { Text("Recurring").tag("recurring"); Text("Finite").tag("finite") }
                 if migratingResponsibility != nil { Text("Linking preserves this legacy goal’s history.").font(.caption) }
             }
-            Stepper("Interval: \(responsibilityInterval) seconds", value: $responsibilityInterval, in: 300...604800, step: 300)
+            Text("The agent chooses its next heartbeat after each run, between 5 minutes and 4 hours.").font(.caption)
             Button(revisingResponsibility == nil ? "Request create / link issue" : "Save revised unlinked goal") {
                 Task { await mutate {
                     if let id = revisingResponsibility { _ = try await model.client.reviseAutonomyResponsibility(id, goal: responsibilityGoal, agent: agentName) }
@@ -2138,5 +2142,151 @@ struct AutonomyPanel: View {
             }
             responsibilities = workResponse.responsibilities; approvals = response.requests; rules = saved.rules; enabled = saved.enabled
         } catch { if configuration == model.configuration { status = error.localizedDescription; statusIsError = true } }
+    }
+}
+
+
+private struct InboxOrigin: Identifiable {
+    let inbox: AutonomyInbox
+    let client: WeeAPIClient
+    let name: String
+    var id: String { inbox.instanceID }
+}
+struct AlwaysOnInboxModifier: ViewModifier {
+    let model: WeeAppModel
+    @State private var origins: [InboxOrigin] = []
+    @State private var showing = false
+    @State private var status = ""
+    @State private var answers: [String:String] = [:]
+    @State private var busy = false
+    private var count: Int { origins.reduce(0) { $0 + $1.inbox.approvals.count + $1.inbox.steering.count } }
+    func body(content: Content) -> some View {
+        content.overlay(alignment: .topTrailing) {
+            if count > 0 {
+                Button { showing = true } label: {
+                    Label("\(count) agent request\(count == 1 ? "" : "s")", systemImage: "hand.raised.fill")
+                        .padding(10).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+                }.padding(12).accessibilityLabel("Always-On approvals and steering across all agents")
+            }
+        }
+        .sheet(isPresented: $showing) {
+            NavigationStack {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 16) {
+                        Text("Approvals and steering").font(.title2)
+                        Text(status).font(.caption)
+                        ForEach(origins) { origin in
+                            Text(origin.name).font(.headline)
+                            ForEach(origin.inbox.approvals) { request in
+                                VStack(alignment: .leading, spacing: 8) {
+                                    Text("\(request.scope.agent) · \(request.preview.summary)").font(.headline)
+                                    Text("\(request.scope.operation) · \(request.scope.resource)").font(.caption)
+                                    if let details = request.preview.details { Text(details).font(.caption).textSelection(.enabled) }
+                                    if request.status == "awaiting_origin" { Text("Response queued; waiting for originating instance.") }
+                                    else {
+                                        HStack {
+                                            Button("Approve once") { respond(origin, request.id, .init(kind: "approval", decision: "approve_once", fingerprint: request.fingerprint)) }
+                                            Button("Deny", role: .destructive) { respond(origin, request.id, .init(kind: "approval", decision: "reject", fingerprint: request.fingerprint)) }
+                                        }
+                                    }
+                                }.padding(10).background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
+                            }
+                            ForEach(origin.inbox.steering) { question in
+                                let key = origin.id + question.id
+                                VStack(alignment: .leading, spacing: 8) {
+                                    Text("\(question.agent) · \(question.question)").font(.headline)
+                                    if question.status == "awaiting_origin" { Text("Answer queued; waiting for originating instance.") }
+                                    else {
+                                        TextField("Your answer", text: Binding(get: { answers[key] ?? "" }, set: { answers[key] = $0 }), axis: .vertical)
+                                        Button("Send steering") { respond(origin, question.id, .init(kind: "steering", answer: answers[key] ?? "", revision: question.revision)) }
+                                            .disabled((answers[key] ?? "").isEmpty)
+                                    }
+                                }.padding(10).background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
+                            }
+                        }
+                        if count == 0 { Text("No pending requests.") }
+                    }.padding()
+                }
+                .toolbar { Button("Done") { showing = false } }
+                .disabled(busy)
+            }.frame(minWidth: 320, idealWidth: 650, minHeight: 450)
+        }
+        .task {
+            while !Task.isCancelled {
+                await refresh()
+                do { try await Task.sleep(for: .seconds(5)) } catch { break }
+            }
+        }
+    }
+    @MainActor private func refresh() async {
+        var next: [InboxOrigin] = []
+
+        let local = model.client(for: .local)
+        let remote = model.client(for: .remote)
+        async let localResult = try? local.autonomyInbox()
+        async let remoteResult = try? remote.autonomyInbox()
+        let (localInbox, remoteInbox) = await (localResult, remoteResult)
+        if let localInbox {
+            next.append(.init(inbox: localInbox, client: local, name: "Local Mac"))
+            if let remoteInbox, remoteInbox.instanceID != localInbox.instanceID {
+                do {
+                    try await remote.publishInbox(localInbox)
+                    let queued = try await remote.relayDecisions(origin: localInbox.instanceID)
+                    for decision in queued.decisions {
+                        // Typed decode constrains all delegated replies to the known request API.
+                        let body = try JSONDecoder().decode(AutonomyInboxDecision.self, from: Data(decision.payload.utf8))
+                        do { try await local.decideInbox(origin: localInbox.instanceID, id: decision.requestID, body: body) }
+                        catch WeeAPIError.httpStatus(let code, let message) where code == 409 || code == 404 {
+                            status = "Origin rejected a stale response: \(message)"
+                        }
+                        try await remote.acknowledgeRelay(origin: localInbox.instanceID, id: decision.id)
+                    }
+                } catch { status = "Inbox relay: \(error.localizedDescription)" }
+            }
+        }
+        if let remoteInbox {
+            next.append(.init(inbox: remoteInbox, client: remote, name: "Remote hub"))
+            for peer in remoteInbox.peers ?? [] { next.append(.init(inbox: peer, client: remote, name: "Connected instance \(peer.instanceID.prefix(8))")) }
+        }
+
+        var seen = Set<String>()
+        origins = next.filter { seen.insert($0.id).inserted }
+    }
+    private func respond(_ origin: InboxOrigin, _ id: String, _ body: AutonomyInboxDecision) {
+        Task { @MainActor in
+            busy = true
+            defer { busy = false }
+            do { try await origin.client.decideInbox(origin: origin.id, id: id, body: body); status = "Response submitted."; await refresh() }
+            catch { status = error.localizedDescription }
+        }
+    }
+}
+
+private struct GoalInstructionEditor: View {
+    let row: AutonomyResponsibility
+    let client: WeeAPIClient
+    @State private var allowed = ""
+    @State private var ask = ""
+    @State private var status = ""
+    @State private var saving = false
+    var body: some View {
+        DisclosureGroup("Autonomy and permissions") {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Allowed autonomously").font(.headline)
+                TextEditor(text: $allowed).frame(minHeight: 75)
+                Text("Ask permission first").font(.headline)
+                TextEditor(text: $ask).frame(minHeight: 75)
+                Text("The agent reads this text each heartbeat. Ask-first takes precedence. Saving pauses the goal for review.").font(.caption)
+                Button("Save instructions and pause") {
+                    Task { @MainActor in
+                        saving = true
+                        defer { saving = false }
+                        do { _ = try await client.saveGoalInstructions(row.id, allowed: allowed, ask: ask); status = "Saved; resume the goal after review." }
+                        catch { status = error.localizedDescription }
+                    }
+                }.disabled(saving || allowed.count > 8000 || ask.count > 8000)
+                Text(status).font(.caption)
+            }.onAppear { allowed = row.autonomousInstructions ?? ""; ask = row.permissionRequiredInstructions ?? "" }
+        }
     }
 }

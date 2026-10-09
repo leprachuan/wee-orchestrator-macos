@@ -35,6 +35,7 @@ struct WeeOrchestratorApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView(model: model)
+                .modifier(AlwaysOnInboxModifier(model: model))
                 .dynamicTypeSize(model.appTextSize)
                 .onAppear { appDelegate.model = model }
         }

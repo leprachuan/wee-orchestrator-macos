@@ -852,3 +852,25 @@ struct WeeAPIClient {
         }
     }
 }
+
+
+extension WeeAPIClient {
+    func autonomyInbox() async throws -> AutonomyInbox {
+        try await request("GET", path: "/api/v1/autonomy/inbox")
+    }
+    func saveGoalInstructions(_ id: String, allowed: String, ask: String) async throws -> AutonomyResponsibility {
+        try await request("PUT", path: "/api/v1/autonomy/responsibilities/\(id)/instructions", body: AutonomyInstructions(autonomousInstructions: allowed, permissionRequiredInstructions: ask))
+    }
+    func decideInbox(origin: String, id: String, body: AutonomyInboxDecision) async throws {
+        let _: EmptyAPIResponse = try await request("POST", path: "/api/v1/autonomy/inbox/\(origin)/\(id)/decision", body: body)
+    }
+    func publishInbox(_ inbox: AutonomyInbox) async throws {
+        let _: EmptyAPIResponse = try await request("PUT", path: "/api/v1/autonomy/relay/\(inbox.instanceID)", body: inbox.directSnapshot)
+    }
+    func relayDecisions(origin: String) async throws -> AutonomyRelayDecisions {
+        try await request("GET", path: "/api/v1/autonomy/relay/\(origin)/decisions")
+    }
+    func acknowledgeRelay(origin: String, id: String) async throws {
+        let _: EmptyAPIResponse = try await request("POST", path: "/api/v1/autonomy/relay/\(origin)/decisions/\(id)/ack", body: ["status":"delivered"])
+    }
+}
