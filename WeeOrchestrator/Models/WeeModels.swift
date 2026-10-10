@@ -2069,7 +2069,7 @@ struct AutonomyInboxDecision: Codable {
     var answer: String? = nil
     var revision: String? = nil
 }
-struct AutonomyInstructions: Encodable {
+struct AutonomyInstructions: Codable {
     let autonomousInstructions: String
     let permissionRequiredInstructions: String
     enum CodingKeys: String, CodingKey { case autonomousInstructions = "autonomous_instructions", permissionRequiredInstructions = "permission_required_instructions" }

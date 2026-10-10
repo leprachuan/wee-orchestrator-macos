@@ -1790,6 +1790,8 @@ struct AutonomyPanel: View {
     @State private var routineCatalogModels: [ModelCatalogEntry] = []
     @State private var escalationCatalogModels: [ModelCatalogEntry] = []
     @State private var escalationModelText = ""
+    @State private var agentAllowed = ""
+    @State private var agentAsk = ""
     @State private var modelSettingsLoaded = false
     @State private var modelUsageText = ""
     @State private var responsibilities: [AutonomyResponsibility] = []
@@ -1830,6 +1832,7 @@ struct AutonomyPanel: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
+                    modelBudgetSection
                     Text("Approvals for \(agentName) are shared with every authorized client connected to this API.").font(.callout)
                     if !status.isEmpty { Text(status).font(.callout).accessibilityLabel(status) }
                     if approvals.isEmpty { Text("No approval requests.") }
@@ -1848,8 +1851,8 @@ struct AutonomyPanel: View {
                         }.padding(12).background(.quaternary, in: RoundedRectangle(cornerRadius: 10))
                     }
                     Divider()
-                    responsibilitySection
-                    modelBudgetSection
+                    DisclosureGroup("Goals and repositories") { responsibilitySection }
+                    DisclosureGroup("Advanced action rules") {
                     Text("Saved action rules").font(.headline)
                     Text("Resume a responsibility to run this agent. Pause stops new work; cancelling also cancels its pending approvals.").font(.caption)
                     Button("Create explicit rule") { replacing = nil; draft = AutonomyRuleInput(agent: agentName); editor = true }
@@ -1869,13 +1872,14 @@ struct AutonomyPanel: View {
                             }
                         }
                     }
+                    }
                 }.padding(20)
             }
             .navigationTitle("\(agentName) · Always-On")
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
             .disabled(busy)
         }
-        .frame(minWidth: 320, minHeight: 440)
+        .frame(minWidth: 760, idealWidth: 920, minHeight: 600)
         .onChange(of: model.configuration) { _, _ in dismiss() }
         .task(id: model.configuration) {
             guard openedConfiguration == nil || openedConfiguration == model.configuration else { return }
@@ -1923,43 +1927,56 @@ struct AutonomyPanel: View {
     }
     private var modelBudgetSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Routine model and budgets").font(.headline)
-            Picker("Routine runtime", selection: $modelConfig.routineRuntime) {
-                Text(modelConfig.routineRuntime).tag(modelConfig.routineRuntime)
-                ForEach(runtimeCatalog.filter { $0.id != modelConfig.routineRuntime }) { runtime in
-                    Text(runtime.label + (runtime.available ? "" : " (unavailable on API host)")).tag(runtime.id)
-                }
+            Text("Runtime and model").font(.headline)
+            HStack(alignment: .top, spacing: 20) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Primary").font(.headline)
+                    Picker("Runtime", selection: $modelConfig.routineRuntime) {
+                        Text(modelConfig.routineRuntime).tag(modelConfig.routineRuntime)
+                        ForEach(runtimeCatalog.filter { $0.id != modelConfig.routineRuntime }) { Text($0.label).tag($0.id) }
+                    }
+                    TextField("Model", text: $modelConfig.routineModel)
+                    Menu("Choose model") { ForEach(Array(Set(routineCatalogModels.map(\.id))).sorted(), id: \.self) { id in Button(id) { modelConfig.routineModel = id } } }
+                }.frame(maxWidth: .infinity)
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Backup").font(.headline)
+                    Picker("Runtime", selection: $modelConfig.escalationRuntime) {
+                        Text(modelConfig.escalationRuntime).tag(modelConfig.escalationRuntime)
+                        ForEach(runtimeCatalog.filter { $0.id != modelConfig.escalationRuntime }) { Text($0.label).tag($0.id) }
+                    }
+                    TextField("Model (optional)", text: $escalationModelText)
+                    Menu("Choose model") { ForEach(Array(Set(escalationCatalogModels.map(\.id))).sorted(), id: \.self) { id in Button(id) { escalationModelText = id } } }
+                }.frame(maxWidth: .infinity)
             }
-            TextField("Default model for selected runtime", text: $modelConfig.routineModel)
-            Menu("Choose routine model from API host") {
-                ForEach(Array(Set(routineCatalogModels.map(\.id))).sorted(), id: \.self) { id in
-                    Button(id) { modelConfig.routineModel = id }
-                }
+            HStack(alignment: .top, spacing: 20) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Allowed autonomously").font(.headline)
+                    Text("What this agent may do on its own.").font(.caption).foregroundStyle(.secondary)
+                    TextEditor(text: $agentAllowed).font(.body).padding(8).frame(minHeight: 220).background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
+                }.frame(maxWidth: .infinity)
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Requires approval").font(.headline)
+                    Text("What this agent must ask before doing.").font(.caption).foregroundStyle(.secondary)
+                    TextEditor(text: $agentAsk).font(.body).padding(8).frame(minHeight: 220).background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
+                }.frame(maxWidth: .infinity)
             }
-            Picker("Escalation runtime", selection: $modelConfig.escalationRuntime) {
-                Text(modelConfig.escalationRuntime).tag(modelConfig.escalationRuntime)
-                ForEach(runtimeCatalog.filter { $0.id != modelConfig.escalationRuntime }) { runtime in
-                    Text(runtime.label + (runtime.available ? "" : " (unavailable on API host)")).tag(runtime.id)
-                }
-            }
-            Menu("Add permitted escalation model from API host") {
-                ForEach(Array(Set(escalationCatalogModels.map(\.id))).sorted(), id: \.self) { id in
-                    Button(id) { escalationModelText = escalationModelText.isEmpty ? id : escalationModelText + ", " + id }
-                }
-            }
-            TextField("Permitted escalation models (comma-separated, optional)", text: $escalationModelText)
-            Stepper("Requests per run: \(modelConfig.maxRequestsPerRun)", value: $modelConfig.maxRequestsPerRun, in: 1...3)
-            Stepper("Requested output tokens: \(modelConfig.maxOutputTokens)", value: $modelConfig.maxOutputTokens, in: 128...2048, step: 128)
-            Stepper("Daily requests: \(modelConfig.dailyRequests)", value: $modelConfig.dailyRequests, in: 1...100)
-            Stepper("Daily reserved tokens: \(modelConfig.dailyTokenBudget)", value: $modelConfig.dailyTokenBudget, in: 1024...200000, step: 1024)
-            Text(modelUsageText).font(.caption)
-            Text("Escalation requires two failed checks, an allowed runtime/model, remaining budget and shared approval. Each new run returns to the routine model. CLI/SDK token limits are best effort; time/report bounds are enforced. Dollar cost is unavailable.").font(.caption)
-            Button("Save model budgets") {
+            Text("These instructions apply to every goal. Approval requirements take precedence. Saving instructions pauses goals for review.").font(.caption).foregroundStyle(.secondary)
+            Button("Save setup") {
                 Task { await mutate {
-                    modelConfig.escalationModels = escalationModelText.split(separator: ",").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+                    modelConfig.escalationModels = escalationModelText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? [] : [escalationModelText.trimmingCharacters(in: .whitespacesAndNewlines)]
                     let saved = try await model.client.saveAutonomyModelSettings(modelConfig, agent: agentName)
-                    modelConfig = saved.config; status = "Model budgets saved."
+                    modelConfig = saved.config
+                    _ = try await model.client.saveAgentInstructions(agent: agentName, allowed: agentAllowed, ask: agentAsk)
+                    status = "Setup saved. Resume goals when ready."
                 } }
+            }.buttonStyle(.borderedProminent).disabled(agentAllowed.count > 8000 || agentAsk.count > 8000)
+            DisclosureGroup("Advanced limits") {
+                Stepper("Requests per run: \(modelConfig.maxRequestsPerRun)", value: $modelConfig.maxRequestsPerRun, in: 1...3)
+                Stepper("Output tokens: \(modelConfig.maxOutputTokens)", value: $modelConfig.maxOutputTokens, in: 128...2048, step: 128)
+                Stepper("Daily requests: \(modelConfig.dailyRequests)", value: $modelConfig.dailyRequests, in: 1...100)
+                Stepper("Daily token budget: \(modelConfig.dailyTokenBudget)", value: $modelConfig.dailyTokenBudget, in: 1024...200000, step: 1024)
+                Text(modelUsageText).font(.caption)
+                Text("Backup use follows the existing failure checks and shared approval policy.").font(.caption)
             }
             Divider()
         }
@@ -2126,13 +2143,19 @@ struct AutonomyPanel: View {
         do {
             async let repositoryConfig = client.autonomyRepositories(agent: agentName)
             async let operations = client.autonomyRepositoryOperations(agent: agentName)
+            async let instructions = client.autonomyAgentInstructions(agent: agentName)
             async let budget = client.autonomyModelSettings(agent: agentName)
             async let work = client.autonomyResponsibilities(agent: agentName)
             async let requests = client.autonomyApprovals(agent: agentName); async let policy = client.autonomyRules(agent: agentName)
             let (response, saved, workResponse, modelSettings, repoSettings, repoOperations) = try await (requests, policy, work, budget, repositoryConfig, operations)
             guard configuration == model.configuration, !Task.isCancelled else { return }
             if statusIsError { status = ""; statusIsError = false }
-            if !modelSettingsLoaded { modelConfig = modelSettings.config; escalationModelText = modelSettings.config.escalationModels.joined(separator: ", "); modelSettingsLoaded = true }
+            if !modelSettingsLoaded {
+                let savedInstructions = try await instructions
+                modelConfig = modelSettings.config; escalationModelText = modelSettings.config.escalationModels.first ?? ""
+                agentAllowed = savedInstructions.autonomousInstructions; agentAsk = savedInstructions.permissionRequiredInstructions
+                modelSettingsLoaded = true
+            }
             modelUsageText = "Today: \(modelSettings.usage.requests) requests · \(modelSettings.usage.reservedTokens) reserved tokens · \(modelSettings.usage.unknownUsage) unknown usage readings"
             repositoryAttention = repoSettings.attention ?? []
             workRepositories = repoSettings.repositories; repositoryOperations = repoOperations.operations

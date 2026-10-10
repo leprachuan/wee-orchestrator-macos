@@ -858,6 +858,12 @@ extension WeeAPIClient {
     func autonomyInbox() async throws -> AutonomyInbox {
         try await request("GET", path: "/api/v1/autonomy/inbox")
     }
+    func autonomyAgentInstructions(agent: String) async throws -> AutonomyInstructions {
+        try await request("GET", path: "/api/v1/autonomy/agent-instructions?agent=\(agent)")
+    }
+    func saveAgentInstructions(agent: String, allowed: String, ask: String) async throws -> AutonomyInstructions {
+        try await request("PUT", path: "/api/v1/autonomy/agent-instructions?agent=\(agent)", body: AutonomyInstructions(autonomousInstructions: allowed, permissionRequiredInstructions: ask))
+    }
     func saveGoalInstructions(_ id: String, allowed: String, ask: String) async throws -> AutonomyResponsibility {
         try await request("PUT", path: "/api/v1/autonomy/responsibilities/\(id)/instructions", body: AutonomyInstructions(autonomousInstructions: allowed, permissionRequiredInstructions: ask))
     }
